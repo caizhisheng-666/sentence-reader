@@ -45,6 +45,7 @@ button:disabled{background:var(--line);color:var(--sub);cursor:not-allowed;borde
 .iconbtn{background:transparent;color:var(--ink);border:1px solid var(--line);padding:6px 10px;font-size:13px}
 .levelbar{display:flex;justify-content:space-between;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 16px;font-size:13px}
 .badge{background:var(--accent2);color:#fff;border-radius:999px;padding:3px 12px;font-weight:600}
+.voicesel{max-width:150px;border:1px solid var(--line);border-radius:10px;padding:9px 6px;font-size:13px;background:var(--pop);color:var(--ink);font-family:inherit}
 .navsticky{position:sticky;top:env(safe-area-inset-top,0px);z-index:15;background:var(--bg);padding:8px 0;margin-bottom:8px;border-bottom:1px solid var(--line)}
 .navsticky .row{flex-wrap:nowrap}
 .progressline{height:6px;background:var(--line);border-radius:6px;overflow:hidden;margin:8px 0 14px}
@@ -184,6 +185,7 @@ async function boot() {
   try { dictInfo = (await idbGet('meta', 'dictInfo')) || null; } catch (e) {}
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
   if (state) loadCurrent(); else render();
+  loadVoices().then(refreshVoiceSelect).catch(() => {});      // 提前把声音列表加载好，第一次点“听原音”才有声音
   if (!dictInfo || !dictInfo.count) autoImportDict();
 }
 window.addEventListener('online', () => { if (state) loadCurrent(); });
@@ -553,15 +555,7 @@ function openDictation() {
     '<div id="dictationResult"></div>';
   showFullscreen('✍️ 听写练习', html);
 }
-function playDictationAudio() {
-  (async () => {
-    try {
-      const u = new SpeechSynthesisUtterance(state.sentences[state.idx]);
-      await applyVoice(u); u.rate = getRate();
-      stopSpeech(); speechSynthesis.speak(u);
-    } catch (e) {}
-  })();
-}
+function playDictationAudio() { speakText(state.sentences[state.idx]); }
 function checkDictation() {
   const val = document.getElementById('dictationInput').value.trim();
   if (!val) { alert('请先输入你听到的内容'); return; }
@@ -725,29 +719,30 @@ function toast(msg, ms) {
   const dur = ms || 850;
   setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, dur);
 }
-/* ---------- 朗读音色（美音/英音等） ---------- */
+/* ---------- 朗读：音色、语速、播放 ---------- */
+// 手机浏览器要求：第一次朗读必须“直接”在点击那一下里调用 speak()，中间不能有任何等待（await、延时），否则没有声音。
+// 所以这里所有播放函数都是同步的，声音列表提前在后台加载好。
 let voiceListCache = null;
+function readVoices() { try { return speechSynthesis.getVoices() || []; } catch (e) { return []; } }
 function loadVoices() {
   if (voiceListCache && voiceListCache.length) return Promise.resolve(voiceListCache);
   return new Promise(resolve => {
-    let v = speechSynthesis.getVoices();
-    if (v && v.length) { voiceListCache = v; resolve(v); return; }
-    speechSynthesis.onvoiceschanged = () => { v = speechSynthesis.getVoices(); voiceListCache = v; resolve(v); };
-    setTimeout(() => resolve(speechSynthesis.getVoices() || []), 1200);
+    const v = readVoices();
+    if (v.length) { voiceListCache = v; resolve(v); return; }
+    setTimeout(() => { voiceListCache = readVoices(); resolve(voiceListCache); }, 1500);   // 手机上第一次常常是空的，等 voiceschanged 事件补上
   });
 }
+try { speechSynthesis.addEventListener('voiceschanged', () => { voiceListCache = readVoices(); refreshVoiceSelect(); }); } catch (e) {}
+function currentVoices() { return (voiceListCache && voiceListCache.length) ? voiceListCache : readVoices(); }
 function getSavedVoiceURI() { return localStorage.getItem('sr_voice_uri') || ''; }
 function pickVoice(voices) {
   const uri = getSavedVoiceURI();
   if (uri) { const v = voices.find(x => x.voiceURI === uri); if (v) return v; }
   return null;
 }
-async function applyVoice(u) {
-  try {
-    const voices = await loadVoices();
-    const v = pickVoice(voices);
-    if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'en-US'; }
-  } catch (e) { u.lang = 'en-US'; }
+function applyVoiceSync(u) {
+  const v = pickVoice(currentVoices());
+  if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'en-US'; }
 }
 /* ---------- 语速 ---------- */
 const RATE_STEPS = [0.5, 0.6, 0.75, 0.9, 1.0, 1.25, 1.5, 1.75, 2.0];
@@ -759,8 +754,28 @@ function cycleRate() {
   render();
   toast('语速已调整为 ' + steps[idx] + 'x，下次朗读生效');
 }
-function stopSpeech() { try { speechSynthesis.cancel(); } catch (e) {} listenState = { idx: -1, playing: false, paused: false }; }
+/* ---------- 播放控制 ---------- */
 let listenState = { idx: -1, playing: false, paused: false };
+let lastListenUtt = null;
+function markStopped() {                       // 标记上一段朗读已被打断，它的 onend/onerror 不再算数
+  if (lastListenUtt) lastListenUtt._stopped = true;
+  listenState = { idx: -1, playing: false, paused: false };
+}
+function stopSpeech() {
+  markStopped();
+  try { speechSynthesis.cancel(); if (speechSynthesis.paused) speechSynthesis.resume(); } catch (e) {}
+}
+function speakNow(u) {
+  try {
+    if (speechSynthesis.speaking || speechSynthesis.pending) {
+      speechSynthesis.cancel();                // 正在念别的：先打断，稍等一下再念新的（有些手机 cancel 后立刻 speak 会被吞掉）
+      setTimeout(() => { try { if (speechSynthesis.paused) speechSynthesis.resume(); speechSynthesis.speak(u); } catch (e) {} }, 80);
+    } else {
+      if (speechSynthesis.paused) speechSynthesis.resume();
+      speechSynthesis.speak(u);                // 没有在念：直接、同步地念，保证第一次也有声音
+    }
+  } catch (e) { alert('当前浏览器不支持朗读。'); }
+}
 function playListen() {
   const idx = state.idx;
   if (listenState.idx === idx && listenState.playing && !listenState.paused) {
@@ -771,61 +786,53 @@ function playListen() {
     try { speechSynthesis.resume(); } catch (e) {}
     listenState.paused = false; render(); return;
   }
-  (async () => {
-    try {
-      const u = new SpeechSynthesisUtterance(state.sentences[idx]);
-      await applyVoice(u); u.rate = getRate();
-      u.onend = () => { if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false }; const p = state.prog[idx]; if (p) { p.listens++; saveState(); } if (state.idx === idx) render(); };
-      u.onerror = () => { if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false }; if (state.idx === idx) render(); };
-      speechSynthesis.cancel();
-      listenState = { idx, playing: true, paused: false };
-      speechSynthesis.speak(u);
-      render();
-    } catch (e) { alert('当前浏览器不支持朗读。'); }
-  })();
+  markStopped();
+  const u = new SpeechSynthesisUtterance(state.sentences[idx]);
+  applyVoiceSync(u); u.rate = getRate();
+  u.onend = () => {
+    if (u._stopped) return;
+    if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false };
+    const p = state.prog[idx] || (state.prog[idx] = { reads: 0, listens: 0 });
+    p.listens++; saveState();
+    if (state.idx === idx) render();
+  };
+  u.onerror = () => { if (u._stopped) return; if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false }; if (state.idx === idx) render(); };
+  lastListenUtt = u;
+  listenState = { idx, playing: true, paused: false };
+  speakNow(u);
+  render();
 }
-function speakWord() {
-  (async () => {
-    try { const u = new SpeechSynthesisUtterance(curWord); await applyVoice(u); u.rate = getRate(); stopSpeech(); speechSynthesis.speak(u); } catch (e) {}
-  })();
-}
-function previewVoice(uri) {
-  const voices = voiceListCache || [];
-  const v = voices.find(x => x.voiceURI === uri);
+function speakText(text, rate) {               // 单词、听写、生词复习等用：同步播放，不影响“听原音”的计数
   try {
-    const u = new SpeechSynthesisUtterance('Hello! This is how I sound when I read to you.');
-    if (v) { u.voice = v; u.lang = v.lang; }
-    u.rate = 0.95;
-    stopSpeech(); speechSynthesis.speak(u);
+    const u = new SpeechSynthesisUtterance(text);
+    applyVoiceSync(u); u.rate = rate || getRate();
+    markStopped(); speakNow(u);
   } catch (e) {}
 }
-function chooseVoice(uri) {
-  localStorage.setItem('sr_voice_uri', uri || '');
-  openVoiceSettings();
-  previewVoice(uri);
+function speakWord() { speakText(curWord); }
+function previewVoice(uri) {
+  try {
+    const v = currentVoices().find(x => x.voiceURI === uri);
+    const u = new SpeechSynthesisUtterance('Hello! This is how I sound when I read to you.');
+    if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'en-US'; }
+    u.rate = getRate();
+    markStopped(); speakNow(u);
+  } catch (e) {}
 }
-async function openVoiceSettings() {
-  showPop('<h3 style="margin:0 0 8px">🔊 朗读音色</h3><div class="note">加载可用声音中…</div>');
-  const voices = await loadVoices();
-  const en = voices.filter(v => /^en/i.test(v.lang));
-  const cur = getSavedVoiceURI();
-  const group = (label, list) => {
-    if (!list.length) return '';
-    return '<div class="note" style="margin:12px 0 6px;font-weight:600;color:var(--ink)">' + label + '</div>' +
-      list.map(v => '<div class="row" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)">' +
-        '<div style="font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (v.voiceURI === cur ? '✅ ' : '') + esc(v.name) + '</div>' +
-        '<div class="row" style="flex-wrap:nowrap"><button class="iconbtn" onclick="previewVoice(\'' + esc(v.voiceURI).replace(/'/g, "\\'") + '\')">试听</button>' +
-        (v.voiceURI === cur ? '' : '<button class="sm" onclick="chooseVoice(\'' + esc(v.voiceURI).replace(/'/g, "\\'") + '\')">选用</button>') + '</div></div>').join('');
-  };
-  const us = en.filter(v => /US/i.test(v.lang));
-  const gb = en.filter(v => /GB|UK/i.test(v.lang));
-  const other = en.filter(v => !us.includes(v) && !gb.includes(v));
-  let html = '<h3 style="margin:0 0 4px">🔊 朗读音色</h3>' +
-    '<div class="note">这里列出的是你这台设备/浏览器自带的语音。<b>Windows 上用 Edge 浏览器</b>声音选择最多、音质最好（微软的多种自然音色）；手机上声音选项通常较少，因系统而异。</div>' +
-    '<div class="row" style="justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);margin-top:8px"><div>' + (cur ? '' : '✅ ') + '系统默认</div>' + (cur ? '<button class="sm" onclick="chooseVoice(\'\')">选用</button>' : '') + '</div>';
-  html += group('🇺🇸 美音', us) + group('🇬🇧 英音', gb) + group('其他英语口音', other);
-  if (!en.length) html += '<div class="note" style="margin-top:10px">没有检测到可用的英文语音，朗读功能可能无法正常工作。</div>';
-  showPop(html);
+/* ---------- “听原音”旁边的音色下拉菜单 ---------- */
+function shortVoiceName(v) {
+  return (v.name || '').replace(/^Microsoft\s+/i, '').replace(/^Google\s+/i, '').replace(/\s*-\s*English.*$/i, '').replace(/\s+/g, ' ').trim() || v.name;
+}
+function voiceSelectHtml() {
+  const en = (voiceListCache || []).filter(v => /^en/i.test(v.lang)), cur = getSavedVoiceURI();
+  const grp = (label, list) => list.length ? '<optgroup label="' + label + '">' + list.map(v => '<option value="' + esc(v.voiceURI) + '"' + (v.voiceURI === cur ? ' selected' : '') + '>' + esc(shortVoiceName(v)) + '</option>').join('') + '</optgroup>' : '';
+  const us = en.filter(v => /US/i.test(v.lang)), gb = en.filter(v => /GB|UK/i.test(v.lang)), other = en.filter(v => !us.includes(v) && !gb.includes(v));
+  return '<select id="voiceSel" class="voicesel" onchange="onVoiceChange(this.value)" aria-label="选择朗读音色"><option value=""' + (cur ? '' : ' selected') + '>默认音色</option>' + grp('🇺🇸 美音', us) + grp('🇬🇧 英音', gb) + grp('其他口音', other) + '</select>';
+}
+function refreshVoiceSelect() { const el = document.getElementById('voiceSel'); if (el) el.outerHTML = voiceSelectHtml(); }
+function onVoiceChange(uri) {
+  localStorage.setItem('sr_voice_uri', uri || '');
+  previewVoice(uri);                            // 换了音色马上试听一句
 }
 
 function recKey() { return state.bookId + ':' + state.idx; }
@@ -1026,7 +1033,7 @@ function renderReviewCard() {
   }
   showPop(html);
 }
-function speakReviewWord(word) { (async () => { try { const u = new SpeechSynthesisUtterance(word); await applyVoice(u); u.rate = getRate(); stopSpeech(); speechSynthesis.speak(u); } catch (e) {} })(); }
+function speakReviewWord(word) { speakText(word); }
 function revealReview() { reviewShowAnswer = true; renderReviewCard(); }
 async function answerReview(remembered) {
   const v = reviewQueue.shift();
@@ -1718,7 +1725,7 @@ function render() {
   closeWordPop();
   const app = document.getElementById('app');
   const header = '<div class="topbar"><div><h1>一句一句读</h1><div class="sub">一次只读一句，一句一句读完整本书</div></div>' +
-    '<div class="tools">' + (state ? '<button class="iconbtn" onclick="openToc()">📑 目录</button>' : '') + '<button class="iconbtn" onclick="openVocabHome()">⭐ 生词本<span id="vocabBadge">' + (vocabDueCache > 0 ? ' (' + vocabDueCache + ')' : '') + '</span></button><button class="iconbtn" onclick="openVoiceSettings()">🔊 音色</button><button class="iconbtn" onclick="openDictSettings()">📚 词典</button><button class="iconbtn" onclick="openGrammarDict()">📘 语法字典</button></div></div>';
+    '<div class="tools">' + (state ? '<button class="iconbtn" onclick="openToc()">📑 目录</button>' : '') + '<button class="iconbtn" onclick="openVocabHome()">⭐ 生词本<span id="vocabBadge">' + (vocabDueCache > 0 ? ' (' + vocabDueCache + ')' : '') + '</span></button><button class="iconbtn" onclick="openDictSettings()">📚 词典</button><button class="iconbtn" onclick="openGrammarDict()">📘 语法字典</button></div></div>';
   refreshVocabBadge();
 
   if (!state) {
@@ -1792,6 +1799,7 @@ function render() {
         '<div class="row">' +
           '<button onclick="playListen()">' +
             (listenState.idx === state.idx && listenState.playing ? (listenState.paused ? '▶️ 继续' : '⏸ 暂停') : '🔊 听原音') + '</button>' +
+          voiceSelectHtml() +
           '<button class="ghost sm" onclick="cycleRate()">语速 ' + getRate() + 'x</button>' +
           '<button class="recbtn ' + (rec.on ? 'on' : '') + '" onclick="toggleRecord()">' + (rec.on ? '⏹ 停止录音 <span id="recTime">0.0 秒</span>' : '🎙️ 跟读录音') + '</button>' +
         '</div>' + recs + '</div>' +
