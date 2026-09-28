@@ -45,6 +45,7 @@ button:disabled{background:var(--line);color:var(--sub);cursor:not-allowed;borde
 .iconbtn{background:transparent;color:var(--ink);border:1px solid var(--line);padding:6px 10px;font-size:13px}
 .levelbar{display:flex;justify-content:space-between;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 16px;font-size:13px}
 .badge{background:var(--accent2);color:#fff;border-radius:999px;padding:3px 12px;font-weight:600}
+.sentence .w.speaking{background:var(--accent);color:#fff;border-radius:5px;box-shadow:0 0 0 3px var(--accent)}
 .voicesel{max-width:150px;border:1px solid var(--line);border-radius:10px;padding:9px 6px;font-size:13px;background:var(--pop);color:var(--ink);font-family:inherit}
 .navsticky{position:sticky;top:env(safe-area-inset-top,0px);z-index:15;background:var(--bg);padding:8px 0;margin-bottom:8px;border-bottom:1px solid var(--line)}
 .navsticky .row{flex-wrap:nowrap}
@@ -123,7 +124,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-let state = null, dictInfo = null, curTokens = [], curWord = '', curWordZh = '', gramOpen = true;
+let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null }, simCache = { idx: -1, list: [] };
 let rec = { mr: null, on: false, start: 0, timer: null };
 let recView = { key: '', urls: [] };
@@ -754,12 +755,49 @@ function cycleRate() {
   render();
   toast('语速已调整为 ' + steps[idx] + 'x，下次朗读生效');
 }
+/* ---------- 朗读时，念到哪个词，哪个词就亮起来 ---------- */
+let speakTok = -1, estTimer = null;
+function applySpeakHighlight() {
+  document.querySelectorAll('.sentence .w.speaking').forEach(el => el.classList.remove('speaking'));
+  if (speakTok < 0 || !listenState.playing || !state || listenState.idx !== state.idx) return;
+  const el = document.querySelector('.sentence .w[data-i="' + speakTok + '"]');
+  if (el) el.classList.add('speaking');
+}
+function setSpeakTok(k) { speakTok = k; applySpeakHighlight(); }
+function setSpeakChar(ci) {                    // 声音引擎告诉我们“念到第 ci 个字符了”：找到这个字符所在的词（落在空格上就取后面的词）
+  let k = curTokenPos.findIndex(p => ci >= p.start && ci < p.end);
+  if (k < 0) k = curTokenPos.findIndex(p => p.start >= ci);
+  if (k >= 0 && k !== speakTok) setSpeakTok(k);
+}
+function stopEstimator() { if (estTimer) { clearInterval(estTimer); estTimer = null; } }
+function clearSpeakHighlight() { speakTok = -1; stopEstimator(); applySpeakHighlight(); }
+// 有些声音（如手机上很多声音、Chrome 的 Google 声音）不会告诉我们念到哪了：这时按语速估算每个词大约什么时候念到
+function startEstimator(u, text) {
+  stopEstimator();
+  const rate = u.rate || 1, cps = 15 * rate;
+  const starts = curTokenPos.map(p => {
+    const before = text.slice(0, p.start);
+    const pauses = (before.match(/[,;:]/g) || []).length * 0.22 + (before.match(/[.!?]/g) || []).length * 0.45;
+    return before.length / cps + pauses / Math.max(0.5, rate);
+  });
+  u._t0 = performance.now();
+  estTimer = setInterval(() => {
+    if (u._stopped || u._gotBoundary) { stopEstimator(); return; }
+    if (listenState.paused) return;
+    const el = (performance.now() - u._t0) / 1000;
+    if (el < 0.7) return;                       // 先等一会儿，看这个声音有没有“念到哪个词”的事件
+    let k = -1;
+    for (let i = 0; i < starts.length; i++) { if (starts[i] <= el) k = i; else break; }
+    if (k >= 0 && k !== speakTok) setSpeakTok(k);
+  }, 80);
+}
 /* ---------- 播放控制 ---------- */
 let listenState = { idx: -1, playing: false, paused: false };
 let lastListenUtt = null;
 function markStopped() {                       // 标记上一段朗读已被打断，它的 onend/onerror 不再算数
   if (lastListenUtt) lastListenUtt._stopped = true;
   listenState = { idx: -1, playing: false, paused: false };
+  clearSpeakHighlight();
 }
 function stopSpeech() {
   markStopped();
@@ -780,23 +818,32 @@ function playListen() {
   const idx = state.idx;
   if (listenState.idx === idx && listenState.playing && !listenState.paused) {
     try { speechSynthesis.pause(); } catch (e) {}
+    if (lastListenUtt) lastListenUtt._pausedAt = performance.now();
     listenState.paused = true; render(); return;
   }
   if (listenState.idx === idx && listenState.playing && listenState.paused) {
     try { speechSynthesis.resume(); } catch (e) {}
+    if (lastListenUtt && lastListenUtt._pausedAt) lastListenUtt._t0 += performance.now() - lastListenUtt._pausedAt;   // 暂停的时间不算
     listenState.paused = false; render(); return;
   }
   markStopped();
   const u = new SpeechSynthesisUtterance(state.sentences[idx]);
   applyVoiceSync(u); u.rate = getRate();
+  u.onstart = () => { if (!u._stopped && state.idx === idx) startEstimator(u, u.text); };
+  u.onboundary = ev => {                        // 声音引擎报告“念到哪个词了”
+    if (u._stopped || state.idx !== idx || (ev.name && ev.name !== 'word')) return;
+    u._gotBoundary = true; stopEstimator();
+    setSpeakChar(ev.charIndex);
+  };
   u.onend = () => {
     if (u._stopped) return;
+    clearSpeakHighlight();
     if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false };
     const p = state.prog[idx] || (state.prog[idx] = { reads: 0, listens: 0 });
     p.listens++; saveState();
     if (state.idx === idx) render();
   };
-  u.onerror = () => { if (u._stopped) return; if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false }; if (state.idx === idx) render(); };
+  u.onerror = () => { if (u._stopped) return; clearSpeakHighlight(); if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false }; if (state.idx === idx) render(); };
   lastListenUtt = u;
   listenState = { idx, playing: true, paused: false };
   speakNow(u);
@@ -1321,12 +1368,15 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (fsOpen
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function fmt(s) { return esc(s).replace(/\n/g, '<br>'); }
 function renderSentenceHTML(sentence) {
-  curTokens = [];
+  curTokens = []; curTokenPos = [];
+  let pos = 0;
   return sentence.split(/(\s+)/).map(tok => {
+    const start = pos; pos += tok.length;
     if (!tok || /^\s+$/.test(tok)) return tok;
     if (!/[A-Za-z]/.test(tok)) return esc(tok);
     const i = curTokens.push(tok) - 1;
-    return '<span class="w" tabindex="0" role="button" onclick="wordClick(' + i + ',this)" onkeydown="if(event.key===\'Enter\')wordClick(' + i + ',this)">' + esc(tok) + '</span>';
+    curTokenPos.push({ start, end: start + tok.length });
+    return '<span class="w" data-i="' + i + '" tabindex="0" role="button" onclick="wordClick(' + i + ',this)" onkeydown="if(event.key===\'Enter\')wordClick(' + i + ',this)">' + esc(tok) + '</span>';
   }).join('');
 }
 
@@ -1806,6 +1856,7 @@ function render() {
       practiceHtml +
       gHtml + simHtml +
     '</div>';
+  applySpeakHighlight();
 }
 </script>
 </body>
