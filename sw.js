@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sentence-reader-v22';
+const CACHE_NAME = 'sentence-reader-v23';
 const PRECACHE = [
   './', './index.html', './dict-basic.js', './grammar.js', './manifest.json', './icon-192.png', './icon-512.png',
   'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
@@ -24,6 +24,9 @@ self.addEventListener('fetch', event => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
+
+  // 词典文件：体积大，只走网络（已经导入浏览器数据库了，不需要再缓存一份）
+  if (url.pathname.endsWith('.gz') || url.pathname.endsWith('/dict.tsv')) return;
 
   // 翻译接口：只走网络，不缓存
   if (url.hostname.includes('mymemory.translated.net')) return;

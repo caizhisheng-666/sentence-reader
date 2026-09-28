@@ -200,7 +200,7 @@ function saveState() {
 }
 
 /* ---------- 整句翻译（需联网，失败不影响学习） ---------- */
-let lastTranslateAt = 0;
+let lastTranslateAt = 0, googleBadUntil = 0;
 async function throttleGap() {
   const gap = 700, wait = lastTranslateAt + gap - Date.now();
   if (wait > 0) await new Promise(r => setTimeout(r, wait));
@@ -240,7 +240,9 @@ async function translateText(text) {
   const q = text.slice(0, 480);
   await throttleGap();
   // 主用：Google 免费接口，容量更大更稳定
-  try { return await fetchViaGoogle(q); } catch (e) { /* 失败就换下一个源 */ }
+  if (Date.now() > googleBadUntil) {
+    try { return await fetchViaGoogle(q); } catch (e) { googleBadUntil = Date.now() + 10 * 60 * 1000; /* 失败就换下一个源，10 分钟内不再先试它 */ }
+  }
   // 备用：MyMemory，遇到 429 自动重试几次
   const delays = [0, 1500, 3500];
   let lastErr;
@@ -947,7 +949,7 @@ async function wordClick(i, el) {
       (r.d ? '<div class="endef">' + fmt(r.d) + '</div>' : '') + '</div>';
     if (!curWordZh) curWordZh = r.t || r.d || '';
   });
-  if (!dictInfo || !dictInfo.count) html += '<div class="note" style="margin-top:12px">现在用的是内置词典（常用词）。完整离线大词典' + (localStorage.getItem('sr_autodict_tried') ? '自动下载未成功，' : '正在后台自动下载，') + '<button class="link" onclick="closeWordPop();openDictSettings()">查看词典状态</button></div>';
+  if (!dictInfo || !dictInfo.count) html += '<div class="note" style="margin-top:12px">现在用的是内置基础词典（常用词）。完整离线词典还没就绪，' + '<button class="link" onclick="closeWordPop();openDictSettings()">查看词典状态</button></div>';
   const already = await isInVocab(clean);
   if (curWord !== clean) return;
   html += '<div class="row" style="margin-top:12px">' + (already
@@ -964,6 +966,13 @@ async function addWordToVocabFromPopup() {
 }
 
 /* ---------- 离线大词典导入 ---------- */
+// ECDICT 完整版有 76 万词条，其中大量是生僻词和专有名词。只保留常用词（词频前 6 万，或带考试/柯林斯/牛津标记的），体积小很多。
+function ecKeep(r) {
+  const frq = parseInt(r.frq, 10) || 0, bnc = parseInt(r.bnc, 10) || 0;
+  const rank = Math.min(frq || 1e9, bnc || 1e9);
+  const flagged = (parseInt(r.collins, 10) || 0) > 0 || String(r.oxford || '').trim() === '1' || String(r.tag || '').trim() !== '';
+  return rank <= 60000 || flagged;
+}
 async function parseDictBlob(blob, name, onProgress) {
   if (!window.Papa) throw new Error('导入组件没有加载成功，请联网刷新页面后再试');
   const head = await blob.slice(0, 4096).text();
@@ -985,7 +994,7 @@ async function parseDictBlob(blob, name, onProgress) {
         const items = [];
         for (const r of results.data) {
           let w, t, p = '', d = '', x = '';
-          if (isEcdict) { w = r.word; t = r.translation; p = r.phonetic || ''; d = r.definition || ''; x = r.exchange || ''; }
+          if (isEcdict) { if (!ecKeep(r)) continue; w = r.word; t = r.translation; p = r.phonetic || ''; d = r.definition || ''; x = r.exchange || ''; }
           else { w = r[0]; t = (r.slice(1) || []).join(' '); }
           if (!w) continue;
           w = String(w).trim();
@@ -1006,45 +1015,119 @@ async function parseDictBlob(blob, name, onProgress) {
       error: err => reject(err)
     });
   });
+  if (!count) throw new Error('没有读到任何词条，文件格式可能不对');
   dictInfo = { count, name, at: Date.now() };
   await idbPut('meta', dictInfo, 'dictInfo');
   return count;
 }
 
-const AUTO_DICT_URL = 'https://cdn.jsdelivr.net/gh/skywind3000/ECDICT@master/ecdict.csv';
-async function autoImportDict() {
-  if (localStorage.getItem('sr_autodict_tried')) return;
-  localStorage.setItem('sr_autodict_tried', '1');
-  if (!navigator.onLine) return;
+/* ---------- 本站词典文件：dict.tsv.gz（和网页放在同一个地方，不依赖任何外部网站） ---------- */
+const SLIM_DICT_URLS = ['./dict.tsv.gz', './dict.tsv'];
+let autoDictRunning = false;
+function setAutoMsg(m) { try { localStorage.setItem('sr_autodict_msg', m || ''); } catch (e) {} }
+function getAutoMsg() { return localStorage.getItem('sr_autodict_msg') || ''; }
+async function readMaybeGzip(resp) {
+  const buf = await resp.arrayBuffer();
+  const u8 = new Uint8Array(buf);
+  if (u8.length > 2 && u8[0] === 0x1f && u8[1] === 0x8b) {
+    if (typeof DecompressionStream === 'undefined') throw new Error('浏览器版本太旧，不支持解压词典文件');
+    return await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+  }
+  return new TextDecoder('utf-8').decode(u8);
+}
+async function importSlimText(text, name) {
+  await idbClear('dict'); await idbPut('meta', null, 'dictInfo'); dictInfo = null;
+  let count = 0, batch = [];
+  for (const line of text.split('\n')) {
+    if (!line) continue;
+    const f = line.split('\t');
+    if (f.length < 3 || !f[0]) continue;
+    batch.push({ w: f[0], p: f[1] || '', t: (f[2] || '').replace(/\\n/g, '\n'), d: '', x: f[3] || '' });
+    if (batch.length >= 5000) { await idbPutMany('dict', batch); count += batch.length; batch = []; }
+  }
+  if (batch.length) { await idbPutMany('dict', batch); count += batch.length; }
+  if (!count) throw new Error('词典文件是空的或格式不对');
+  dictInfo = { count, name, at: Date.now() };
+  await idbPut('meta', dictInfo, 'dictInfo');
+  return count;
+}
+async function autoImportDict(force) {
+  if (autoDictRunning) return;
+  if (!force && dictInfo && dictInfo.count) return;
+  autoDictRunning = true;
   try {
-    toast('首次使用，正在后台下载离线词典（几十MB，完成前可先用基础词典查词）…', 4000);
-    const resp = await fetch(AUTO_DICT_URL);
-    if (!resp.ok) throw new Error('http-' + resp.status);
-    const blob = await resp.blob();
-    if (blob.size < 1024 * 1024) throw new Error('文件异常偏小');
-    const count = await parseDictBlob(blob, 'ecdict.csv（自动下载）');
-    toast('离线大词典下载完成，共 ' + count.toLocaleString() + ' 词条，以后查词都能离线用了', 3200);
-    if (document.getElementById('pop') && document.getElementById('overlay').classList.contains('show')) render();
+    if (!navigator.onLine) { setAutoMsg('当前没有网络，联网后再打开会自动下载。'); return; }
+    let resp = null;
+    for (const u of SLIM_DICT_URLS) {
+      let r;
+      try { r = await fetch(u, { cache: 'no-cache' }); } catch (e) { setAutoMsg('网络请求失败，请检查网络后点“重试自动下载”。'); return; }
+      if (r.ok) { resp = r; break; }
+    }
+    if (!resp) { setAutoMsg('这个网站上还没有放词典文件（dict.tsv.gz）。放好之后重新打开就会自动下载，做法见下面的说明。'); return; }
+    setAutoMsg('正在下载并导入…');
+    toast('正在后台下载离线词典，完成前可先用基础词典查词…', 3800);
+    const text = await readMaybeGzip(resp);
+    if (/^\s*<(!doctype|html)/i.test(text.slice(0, 100))) { setAutoMsg('这个网站上还没有放词典文件（dict.tsv.gz）。'); return; }
+    const count = await importSlimText(text, '本站词典 dict.tsv.gz');
+    setAutoMsg('');
+    toast('离线词典已就绪，共 ' + count.toLocaleString() + ' 个词，以后离线也能查', 3400);
   } catch (e) {
-    // 静默失败：基础词典仍可用，用户可在"词典"设置里手动导入
+    setAutoMsg('自动下载失败：' + (e && e.message ? e.message : '未知错误'));
+  } finally { autoDictRunning = false; }
+}
+async function exportSlimDict() {
+  setDictStatus('正在整理精简词典…', 0);
+  try {
+    const all = await idbGetAll('dict');
+    const lines = [];
+    for (const e of all) {
+      if (!e.t) continue;
+      const m = (e.x || '').match(/(?:^|\/)0:([^\/]+)/);
+      const t = String(e.t).slice(0, 110).replace(/\r/g, '').replace(/\t/g, ' ').replace(/\n/g, '\\n');
+      lines.push([e.w, String(e.p || '').replace(/\t/g, ' '), t, m ? '0:' + m[1] : ''].join('\t'));
+    }
+    if (!lines.length) { setDictStatus('还没有可导出的词典，请先导入 ecdict.csv。'); return; }
+    const raw = new Blob([lines.join('\n')], { type: 'text/tab-separated-values' });
+    let out = raw, name = 'dict.tsv';
+    if (typeof CompressionStream !== 'undefined') { out = await new Response(raw.stream().pipeThrough(new CompressionStream('gzip'))).blob(); name = 'dict.tsv.gz'; }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(out); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    const mb = out.size / 1048576;
+    setDictStatus('已生成 ' + name + '（' + lines.length.toLocaleString() + ' 个词，' + mb.toFixed(1) + ' MB）。' + (mb > 24 ? ' ⚠ 超过 25MB，GitHub 网页上传会失败，请告诉我再缩小。' : ' 请把它上传到 GitHub 仓库根目录。'), 100);
+  } catch (err) {
+    setDictStatus('导出失败：' + (err && err.message ? err.message : '未知错误'));
   }
 }
 
 function openDictSettings() {
-  const status = dictInfo && dictInfo.count
-    ? '已导入 ' + dictInfo.count.toLocaleString() + ' 个词条（' + esc(dictInfo.name || '') + '），离线可用。'
-    : (localStorage.getItem('sr_autodict_tried')
-        ? '自动下载未成功（可能是网络问题），现在查词使用内置词典。可以手动导入试试。'
-        : '正在后台自动下载中，请稍候…（或手动导入）');
+  const has = dictInfo && dictInfo.count;
+  const status = has
+    ? '✅ 已就绪：' + dictInfo.count.toLocaleString() + ' 个词条（' + esc(dictInfo.name || '') + '），离线可用。'
+    : (getAutoMsg() ? esc(getAutoMsg()) : '还没有离线大词典，现在查词用的是内置基础词典（约 700 个常用词）。');
   showPop(
     '<h3 style="margin:0 0 8px">📚 离线大词典</h3>' +
     '<div class="note" style="font-size:14px;color:var(--ink)">' + status + '</div>' +
-    '<div class="note" style="margin-top:10px">如果自动下载一直没成功，也可以手动导入：GitHub 搜索 "ECDICT"（作者 skywind3000），下载仓库里的 <b>ecdict.csv</b> 文件（压缩包先解压），点下面按钮选择这个文件导入。</div>' +
-    '<div class="note">也支持自制词典：每行"单词[Tab]释义"的 .txt 或 .csv 文件。</div>' +
-    '<div class="row" style="margin-top:12px"><div class="filebtn"><button type="button" tabindex="-1">选择词典文件并导入</button><input type="file" accept=".csv,.txt,.tsv" onchange="importDictFromInput(event)"></div>' +
-    (dictInfo && dictInfo.count ? '<button class="ghost sm" onclick="clearDict()">删除已导入的词典</button>' : '') + '</div>' +
-    '<div id="dictStatus" class="note" style="margin-top:10px"></div><div class="pbar" id="dictBar" style="display:none"><div></div></div>'
+    '<div class="row" style="margin-top:12px">' +
+      (has ? '' : '<button onclick="retryAutoDict()">重试自动下载</button>') +
+      '<div class="filebtn"><button class="ghost" type="button" tabindex="-1">选择词典文件导入</button><input type="file" accept=".csv,.txt,.tsv" onchange="importDictFromInput(event)"></div>' +
+      (has ? '<button class="ghost sm" onclick="exportSlimDict()">导出精简词典文件</button><button class="ghost sm" onclick="clearDict()">删除词典</button>' : '') +
+    '</div>' +
+    '<div id="dictStatus" class="note" style="margin-top:10px"></div><div class="pbar" id="dictBar" style="display:none"><div></div></div>' +
+    '<details style="margin-top:14px"><summary style="cursor:pointer;font-weight:600">怎么让所有人打开网站就自动有大词典？（只需你做一次）</summary>' +
+    '<div class="note" style="line-height:1.7;margin-top:8px">' +
+    '1. 在<b>电脑</b>上下载 ECDICT 的 <b>ecdict.csv</b>：打开 github.com/skywind3000/ECDICT，点里面的 ecdict.csv 文件，再点右上角的下载按钮（Download raw file）。这是 76 万词条的完整版，文件比较大，在国内下载可能需要开 VPN。<br>' +
+    '2. 回到这里，点“选择词典文件导入”，选这个 ecdict.csv。只会保留常用词，电脑上大约一两分钟。<br>' +
+    '3. 导入完成后点“导出精简词典文件”，会下载一个 <b>dict.tsv.gz</b>。<br>' +
+    '4. 到你的 GitHub 仓库，Add file → Upload files，把 dict.tsv.gz 传到和 index.html 同一个位置，点 Commit changes。<br>' +
+    '5. 之后任何人第一次联网打开网站，会自动从你的网站下载这个词典，存在自己设备里，以后离线也能查。' +
+    '</div></details>'
   );
+}
+async function retryAutoDict() {
+  setDictStatus('正在尝试自动下载…', 0);
+  await autoImportDict(true);
+  openDictSettings();
 }
 function setDictStatus(msg, pct) {
   const el = document.getElementById('dictStatus'); if (el) el.textContent = msg;
@@ -1054,10 +1137,13 @@ function setDictStatus(msg, pct) {
 async function importDictFromInput(ev) {
   const file = ev.target.files[0];
   if (!file) return;
-  setDictStatus('正在导入…', 0);
+  setDictStatus('正在导入（只保留常用词）…', 0);
   try {
     const count = await parseDictBlob(file, file.name, (c, pct) => setDictStatus('已导入 ' + c.toLocaleString() + ' 个词条…', pct));
-    setDictStatus('导入完成：' + count.toLocaleString() + ' 个词条，现在可以离线查词了。', 100);
+    setAutoMsg('');
+    setDictStatus('导入完成：' + count.toLocaleString() + ' 个词条，现在可以离线查词了。想让所有人都用上，请看下面的说明，先点“导出精简词典文件”。', 100);
+    const hasBtns = document.querySelector('#pop [onclick="exportSlimDict()"]');
+    if (!hasBtns) setTimeout(openDictSettings, 2500);
   } catch (err) {
     setDictStatus('导入失败：' + (err && err.message ? err.message : '未知错误') + '。可能是存储空间不足或文件格式不对。');
   }
@@ -1065,7 +1151,7 @@ async function importDictFromInput(ev) {
 async function clearDict() {
   if (!confirm('删除已导入的离线大词典？')) return;
   try { await idbClear('dict'); await idbPut('meta', null, 'dictInfo'); } catch (e) {}
-  dictInfo = null; localStorage.removeItem('sr_autodict_tried'); openDictSettings();
+  dictInfo = null; openDictSettings();
 }
 
 /* ---------- 语法字典 ---------- */
