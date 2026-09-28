@@ -124,6 +124,8 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
+const APP_VERSION = '2026.09.28-29';        // 每次更新时改一下，方便定位问题
+const FEEDBACK_URL = '';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null }, simCache = { idx: -1, list: [] };
 let rec = { mr: null, on: false, start: 0, timer: null };
@@ -1337,6 +1339,58 @@ function openGrammarDict(key) {
   showPop(html);
 }
 
+/* ---------- 帮助与反馈（试用阶段：收集问题、说明隐私和开源许可） ---------- */
+async function copyDiag() {
+  const nav = navigator;
+  let est = '';
+  try { const e = await nav.storage.estimate(); est = Math.round(e.usage / 1048576) + ' / ' + Math.round(e.quota / 1048576) + ' MB'; } catch (e) {}
+  const standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || nav.standalone;
+  const voices = currentVoices(), en = voices.filter(v => /^en/i.test(v.lang));
+  const lines = [
+    '版本: ' + APP_VERSION,
+    '时间: ' + new Date().toLocaleString(),
+    '浏览器: ' + nav.userAgent,
+    '屏幕: ' + screen.width + 'x' + screen.height + ' @' + (window.devicePixelRatio || 1) + 'x',
+    '联网: ' + nav.onLine + ' | 以桌面App方式打开: ' + !!standalone + ' | 离线组件已生效: ' + !!(nav.serviceWorker && nav.serviceWorker.controller),
+    '朗读: ' + ('speechSynthesis' in window) + ' | 声音总数 ' + voices.length + '，英语 ' + en.length + ' | 当前音色 ' + (getSavedVoiceURI() || '默认'),
+    '录音: ' + !!(nav.mediaDevices && window.MediaRecorder) + ' | 语音识别打分: ' + speechRecoSupported(),
+    '存储: ' + est,
+    '词典: ' + (dictInfo && dictInfo.count ? dictInfo.count + ' 词条' : '未导入') + ' | 自动下载提示: ' + (getAutoMsg() || '无'),
+    state ? '书: ' + state.sentences.length + ' 句，当前第 ' + (state.idx + 1) + ' 句，目录类型 ' + (state.toc && state.toc.kind) + '，书中译文 ' + Object.keys(state.zh || {}).length + ' 句，插图段 ' + (state.imageRanges || []).length : '书: 未导入'
+  ];
+  const text = lines.join('\n');
+  try { await nav.clipboard.writeText(text); toast('诊断信息已复制，请粘贴发给我们（里面没有书的内容）', 3500); }
+  catch (e) { showPop('<h3 style="margin:0 0 8px">诊断信息</h3><div class="note">自动复制失败，请长按下面的文字，手动复制后发给我们：</div><textarea readonly style="min-height:220px;margin-top:8px">' + esc(text) + '</textarea>'); }
+}
+function openFeedback() { if (FEEDBACK_URL) window.open(FEEDBACK_URL, '_blank', 'noopener'); }
+function openHelp() {
+  const li = t => '<li style="margin:5px 0">' + t + '</li>';
+  const sec = (title, body, open) => '<details style="margin-top:10px"' + (open ? ' open' : '') + '><summary style="cursor:pointer;font-weight:600">' + title + '</summary><ul class="note" style="line-height:1.7;margin:8px 0 0;padding-left:20px">' + body + '</ul></details>';
+  showPop(
+    '<h3 style="margin:0 0 4px">❓ 帮助与反馈</h3><div class="note">试用版 · 版本 ' + esc(APP_VERSION) + '</div>' +
+    '<div class="row" style="margin:12px 0 4px"><button onclick="copyDiag()">复制诊断信息</button>' + (FEEDBACK_URL ? '<button class="ghost" onclick="openFeedback()">打开反馈问卷</button>' : '') + '</div>' +
+    '<div class="note">遇到问题（没声音、录不了音、书导入不对等），先点“复制诊断信息”，粘贴发给发你链接的人。诊断信息只有设备和软件状态，没有书的内容和你的录音。</div>' +
+    sec('快速上手',
+      li('点句子里的<b>单词</b>查词，可以加入生词本。') + li('点 <b>🔊 听原音</b>，念到哪个词哪个词会亮；旁边的下拉菜单可以换美音、英音。') +
+      li('<b>🎙️ 跟读录音</b>会保存在本机，可以回放对比。') + li('“更多练习”里有听写、句子重组、跟读打分。') +
+      li('顶部 <b>📑 目录</b> 可以跳到任意页；<b>⭐ 生词本</b>里复习查过的词。') +
+      li('装到手机桌面：iPhone 用 Safari，点分享 → 添加到主屏幕；安卓用 Chrome，点 ⋮ → 安装应用。<b>装好后请在桌面图标里导入书</b>，浏览器和桌面图标的数据是分开的。'), true) +
+    sec('隐私与数据',
+      li('你导入的书、读书进度、生词本、录音、下载的词典，都<b>只存在这台设备的浏览器里</b>，软件没有服务器，不会上传。换设备或清除浏览器数据会丢失。') +
+      li('<b>整句翻译</b>：当前这一句英文会发送给第三方翻译服务；查词时本地词典没有的词也会发过去。书里自带中文译文的句子不会发送。') +
+      li('<b>跟读打分</b>用的是浏览器自带的语音识别，在 Chrome、Edge 上你的声音会被发送到浏览器厂商的服务器处理。') +
+      li('<b>识别图片里的文字</b>：第一次会从公共网络下载识别组件和英文语言数据，识别在你本机完成，图片不会上传。') +
+      li('软件本身不收集任何使用数据。')) +
+    sec('开源与致谢',
+      li('英汉词典数据：ECDICT（skywind3000，MIT 许可）') + li('PDF 解析：pdf.js（Mozilla，Apache-2.0）') + li('epub 解压：JSZip（MIT / GPLv3 双许可）') +
+      li('表格解析：PapaParse（MIT）') + li('图片文字识别：Tesseract.js 与 Tesseract OCR（Apache-2.0）') + li('各组件版权归原作者所有。')) +
+    sec('免责声明',
+      li('软件不提供书籍，请只导入你有权使用的书（如公版书、你自己购买的电子书）。') +
+      li('“对照美国 X 年级阶段”只是按学习进度给出的标识，<b>不是官方分级，也不是水平测评</b>。') +
+      li('语法讲解由规则自动生成，翻译来自机器翻译或书里自带的译文，仅供学习参考，可能有误。'))
+  );
+}
+
 /* ---------- 弹窗与工具 ---------- */
 /* ---------- 全屏练习页面（听写 / 句子重组 / 跟读打分） ---------- */
 let fsSpeechRec = null;
@@ -1775,7 +1829,7 @@ function render() {
   closeWordPop();
   const app = document.getElementById('app');
   const header = '<div class="topbar"><div><h1>一句一句读</h1><div class="sub">一次只读一句，一句一句读完整本书</div></div>' +
-    '<div class="tools">' + (state ? '<button class="iconbtn" onclick="openToc()">📑 目录</button>' : '') + '<button class="iconbtn" onclick="openVocabHome()">⭐ 生词本<span id="vocabBadge">' + (vocabDueCache > 0 ? ' (' + vocabDueCache + ')' : '') + '</span></button><button class="iconbtn" onclick="openDictSettings()">📚 词典</button><button class="iconbtn" onclick="openGrammarDict()">📘 语法字典</button></div></div>';
+    '<div class="tools">' + (state ? '<button class="iconbtn" onclick="openToc()">📑 目录</button>' : '') + '<button class="iconbtn" onclick="openVocabHome()">⭐ 生词本<span id="vocabBadge">' + (vocabDueCache > 0 ? ' (' + vocabDueCache + ')' : '') + '</span></button><button class="iconbtn" onclick="openDictSettings()">📚 词典</button><button class="iconbtn" onclick="openGrammarDict()">📘 语法字典</button><button class="iconbtn" onclick="openHelp()">❓ 帮助</button></div></div>';
   refreshVocabBadge();
 
   if (!state) {
@@ -1829,7 +1883,7 @@ function render() {
   const simHtml = '<div class="section"><h3>书中相似句子</h3>' + (sim.length ? '<ul class="examples">' + sim.map(s => '<li>' + esc(s) + '</li>').join('') + '</ul>' : '<div class="note">书中暂时没有用词相近的句子。</div>') + '</div>';
 
   app.innerHTML = header +
-    '<div class="levelbar"><div><span class="badge">Lv.' + (lvl.idx + 1) + '</span> 美国 ' + lvl.label + ' 水平</div><div>' + (tocLabel() ? esc(tocLabel()) + ' · ' : '') + '第 ' + (state.idx + 1) + ' / ' + state.sentences.length + ' 句</div></div>' +
+    '<div class="levelbar"><div><span class="badge">Lv.' + (lvl.idx + 1) + '</span> 对照美国 ' + lvl.label + ' 阶段</div><div>' + (tocLabel() ? esc(tocLabel()) + ' · ' : '') + '第 ' + (state.idx + 1) + ' / ' + state.sentences.length + ' 句</div></div>' +
     '<div class="progressline"><div class="progressfill" style="width:' + pct + '%"></div></div>' +
     '<div class="navsticky"><div class="row">' +
       '<button class="ghost" style="flex:1" onclick="prevSentence()" ' + (state.idx > 0 && !rec.on ? '' : 'disabled') + '>◀ 上一句</button>' +

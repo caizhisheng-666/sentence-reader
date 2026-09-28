@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sentence-reader-v28';
+const CACHE_NAME = 'sentence-reader-v29';
 const PRECACHE = [
   './', './index.html', './dict-basic.js', './grammar.js', './manifest.json', './icon-192.png', './icon-512.png',
   'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
