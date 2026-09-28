@@ -259,11 +259,14 @@ async function translateText(text) {
 /* ---------- 文本处理 ---------- */
 function splitSentences(text) {
   text = text.replace(/\r/g, ' ').replace(/\s+/g, ' ').trim();
-  // 中英对照书：中文句号/问号/叹号当作句子边界，其余中文字符和全角符号一律去掉，只留英文
-  text = text.replace(/[。！？]+/g, ' \u2029 ');
-  text = text.replace(/[\u2160-\u217f\u2460-\u24ff\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/g, ' ');
+  // 中英对照书：只留英文。①括号里的中文注释整体去掉（如 hammer (锤子)）；②全角标点换成半角（如 ？→?，１８７９→1879）；
+  // ③每一段中文都当作分隔符，这样英文段落之间即使没有句末标点，也不会被粘成一整句。
+  text = text.replace(/[（(][^()（）A-Za-z]*[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff][^()（）A-Za-z]*[)）]/g, ' ');
+  text = text.replace(/[\uff01-\uff5e]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
+  text = text.replace(/[\u2160-\u217f\u2460-\u24ff\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+/g, ' \u2029 ');
   text = text.replace(/[ \t]+/g, ' ').trim();
   text = text.replace(/\b(Mr|Mrs|Ms|Dr|St|Jr|Sr|Prof|Mt|No)\./g, '$1\u2024');
+  text = text.replace(/([a-z][.!?])(?=[“‘])/g, '$1 '); // 句号后面紧跟着左引号，补个空格才能断句
   text = text.replace(/([a-zA-Z])\.([A-Z])/g, '$1. $2'); // 修复类似 "I.Down"、"CHAPTER II.The" 这种缺空格的粘连
   return text.replace(/([.!?]+["'”’)\]]*)\s+/g, '$1\u2029').split('\u2029')
     .map(s => s.replace(/\u2024/g, '.').trim())
@@ -278,37 +281,48 @@ function stripGutenberg(text) {
   if (em) text = text.slice(0, em.index);
   return text;
 }
-function finalizeImport(sentences, imageRanges, bookId, extraToast) {
-  if (!sentences.length) { alert('没有识别到英文句子，请检查导入的内容。'); return; }
+function finalizeImport(sentences, imageRanges, bookId, extraToast, toc) {
+  if (!sentences.length) { alert('没有识别到英文句子，请检查导入的内容。如果是扫描版或英文画在图里的书，导入时请选择文字识别。'); return; }
   idbClear('recs').catch(() => {});
   const startIdx = detectStart(sentences);
-  state = { bookId: bookId || ('b' + Date.now()), sentences, idx: startIdx, prog: {}, cache: {}, startDate: Date.now(), totalCompleted: 0, imageRanges: imageRanges || [] };
+  state = { bookId: bookId || ('b' + Date.now()), sentences, idx: startIdx, prog: {}, cache: {}, startDate: Date.now(), totalCompleted: 0, imageRanges: imageRanges || [], toc: toc || buildTextToc(sentences, startIdx) };
   saveState();
   loadCurrent();
   const msgs = [];
-  if (startIdx > 0) msgs.push('已跳过开头 ' + startIdx + ' 句目录/版权信息，从正文开始。可点"跳转句子"调整');
+  if (startIdx > 0) msgs.push('已跳过开头 ' + startIdx + ' 句目录/版权信息，从正文开始。可点“📑 目录”调整');
   if (extraToast) msgs.push(extraToast);
-  if (msgs.length) toast(msgs.join('；'), 4200);
+  if (msgs.length) toast(msgs.join('；'), 6000);
 }
 function importBook(text) {
   idbClear('images').catch(() => {});
   const gutenberg = /project gutenberg/i.test(text.slice(0, 3000));
   if (gutenberg) text = stripGutenberg(text);
+  const hadCjk = /[\u3400-\u9fff]/.test(text);
   const sentences = splitSentences(text).slice(0, 50000);
-  finalizeImport(sentences, [], null, gutenberg ? '已按 Project Gutenberg 的标记裁掉开头的版权声明' : null);
+  const parts = [];
+  if (gutenberg) parts.push('已按 Project Gutenberg 的标记裁掉开头的版权声明');
+  if (hadCjk) parts.push('中文已自动去掉，只保留英文');
+  finalizeImport(sentences, [], null, parts.join('；') || null);
 }
 async function importBookBlocks(blocks) {
   const bookId = 'b' + Date.now();
   const sentences = [];
   const imageRanges = [];   // [起始句序号, 结束句序号(不含)]，这个范围内的句子都显示这组插图
-  let pendingImages = [], totalImages = 0;
+  const tocItems = [];      // 目录：每一页（或每一节）一条
+  let pendingImages = [], totalImages = 0, hasPage = false, pagesWithText = 0, hadCjk = false, bi = 0;
   const saves = [];
   try { await idbClear('images'); } catch (e) {}
   for (const block of blocks) {
+    bi++;
+    const n = block.page || bi;
+    if (block.page) hasPage = true;
+    if (/[\u3400-\u9fff]/.test(block.text || '')) hadCjk = true;
     const blockSentences = splitSentences(block.text || '');
     const images = (block.images || []).slice(0, 3);
-    if (!blockSentences.length) { if (images.length) pendingImages = pendingImages.concat(images); continue; }
+    if (!blockSentences.length) { tocItems.push({ n, t: block.title || '', s: -1, e: 0 }); if (images.length) pendingImages = pendingImages.concat(images); continue; }
     const first = sentences.length;
+    tocItems.push({ n, t: block.title || '', s: first, e: 1 });
+    pagesWithText++;
     const useImages = pendingImages.concat(images).slice(0, 3);
     pendingImages = [];
     sentences.push(...blockSentences);
@@ -319,12 +333,17 @@ async function importBookBlocks(blocks) {
     }
     if (sentences.length > 50000) break;
   }
+  let next = Math.max(0, sentences.length - 1);          // 没有英文的页：指向它后面最近一页有英文的位置
+  for (let k = tocItems.length - 1; k >= 0; k--) { if (tocItems[k].s < 0) tocItems[k].s = next; else next = tocItems[k].s; }
   let saveFailed = false;
   try { await Promise.all(saves); } catch (e) { saveFailed = true; }
-  const msg = saveFailed ? '插图保存失败（可能是存储空间不足），只导入了文字'
-    : totalImages ? '已提取 ' + totalImages + ' 张插图，会跟对应页的文字一起显示'
-    : '没有找到可提取的插图（有些图画书的图是背景图或特殊排版，暂不支持）';
-  finalizeImport(sentences, saveFailed ? [] : imageRanges, bookId, msg);
+  const unit = hasPage ? '页' : '节';
+  const parts = ['读到 ' + sentences.length + ' 句英文（' + pagesWithText + '/' + blocks.length + ' ' + unit + '有英文）'];
+  if (hadCjk) parts.push('中文已自动去掉');
+  parts.push(saveFailed ? '插图保存失败（可能是存储空间不足），只导入了文字'
+    : totalImages ? '已提取 ' + totalImages + ' 张插图'
+    : '没有找到可提取的插图');
+  finalizeImport(sentences, saveFailed ? [] : imageRanges, bookId, parts.join('；'), { kind: hasPage ? 'page' : 'section', items: tocItems });
 }
 
 /* ---------- 自动识别正文起点：跳过书名页、版权页、献词、目录等 ---------- */
@@ -1252,9 +1271,11 @@ async function parseEpub(buf) {
         if (raw.size > 1500) images.push(new Blob([raw], { type: mime }));
       } catch (e) {}
     }
+    const hEl = doc.querySelector('h1,h2,h3');
+    const title = hEl ? hEl.textContent.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
     doc.querySelectorAll('p,div,h1,h2,h3,h4,li,br').forEach(el => el.append(' \n'));
     const text = (doc.body ? doc.body.textContent : '').trim();
-    if (text || images.length) blocks.push({ text, images });
+    if (text || images.length) blocks.push({ text, images, title });
   }
   return blocks;
 }
@@ -1341,10 +1362,40 @@ function bubbleText(g) {
 function ocrLinesToText(lines, pageH) {
   return groupOcrLines(lines.filter(isGoodOcrLine), pageH).map(bubbleText).filter(t => letterCount(t) >= 3).join(' ');
 }
+function extractOcrWords(data) {
+  const out = [];
+  const add = w => { if (w && w.text && w.bbox) out.push({ text: String(w.text).trim(), conf: typeof w.confidence === 'number' ? w.confidence : 80, x0: w.bbox.x0, y0: w.bbox.y0, x1: w.bbox.x1, y1: w.bbox.y1 }); };
+  if (data && Array.isArray(data.words) && data.words.length) data.words.forEach(add);
+  else if (data && Array.isArray(data.blocks)) data.blocks.forEach(b => (b.paragraphs || []).forEach(p => (p.lines || []).forEach(l => (l.words || []).forEach(add))));
+  return out;
+}
+function isGoodOcrWord(w) {
+  const t = w.text, letters = letterCount(t);
+  if (!t || !letters || letters / t.length < 0.5 || w.conf < 50) return false;   // 中文被误认成的乱码符号、数字，几乎都过不了这一关
+  const core = t.replace(/[^A-Za-z]/g, '');
+  if (core.length === 1 && (!/^[aAI]$/.test(core) || w.conf < 70)) return false;
+  return true;
+}
+function wordsToLines(words) {
+  const ws = words.filter(isGoodOcrWord).sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0), lines = [];
+  for (const w of ws) {
+    const h = Math.max(1, w.y1 - w.y0);
+    let target = null;
+    for (let i = lines.length - 1; i >= 0 && i >= lines.length - 30; i--) {
+      const l = lines[i], lh = Math.max(1, l.y1 - l.y0);
+      const overlap = Math.min(w.y1, l.y1) - Math.max(w.y0, l.y0), gap = w.x0 - l.x1;
+      if (overlap > 0.5 * Math.min(h, lh) && gap > -h && gap < 2.5 * Math.max(h, lh)) { target = l; break; }   // 同一行、且离得不远（左右两栏不会连成一行）
+    }
+    if (target) { target.words.push(w); target.x0 = Math.min(target.x0, w.x0); target.x1 = Math.max(target.x1, w.x1); target.y0 = Math.min(target.y0, w.y0); target.y1 = Math.max(target.y1, w.y1); }
+    else lines.push({ words: [w], x0: w.x0, y0: w.y0, x1: w.x1, y1: w.y1 });
+  }
+  return lines.map(l => { l.words.sort((a, b) => a.x0 - b.x0); return { text: l.words.map(w => w.text).join(' '), conf: l.words.reduce((m, w) => m + w.conf, 0) / l.words.length, x0: l.x0, y0: l.y0, x1: l.x1, y1: l.y1 }; });
+}
 async function ocrCanvas(canvas) {
   const worker = await getOcrWorker();
   const { data } = await worker.recognize(canvas, {}, { text: true, blocks: true });
-  const lines = extractOcrLines(data);
+  const wl = wordsToLines(extractOcrWords(data));
+  const lines = wl.length ? wl : extractOcrLines(data);
   if (lines.length) return ocrLinesToText(lines, canvas.height);
   return String((data && data.text) || '').split(/\n\s*\n/).map(p => p.replace(/\s+/g, ' ').trim()).filter(p => letterCount(p) >= 3)
     .map(p => /[.!?]["'”’)]*$/.test(p) ? p : p + '.').join(' ');
@@ -1389,7 +1440,10 @@ async function parsePdf(buf) {
     const content = await (await pdf.getPage(i)).getTextContent();
     texts.push(content.items.map(it => it.str).join(' '));
   }
-  const sparse = texts.map(t => letterCount(t) < 15);                 // 文字很少的页 = 文字多半画在图里
+  const hasCJK = t => /[\u3400-\u9fff]/.test(t);
+  const usableLetters = t => splitSentences(t).filter(x => x.trim().split(/\s+/).length >= 4).reduce((m, x) => m + letterCount(x), 0);
+  // 文字很少的页 = 文字多半画在图里；中英对照书里“有中文、几乎没有英文”的页，多半是英文画在图里
+  const sparse = texts.map(t => letterCount(t) < 15 || (hasCJK(t) && usableLetters(t) < 40));
   const sparseCount = sparse.filter(Boolean).length;
   let doOcr = sparseCount > 0 && askOcr(sparseCount, n);
   ocrCancel = false;
@@ -1414,11 +1468,11 @@ async function parsePdf(buf) {
         const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
         await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
         const t = await ocrCanvas(c); c.width = c.height = 0;
-        if (letterCount(t) >= 3) text = t;
+        if (letterCount(t) >= 3 && letterCount(t) > usableLetters(text)) text = t;   // 识别出的英文比原来的文字层多才替换
         ocrDone++;
       } catch (e) { if (e.fatal) { alert(e.message); doOcr = false; } }
     }
-    blocks.push({ text, images });
+    blocks.push({ text, images, page: i });
   }
   await stopOcrWorker();
   return blocks;
@@ -1501,12 +1555,76 @@ async function refreshVocabBadge() {
   if (el) el.textContent = vocabDueCache > 0 ? ' (' + vocabDueCache + ')' : '';
 }
 
+/* ---------- 目录：想去哪页就去哪页 ---------- */
+const TOC_CHAPTER_RE = new RegExp('^(chapter|part|book)\\s+(' + CHAPTER_WORD + ')\\b', 'i');
+function buildTextToc(sentences, startIdx) {
+  const heads = [];
+  for (let i = startIdx || 0; i < sentences.length; i++) if (TOC_CHAPTER_RE.test(sentences[i].trim())) heads.push(i);
+  const items = [];
+  if (heads.length >= 2) {
+    if (heads[0] > 0) items.push({ n: 0, t: '开头（书名、版权、目录等）', s: 0, e: 1 });
+    heads.forEach((s, k) => items.push({ n: k + 1, t: sentences[s].trim().slice(0, 40), s, e: 1 }));
+    return { kind: 'chapter', items };
+  }
+  const STEP = 50;
+  for (let a = 0, k = 1; a < sentences.length; a += STEP, k++) items.push({ n: k, t: '第 ' + (a + 1) + '–' + Math.min(a + STEP, sentences.length) + ' 句', s: a, e: 1 });
+  return { kind: 'segment', items };
+}
+function getToc() {
+  if (!state) return { kind: 'segment', items: [] };
+  if (!state.toc || !state.toc.items || !state.toc.items.length) { state.toc = buildTextToc(state.sentences, detectStart(state.sentences)); saveState(); }
+  return state.toc;
+}
+function tocIndexFor(idx) {
+  const items = getToc().items; let ci = -1;
+  for (let i = 0; i < items.length; i++) { if (items[i].s <= idx) ci = i; else break; }
+  return ci;
+}
+function tocLabel() {
+  const toc = getToc(), ci = tocIndexFor(state.idx);
+  if (ci < 0) return '';
+  const it = toc.items[ci];
+  if (toc.kind === 'page') return '第 ' + it.n + ' 页';
+  if (toc.kind === 'chapter' || toc.kind === 'section') return (it.t || '').slice(0, 14);
+  return '';
+}
+function openToc() {
+  const toc = getToc(), items = toc.items, cur = tocIndexFor(state.idx);
+  const inputStyle = 'width:110px;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--pop);color:var(--ink);font-family:inherit';
+  let html = '<h3 style="margin:0 0 6px">📑 目录</h3>';
+  html += '<div class="note" style="margin-bottom:8px">点任意一项，直接跳到那里开始学习。' + (toc.kind === 'page' ? '灰色的页是没读到英文的（可能只有图片或中文）。' : toc.kind === 'segment' ? '这本书没有识别到章节标题，按每 50 句分段。' : '') + '</div>';
+  if (toc.kind === 'page') html += '<div class="row" style="margin-bottom:10px"><input type="number" id="tocPage" min="1" placeholder="页码" style="' + inputStyle + '" onkeydown="if(event.key===\'Enter\')tocGoPage()"><button class="sm" onclick="tocGoPage()">跳到这一页</button></div>';
+  items.forEach((it, i) => {
+    const empty = !it.e, sent = it.e ? state.sentences[it.s] : '';
+    const label = toc.kind === 'page' ? '第 ' + it.n + ' 页' : (it.t || '第 ' + it.n + ' 节');
+    const sub = toc.kind === 'page' ? (empty ? '（没读到英文）' : (sent || '').slice(0, 46)) : (toc.kind === 'section' && !it.t ? (sent || '').slice(0, 46) : '');
+    html += '<div ' + (i === cur ? 'id="tocCur" ' : '') + 'onclick="tocJump(' + i + ')" style="padding:8px 6px;border-bottom:1px solid var(--line);cursor:pointer;font-size:14px;' + (empty ? 'opacity:.5;' : '') + (i === cur ? 'background:var(--pop);border-radius:6px;' : '') + '"><b>' + esc(label) + '</b>' + (i === cur ? '　⬅ 当前' : '') + (sub ? '<div class="sub" style="margin-top:2px">' + esc(sub) + '</div>' : '') + '</div>';
+  });
+  showPop(html);
+  setTimeout(() => { const el = document.getElementById('tocCur'); if (el) el.scrollIntoView({ block: 'center' }); }, 60);
+}
+function tocJump(i) {
+  const it = getToc().items[i]; if (!it) return;
+  stopSpeech();
+  state.idx = Math.max(0, Math.min(it.s, state.sentences.length - 1));
+  saveState(); closePop(); loadCurrent();
+  if (!it.e) toast('这一页没有读到英文，已跳到它后面最近一页', 3000);
+}
+function tocGoPage() {
+  const n = parseInt(document.getElementById('tocPage').value, 10), items = getToc().items;
+  if (!n || n < 1) { alert('请输入页码'); return; }
+  let i = items.findIndex(it => it.n === n);
+  if (i < 0) i = items.findIndex(it => it.n > n);
+  if (i < 0) { alert('没有这一页，最大页码是 ' + items[items.length - 1].n); return; }
+  tocJump(i);
+}
+
 /* ---------- 界面 ---------- */
 function render() {
   closeWordPop();
   const app = document.getElementById('app');
   const header = '<div class="topbar"><div><h1>一句一句读</h1><div class="sub">一次只读一句，一句一句读完整本书</div></div>' +
-    '<div class="tools"><button class="iconbtn" onclick="openVocabHome()">⭐ 生词本<span id="vocabBadge">' + (vocabDueCache > 0 ? ' (' + vocabDueCache + ')' : '') + '</span></button><button class="iconbtn" onclick="openVoiceSettings()">🔊 音色</button><button class="iconbtn" onclick="openDictSettings()">📚 词典</button><button class="iconbtn" onclick="openGrammarDict()">📘 语法字典</button></div></div>';
+    '<div class="tools">' + (state ? '<button class="iconbtn" onclick="openToc()">📑 目录</button>' : '') + '<button class="iconbtn" onclick="openVocabHome()">⭐ 生词本<span id="vocabBadge">' + (vocabDueCache > 0 ? ' (' + vocabDueCache + ')' : '') + '</span></button><button class="iconbtn" onclick="openVoiceSettings()">🔊 音色</button><button class="iconbtn" onclick="openDictSettings()">📚 词典</button><button class="iconbtn" onclick="openGrammarDict()">📘 语法字典</button></div></div>';
   refreshVocabBadge();
 
   if (!state) {
@@ -1558,7 +1676,7 @@ function render() {
   const simHtml = '<div class="section"><h3>书中相似句子</h3>' + (sim.length ? '<ul class="examples">' + sim.map(s => '<li>' + esc(s) + '</li>').join('') + '</ul>' : '<div class="note">书中暂时没有用词相近的句子。</div>') + '</div>';
 
   app.innerHTML = header +
-    '<div class="levelbar"><div><span class="badge">Lv.' + (lvl.idx + 1) + '</span> 美国 ' + lvl.label + ' 水平</div><div>第 ' + (state.idx + 1) + ' / ' + state.sentences.length + ' 句</div></div>' +
+    '<div class="levelbar"><div><span class="badge">Lv.' + (lvl.idx + 1) + '</span> 美国 ' + lvl.label + ' 水平</div><div>' + (tocLabel() ? esc(tocLabel()) + ' · ' : '') + '第 ' + (state.idx + 1) + ' / ' + state.sentences.length + ' 句</div></div>' +
     '<div class="progressline"><div class="progressfill" style="width:' + pct + '%"></div></div>' +
     '<div class="card">' +
       (function () { const r = imageRangeFor(state.idx); return (r && r[0] === curImageStart) ? curImageUrls.map(u => '<img src="' + u + '" alt="书页插图" style="max-width:100%;max-height:60vh;object-fit:contain;border-radius:10px;margin:0 auto 14px;display:block">').join('') : ''; })() +
