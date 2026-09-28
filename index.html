@@ -124,7 +124,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.09.28-30';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.09.28-31';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null }, simCache = { idx: -1, list: [] };
@@ -755,7 +755,8 @@ function cycleRate() {
   const idx = (steps.indexOf(cur) + 1) % steps.length;
   localStorage.setItem('sr_rate', String(steps[idx]));
   render();
-  toast('语速已调整为 ' + steps[idx] + 'x，下次朗读生效');
+  toast('语速 ' + steps[idx] + 'x' + (getWordMode() ? '（逐词读：语速越慢，词间停顿越长）' : ''), 1800);
+  previewRate();                                 // 马上用新速度念一句，能听出有没有变化
 }
 /* ---------- 朗读时，念到哪个词，哪个词就亮起来 ---------- */
 let speakTok = -1, estTimer = null;
@@ -795,9 +796,11 @@ function startEstimator(u, text) {
 }
 /* ---------- 播放控制 ---------- */
 let listenState = { idx: -1, playing: false, paused: false };
-let lastListenUtt = null;
+let lastListenUtt = null, rateUtt = null, wm = null;
 function markStopped() {                       // 标记上一段朗读已被打断，它的 onend/onerror 不再算数
   if (lastListenUtt) lastListenUtt._stopped = true;
+  if (rateUtt) rateUtt._stopped = true;
+  if (wm) { wm.stopped = true; clearTimeout(wm.timer); wm = null; }
   listenState = { idx: -1, playing: false, paused: false };
   clearSpeakHighlight();
 }
@@ -816,6 +819,80 @@ function speakNow(u) {
     }
   } catch (e) { alert('当前浏览器不支持朗读。'); }
 }
+/* ---------- 检测这个声音支不支持调速 ---------- */
+// 有些手机、有些声音会无视“语速”设置。做法：每次换速度都念一句短话并量时长，速度差 1.5 倍以上而时长几乎不变，就判定不支持。
+const rateProbes = {}, rateIgnored = {}, rateNotified = {};
+function voiceKeyNow() { const v = pickVoice(currentVoices()); return v ? v.voiceURI : 'default'; }
+function previewRate() {
+  try {
+    markStopped();
+    const u = new SpeechSynthesisUtterance('This is how fast I read.');
+    applyVoiceSync(u); u.rate = getRate();
+    const key = voiceKeyNow(); let t0 = -1;
+    u.onstart = () => { t0 = performance.now(); };
+    u.onend = () => { if (!u._stopped && t0 >= 0) recordRateProbe(key, u.rate, performance.now() - t0); };
+    rateUtt = u;
+    speakNow(u);
+  } catch (e) {}
+}
+function recordRateProbe(key, rate, ms) {
+  if (ms < 200) return;                          // 太短，多半是被打断了，不可信
+  const arr = rateProbes[key] = rateProbes[key] || [];
+  arr.push({ rate, ms: Math.round(ms) });
+  for (const q of arr.slice(0, -1)) {
+    const hi = Math.max(q.rate, rate), lo = Math.min(q.rate, rate);
+    if (hi / lo < 1.5) continue;
+    const slowMs = q.rate < rate ? q.ms : ms, fastMs = q.rate < rate ? ms : q.ms;
+    rateIgnored[key] = (slowMs / fastMs) < 1.15;   // 正常情况下，慢的那次应该明显更久
+    break;
+  }
+  if (rateIgnored[key] && !rateNotified[key]) {
+    rateNotified[key] = true;
+    toast('这个声音在你的手机上好像不支持调速（换几档速度，念的时长都差不多）。可以换个声音，或点“🐢 逐词读”，一个词一个词地慢慢听。', 7000);
+  }
+  if (state) render();
+}
+/* ---------- 逐词读：一个词一个词地念，词间停顿；不依赖声音是否支持调速，一定能慢下来，高亮也最准 ---------- */
+function getWordMode() { return localStorage.getItem('sr_wordmode') === '1'; }
+function toggleWordMode() {
+  localStorage.setItem('sr_wordmode', getWordMode() ? '0' : '1');
+  stopSpeech(); render();
+  toast(getWordMode() ? '逐词读已开启：一个词一个词地念，词间有停顿。“语速”按钮此时主要调整停顿长短。' : '逐词读已关闭', 4000);
+}
+function playListenWords(idx) {
+  const toks = curTokens.slice();
+  if (!toks.length) return;
+  markStopped();
+  const chain = { stopped: false, timer: null, k: 0, pendingNext: false, next: null };
+  wm = chain;
+  lastListenUtt = { _stopped: false };
+  listenState = { idx, playing: true, paused: false };
+  const gap = Math.round(380 / getRate());       // 语速越慢停顿越长：0.5x 约 0.76 秒，1x 约 0.38 秒，2x 约 0.19 秒
+  const finish = () => {
+    clearSpeakHighlight();
+    if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false };
+    wm = null;
+    const p = state.prog[idx] || (state.prog[idx] = { reads: 0, listens: 0 });
+    p.listens++; saveState();
+    if (state.idx === idx) render();
+  };
+  const next = () => {
+    if (chain.stopped || state.idx !== idx) return;
+    if (listenState.paused) { chain.pendingNext = true; return; }
+    if (chain.k >= toks.length) { finish(); return; }
+    const k = chain.k++;
+    const word = toks[k].replace(/[^A-Za-z0-9'’\-]+/g, ' ').trim() || toks[k];
+    const u = new SpeechSynthesisUtterance(word);
+    applyVoiceSync(u); u.rate = getRate();
+    u.onstart = () => { if (!chain.stopped) setSpeakTok(k); };
+    const done = () => { if (!chain.stopped) chain.timer = setTimeout(next, gap); };
+    u.onend = done; u.onerror = done;
+    speakNow(u);
+  };
+  chain.next = next;
+  next();                                        // 第一个词在点击的这一下里直接开始念（手机第一次朗读必须这样）
+  render();
+}
 function playListen() {
   const idx = state.idx;
   if (listenState.idx === idx && listenState.playing && !listenState.paused) {
@@ -826,8 +903,11 @@ function playListen() {
   if (listenState.idx === idx && listenState.playing && listenState.paused) {
     try { speechSynthesis.resume(); } catch (e) {}
     if (lastListenUtt && lastListenUtt._pausedAt) lastListenUtt._t0 += performance.now() - lastListenUtt._pausedAt;   // 暂停的时间不算
-    listenState.paused = false; render(); return;
+    listenState.paused = false;
+    if (wm && wm.pendingNext) { wm.pendingNext = false; wm.next(); }
+    render(); return;
   }
+  if (getWordMode()) { playListenWords(idx); return; }
   markStopped();
   const u = new SpeechSynthesisUtterance(state.sentences[idx]);
   applyVoiceSync(u); u.rate = getRate();
@@ -874,7 +954,7 @@ function shortVoiceName(v) {
 }
 function voiceSelectHtml() {
   const en = (voiceListCache || []).filter(v => /^en/i.test(v.lang)), cur = getSavedVoiceURI();
-  const grp = (label, list) => list.length ? '<optgroup label="' + label + '">' + list.map(v => '<option value="' + esc(v.voiceURI) + '"' + (v.voiceURI === cur ? ' selected' : '') + '>' + esc(shortVoiceName(v)) + '</option>').join('') + '</optgroup>' : '';
+  const grp = (label, list) => list.length ? '<optgroup label="' + label + '">' + list.map(v => '<option value="' + esc(v.voiceURI) + '"' + (v.voiceURI === cur ? ' selected' : '') + '>' + esc(shortVoiceName(v)) + (v.localService ? '' : '（在线）') + '</option>').join('') + '</optgroup>' : '';
   const us = en.filter(v => /US/i.test(v.lang)), gb = en.filter(v => /GB|UK/i.test(v.lang)), other = en.filter(v => !us.includes(v) && !gb.includes(v));
   return '<select id="voiceSel" class="voicesel" onchange="onVoiceChange(this.value)" aria-label="选择朗读音色"><option value=""' + (cur ? '' : ' selected') + '>默认音色</option>' + grp('🇺🇸 美音', us) + grp('🇬🇧 英音', gb) + grp('其他口音', other) + '</select>';
 }
@@ -1353,6 +1433,8 @@ async function copyDiag() {
     '屏幕: ' + screen.width + 'x' + screen.height + ' @' + (window.devicePixelRatio || 1) + 'x',
     '联网: ' + nav.onLine + ' | 以桌面App方式打开: ' + !!standalone + ' | 离线组件已生效: ' + !!(nav.serviceWorker && nav.serviceWorker.controller),
     '朗读: ' + ('speechSynthesis' in window) + ' | 声音总数 ' + voices.length + '，英语 ' + en.length + ' | 当前音色 ' + (getSavedVoiceURI() || '默认'),
+    '当前音色: ' + (((pickVoice(voices) || {}).name) || '默认') + ' | 本机声音: ' + ((pickVoice(voices) || {}).localService) + ' | 逐词读: ' + getWordMode(),
+    '调速检测: ' + (Object.keys(rateIgnored).length ? JSON.stringify(rateIgnored) : '未检测') + ' | 测量: ' + JSON.stringify(rateProbes),
     '录音: ' + !!(nav.mediaDevices && window.MediaRecorder) + ' | 语音识别打分: ' + speechRecoSupported(),
     '存储: ' + est,
     '词典: ' + (dictInfo && dictInfo.count ? dictInfo.count + ' 词条' : '未导入') + ' | 自动下载提示: ' + (getAutoMsg() || '无'),
@@ -1372,7 +1454,7 @@ function openHelp() {
     '<div class="note">遇到问题（没声音、录不了音、书导入不对等），先点“复制诊断信息”，粘贴发给发你链接的人。诊断信息只有设备和软件状态，没有书的内容和你的录音。</div>' +
     sec('快速上手',
       li('点句子里的<b>单词</b>查词，可以加入生词本。') + li('点 <b>🔊 听原音</b>，念到哪个词哪个词会亮；旁边的下拉菜单可以换美音、英音。') +
-      li('<b>🎙️ 跟读录音</b>会保存在本机，可以回放对比。') + li('“更多练习”里有听写、句子重组、跟读打分。') +
+      li('<b>🎙️ 跟读录音</b>会保存在本机，可以回放对比。') + li('“更多练习”里有听写、句子重组、跟读打分。') + li('<b>点“语速”没变化？</b>有些手机或声音不支持调速，软件会自动检测并提示。这时可以换一个声音，或点 <b>🐢 逐词读</b>：一个词一个词地念，词间有停顿，一定能慢下来。') +
       li('顶部 <b>📑 目录</b> 可以跳到任意页；<b>⭐ 生词本</b>里复习查过的词。') +
       li('装到手机桌面：iPhone 用 Safari，点分享 → 添加到主屏幕；安卓用 Chrome，点 ⋮ → 安装应用。<b>装好后请在桌面图标里导入书</b>，浏览器和桌面图标的数据是分开的。'), true) +
     sec('隐私与数据',
@@ -1904,7 +1986,8 @@ function render() {
           '<button onclick="playListen()">' +
             (listenState.idx === state.idx && listenState.playing ? (listenState.paused ? '▶️ 继续' : '⏸ 暂停') : '🔊 听原音') + '</button>' +
           voiceSelectHtml() +
-          '<button class="ghost sm" onclick="cycleRate()">语速 ' + getRate() + 'x</button>' +
+          '<button class="ghost sm" onclick="cycleRate()">语速 ' + getRate() + 'x' + (rateIgnored[voiceKeyNow()] ? '（此声音不支持）' : '') + '</button>' +
+          '<button class="ghost sm" onclick="toggleWordMode()">' + (getWordMode() ? '🐢 逐词读：开' : '🐢 逐词读') + '</button>' +
           '<button class="recbtn ' + (rec.on ? 'on' : '') + '" onclick="toggleRecord()">' + (rec.on ? '⏹ 停止录音 <span id="recTime">0.0 秒</span>' : '🎙️ 跟读录音') + '</button>' +
         '</div>' + recs + '</div>' +
       practiceHtml +
