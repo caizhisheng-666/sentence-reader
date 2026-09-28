@@ -124,7 +124,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.09.28-31';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.09.28-34';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null }, simCache = { idx: -1, list: [] };
@@ -138,7 +138,7 @@ let _db = null;
 function idb() {
   if (_db) return _db;
   _db = new Promise((res, rej) => {
-    const r = indexedDB.open('sentence-reader', 3);
+    const r = indexedDB.open('sentence-reader', 4);
     r.onupgradeneeded = () => {
       const d = r.result;
       if (!d.objectStoreNames.contains('dict')) d.createObjectStore('dict', { keyPath: 'w' });
@@ -146,6 +146,7 @@ function idb() {
       if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta');
       if (!d.objectStoreNames.contains('vocab')) d.createObjectStore('vocab', { keyPath: 'word' });
       if (!d.objectStoreNames.contains('images')) d.createObjectStore('images');
+      if (!d.objectStoreNames.contains('tts')) d.createObjectStore('tts');
     };
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
@@ -756,7 +757,9 @@ function cycleRate() {
   localStorage.setItem('sr_rate', String(steps[idx]));
   render();
   toast('语速 ' + steps[idx] + 'x' + (getWordMode() ? '（逐词读：语速越慢，词间停顿越长）' : ''), 1800);
-  previewRate();                                 // 马上用新速度念一句，能听出有没有变化
+  if (azActive && azAudio) { azAudio.playbackRate = getRate(); azAudio.defaultPlaybackRate = getRate(); }      // 自然语音：播放器变速，马上生效
+  else if (azReady()) speakText('This is how fast I read.');
+  else previewRate();                            // 马上用新速度念一句，能听出有没有变化
 }
 /* ---------- 朗读时，念到哪个词，哪个词就亮起来 ---------- */
 let speakTok = -1, estTimer = null;
@@ -801,6 +804,7 @@ function markStopped() {                       // 标记上一段朗读已被打
   if (lastListenUtt) lastListenUtt._stopped = true;
   if (rateUtt) rateUtt._stopped = true;
   if (wm) { wm.stopped = true; clearTimeout(wm.timer); wm = null; }
+  azStopAudio();
   listenState = { idx: -1, playing: false, paused: false };
   clearSpeakHighlight();
 }
@@ -895,19 +899,22 @@ function playListenWords(idx) {
 }
 function playListen() {
   const idx = state.idx;
+  if (azLoading && listenState.idx === idx) { stopSpeech(); render(); return; }       // 正在生成自然语音时再点一下 = 取消
   if (listenState.idx === idx && listenState.playing && !listenState.paused) {
-    try { speechSynthesis.pause(); } catch (e) {}
+    if (azActive && azAudio) { try { azAudio.pause(); } catch (e) {} } else { try { speechSynthesis.pause(); } catch (e) {} }
     if (lastListenUtt) lastListenUtt._pausedAt = performance.now();
     listenState.paused = true; render(); return;
   }
   if (listenState.idx === idx && listenState.playing && listenState.paused) {
-    try { speechSynthesis.resume(); } catch (e) {}
+    if (azActive && azAudio) { azAudio.play().catch(() => {}); } else { try { speechSynthesis.resume(); } catch (e) {} }
     if (lastListenUtt && lastListenUtt._pausedAt) lastListenUtt._t0 += performance.now() - lastListenUtt._pausedAt;   // 暂停的时间不算
     listenState.paused = false;
     if (wm && wm.pendingNext) { wm.pendingNext = false; wm.next(); }
     render(); return;
   }
   if (getWordMode()) { playListenWords(idx); return; }
+  if (azReady() && !azSkipOnce) { playListenNatural(idx); return; }
+  azSkipOnce = false;
   markStopped();
   const u = new SpeechSynthesisUtterance(state.sentences[idx]);
   applyVoiceSync(u); u.rate = getRate();
@@ -932,6 +939,7 @@ function playListen() {
   render();
 }
 function speakText(text, rate) {               // 单词、听写、生词复习等用：同步播放，不影响“听原音”的计数
+  if (azReady()) { azSpeakShort(text); return; }
   try {
     const u = new SpeechSynthesisUtterance(text);
     applyVoiceSync(u); u.rate = rate || getRate();
@@ -962,6 +970,354 @@ function refreshVoiceSelect() { const el = document.getElementById('voiceSel'); 
 function onVoiceChange(uri) {
   localStorage.setItem('sr_voice_uri', uri || '');
   previewVoice(uri);                            // 换了音色马上试听一句
+}
+
+/* ---------- 自然语音：微软 Azure 中国版（用你自己的 Key；Key 和缓存的音频只保存在这台设备里） ---------- */
+const AZ_REGIONS_CN = ['chinaeast2', 'chinanorth2', 'chinanorth3'];
+const AZ_REGIONS_GL = ['eastasia', 'southeastasia', 'japaneast', 'koreacentral', 'westus', 'eastus'];
+function azRegionList(cloud) { return cloud === 'cn' ? AZ_REGIONS_CN : AZ_REGIONS_GL; }
+function azRegionOptions(cloud, cur) { const l = azRegionList(cloud), c = l.includes(cur) ? cur : l[0]; return l.map(r => '<option value="' + r + '"' + (r === c ? ' selected' : '') + '>' + r + '</option>').join(''); }
+function azCloudOptions(cur) { return '<option value="global"' + (cur !== 'cn' ? ' selected' : '') + '>全球版 Azure（portal.azure.com）</option><option value="cn"' + (cur === 'cn' ? ' selected' : '') + '>中国版 Azure（portal.azure.cn，世纪互联）</option>'; }
+function azCloudChanged() { const cl = (document.getElementById('azCloud') || {}).value, r = document.getElementById('azRegion'); if (r) r.innerHTML = azRegionOptions(cl, r.value); }
+const AZ_PRESET_VOICES = [['en-US-JennyNeural', '美音 · Jenny 女声'], ['en-US-GuyNeural', '美音 · Guy 男声'], ['en-GB-SoniaNeural', '英音 · Sonia 女声'], ['en-GB-RyanNeural', '英音 · Ryan 男声']];
+const AZ_CACHE_MAX = 150 * 1048576;
+const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+let azAudio = null, azUrlCur = '', azActive = false, azLoading = false, azTimer = null, azSkipOnce = false, azLastError = '', azLastToast = 0, azIdx = null;
+let azKeyMem = '', azCryptoKey = null, azSalt = null, azFails = 0;      // 解锁后，Key 只放在内存里，关掉网页就没了
+try { localStorage.removeItem('sr_az_key'); } catch (e) {}                 // 清掉旧版本可能留下的明文 Key
+function azCfg() {
+  const g = k => localStorage.getItem(k) || '';
+  const cloud = g('sr_az_cloud') === 'cn' ? 'cn' : 'global', rg = g('sr_az_region');
+  return { dev: g('sr_az_dev') === '1', hasEnc: !!g('sr_az_enc'), on: g('sr_az_on') === '1', key: azKeyMem, cloud, region: azRegionList(cloud).includes(rg) ? rg : azRegionList(cloud)[0], endpoint: g('sr_az_endpoint'), voice: g('sr_az_voice') || 'en-US-JennyNeural' };
+}
+function azReady() { const c = azCfg(); return c.on && !!c.key && !getWordMode(); }
+function azUrl(kind) {                            // kind: 'tts' 合成 | 'voices' 音色列表
+  const c = azCfg();
+  if (c.endpoint) return c.endpoint.replace(/\/+$/, '') + (kind === 'tts' ? '/tts/cognitiveservices/v1' : '/tts/cognitiveservices/voices/list');
+  return 'https://' + c.region + (c.cloud === 'cn' ? '.tts.speech.azure.cn' : '.tts.speech.microsoft.com') + '/cognitiveservices/' + (kind === 'tts' ? 'v1' : 'voices/list');
+}
+function azXml(t) { return String(t).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[ch])); }
+function azSsml(text, voice) {
+  const lang = (String(voice).match(/^[a-z]{2,3}-[A-Z]{2}/) || ['en-US'])[0];
+  return "<speak version='1.0' xml:lang='" + lang + "'><voice xml:lang='" + lang + "' name='" + azXml(voice) + "'>" + azXml(text) + '</voice></speak>';
+}
+function azErr(code, msg) { const e = new Error(msg); e.code = code; return e; }
+function azHttpMsg(st) {
+  return { 400: '请求无效（音色名可能不对）', 401: 'Key 无效，或区域和 Key 不匹配', 403: '没有权限（Key 无效，或没有开通语音服务）', 404: '终结点不对，请检查区域或自定义终结点', 429: '请求太频繁，或免费额度已用完' }[st] || ('服务返回 HTTP ' + st);
+}
+async function azHash(str) {
+  try { const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str)); return [...new Uint8Array(d)].map(n => n.toString(16).padStart(2, '0')).join(''); }
+  catch (e) { let h = 5381; for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0; return 'f' + (h >>> 0).toString(16) + str.length; }
+}
+/* 缓存：每句话只向微软要一次，之后（包括断网时）直接用本机保存的音频；超过上限自动清掉最久没听的 */
+async function azIdxLoad() { if (!azIdx) { try { azIdx = (await idbGet('meta', 'ttsIndex')) || {}; } catch (e) { azIdx = {}; } } return azIdx; }
+async function azIdxSave() { try { await idbPut('meta', azIdx, 'ttsIndex'); } catch (e) {} }
+async function azCacheGet(k) {
+  try {
+    const v = await idbGet('tts', k);
+    if (v && v.b) { const ix = await azIdxLoad(); ix[k] = { t: Date.now(), n: v.n || v.b.size }; azIdxSave(); return v.b; }
+  } catch (e) {}
+  return null;
+}
+async function azCachePut(k, blob) {
+  try {
+    await idbPut('tts', { b: blob, n: blob.size }, k);
+    const ix = await azIdxLoad(); ix[k] = { t: Date.now(), n: blob.size };
+    let total = Object.values(ix).reduce((m, v) => m + v.n, 0);
+    if (total > AZ_CACHE_MAX) {
+      for (const kk of Object.keys(ix).sort((a, b) => ix[a].t - ix[b].t)) { if (total <= AZ_CACHE_MAX * 0.9) break; total -= ix[kk].n; delete ix[kk]; await idbDel('tts', kk); }
+    }
+    azIdxSave();
+  } catch (e) {}
+}
+async function azCacheStats() { const ix = await azIdxLoad(), vals = Object.values(ix); return { count: vals.length, bytes: vals.reduce((m, v) => m + v.n, 0) }; }
+async function azCacheClear() { try { await idbClear('tts'); azIdx = {}; await azIdxSave(); } catch (e) {} }
+async function azFetchAudio(text, voice) {
+  const c = azCfg();
+  let resp;
+  try {
+    resp = await fetch(azUrl('tts'), { method: 'POST', headers: { 'Ocp-Apim-Subscription-Key': c.key, 'Content-Type': 'application/ssml+xml', 'X-Microsoft-OutputFormat': 'audio-24khz-48kbitrate-mono-mp3' }, body: azSsml(text, voice) });
+  } catch (e) { throw azErr('network', '连不上微软语音服务（网络问题，或被浏览器的跨域限制拦截）'); }
+  if (!resp.ok) throw azErr('http' + resp.status, azHttpMsg(resp.status));
+  const blob = await resp.blob();
+  if (blob.size < 200) throw azErr('empty', '收到的音频不完整');
+  return new Blob([blob], { type: 'audio/mpeg' });
+}
+async function azLoad(text, voice) {
+  const k = await azHash('az1\n' + voice + '\n' + text);
+  const hit = await azCacheGet(k);
+  if (hit) return { blob: hit, cached: true };
+  const blob = await azFetchAudio(text, voice);
+  azCachePut(k, blob);
+  return { blob, cached: false };
+}
+/* 播放 */
+function azTimerStop() { if (azTimer) { clearInterval(azTimer); azTimer = null; } }
+function azStopAudio() {
+  azTimerStop(); azActive = false; azLoading = false;
+  if (azAudio) { azAudio.onended = azAudio.onerror = azAudio.onloadedmetadata = null; try { azAudio.pause(); } catch (e) {} }
+}
+function azUnlock() {                             // iPhone 要求：第一次播放必须在点击的这一下里发起。先放一段空白音频“占住”，等微软的声音回来再换上
+  if (!azAudio) azAudio = new Audio();
+  azAudio.onended = azAudio.onerror = azAudio.onloadedmetadata = null;
+  try { azAudio.src = SILENT_WAV; const p = azAudio.play(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+}
+function azFail(err) {
+  azLastError = (err && err.message) || '未知错误'; azLoading = false;
+  const now = Date.now();
+  if (now - azLastToast > 30000) { azLastToast = now; toast('自然语音暂不可用：' + azLastError + '。已改用系统朗读。', 6000); }
+}
+function azFallbackSystem(idx) {                  // 自然语音失败：退回系统朗读（此时已不在点击手势里，个别手机可能没声音）
+  azActive = false; azLoading = false;
+  listenState = { idx: -1, playing: false, paused: false };
+  if (!state || state.idx !== idx) return;
+  azSkipOnce = true; playListen();
+}
+function azStarts(text) {                         // 估算每个词在整句音频里的起点（0~1）：按字母数，句号逗号后留出停顿
+  const w = curTokenPos.map(p => {
+    const tok = text.slice(p.start, p.end);
+    return { l: Math.max(2, tok.replace(/[^A-Za-z0-9]/g, '').length), pause: /[.!?]["'”’)]*$/.test(tok) ? 6 : /[,;:]["'”’)]*$/.test(tok) ? 3 : 0 };
+  });
+  const total = w.reduce((m, x) => m + x.l + x.pause, 0) || 1;
+  let acc = 0;
+  return w.map(x => { const st = acc / total; acc += x.l + x.pause; return st; });
+}
+function azSetSrc(blob) {
+  const a = azAudio || (azAudio = new Audio());
+  if (azUrlCur) URL.revokeObjectURL(azUrlCur);
+  azUrlCur = URL.createObjectURL(blob);
+  a.src = azUrlCur;
+  a.defaultPlaybackRate = getRate(); a.playbackRate = getRate();         // 换了 src 会重置速度，所以两个都设
+  try { a.preservesPitch = true; a.webkitPreservesPitch = true; } catch (e) {}
+  return a;
+}
+function azStart(blob, text, idx, job) {
+  const a = azAudio || (azAudio = new Audio());
+  a.onended = a.onerror = a.onloadedmetadata = null;
+  azSetSrc(blob);
+  let starts = null;
+  a.onloadedmetadata = () => { starts = azStarts(text); };
+  a.onended = () => {
+    if (job._stopped) return;
+    azTimerStop(); azActive = false; clearSpeakHighlight();
+    if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false };
+    const p = state.prog[idx] || (state.prog[idx] = { reads: 0, listens: 0 });
+    p.listens++; saveState();
+    if (state.idx === idx) render();
+  };
+  a.onerror = () => { if (job._stopped) return; azFail(new Error('音频播放失败')); azFallbackSystem(idx); };
+  a.play().then(() => {
+    if (job._stopped) { a.pause(); return; }
+    azLoading = false; starts = starts || azStarts(text);
+    azTimerStop();
+    azTimer = setInterval(() => {
+      if (job._stopped) { azTimerStop(); return; }
+      if (a.paused || !a.duration) return;
+      const f = a.currentTime / a.duration;
+      let k = -1;
+      for (let i = 0; i < starts.length; i++) { if (starts[i] <= f) k = i; else break; }
+      if (k >= 0 && k !== speakTok) setSpeakTok(k);
+    }, 60);
+    if (state.idx === idx) render();
+  }).catch(() => {
+    if (job._stopped) return;
+    azFail(new Error('浏览器没有允许播放，请再点一次“听原音”'));
+    azActive = false; azLoading = false; listenState = { idx: -1, playing: false, paused: false };
+    if (state.idx === idx) render();
+  });
+}
+function playListenNatural(idx) {
+  markStopped();
+  azUnlock();                                     // 必须在点击的这一下里同步执行
+  const text = state.sentences[idx], c = azCfg(), job = { _stopped: false };
+  lastListenUtt = job;
+  listenState = { idx, playing: true, paused: false };
+  azActive = true; azLoading = true;
+  render();
+  azLoad(text, c.voice)
+    .then(r => { if (!job._stopped) azStart(r.blob, text, idx, job); })
+    .catch(err => { if (job._stopped) return; azFail(err); azFallbackSystem(idx); });
+}
+function azSpeakShort(text) {                     // 单词等短内容
+  markStopped(); azUnlock();
+  const job = { _stopped: false }; lastListenUtt = job;
+  azLoad(text, azCfg().voice).then(r => {
+    if (job._stopped) return;
+    const a = azSetSrc(r.blob); a.onended = a.onerror = null;
+    a.play().catch(() => {});
+  }).catch(err => {
+    if (job._stopped) return;
+    azFail(err);
+    try { const u = new SpeechSynthesisUtterance(text); applyVoiceSync(u); u.rate = getRate(); speakNow(u); } catch (e) {}
+  });
+}
+/* ---------- 开发者验证：Key 用口令加密后才保存；只有输入正确口令的设备，才能使用你的 Azure 额度 ---------- */
+const u8b64 = u => { let b = ''; for (let i = 0; i < u.length; i++) b += String.fromCharCode(u[i]); return btoa(b); };
+const b64u8 = t => Uint8Array.from(atob(t), ch => ch.charCodeAt(0));
+async function azDerive(pass, salt) {
+  const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 200000, hash: 'SHA-256' }, km, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function azStoreKey(keyStr) {               // 用已解锁的密钥，把 Key 加密后存起来（每次用新的随机数，密文都不一样）
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, azCryptoKey, new TextEncoder().encode(keyStr)));
+  localStorage.setItem('sr_az_enc', JSON.stringify({ v: 1, s: u8b64(azSalt), i: u8b64(iv), c: u8b64(ct) }));
+  azKeyMem = keyStr;
+}
+async function azSetupPass(pass, keyStr) {        // 第一次设置：口令 + Key
+  azSalt = crypto.getRandomValues(new Uint8Array(16));
+  azCryptoKey = await azDerive(pass, azSalt);
+  await azStoreKey(keyStr);
+  localStorage.setItem('sr_az_dev', '1');
+}
+async function azUnlockWith(pass) {
+  let o; try { o = JSON.parse(localStorage.getItem('sr_az_enc')); } catch (e) { return false; }
+  if (!o) return false;
+  try {
+    const salt = b64u8(o.s), ck = await azDerive(pass, salt);
+    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64u8(o.i) }, ck, b64u8(o.c));
+    azKeyMem = new TextDecoder().decode(pt); azCryptoKey = ck; azSalt = salt; azFails = 0;
+    return true;
+  } catch (e) { return false; }                   // 口令不对，解密会失败
+}
+function azLock() { azKeyMem = ''; azCryptoKey = null; azSalt = null; azStopAudio(); if (state) render(); }
+let devTaps = 0, devTapTimer = null;
+function devTap() {                               // 在“帮助”里连点版本号 5 次，进入开发者入口（普通用户看不到，也不会误触）
+  devTaps++; clearTimeout(devTapTimer); devTapTimer = setTimeout(() => { devTaps = 0; }, 3000);
+  if (devTaps >= 5) { devTaps = 0; closePop(); if (azCfg().dev) openNaturalSettings(); else openDevSetup(); }
+}
+const AZ_FLD = 'width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;padding:9px;background:var(--pop);color:var(--ink);font-family:inherit;font-size:14px;margin:4px 0 10px';
+function openDevSetup() {
+  const c0 = azCfg(), ropt = azRegionOptions(c0.cloud, c0.region);
+  showPop(
+    '<h3 style="margin:0 0 6px">🔐 开发者验证</h3>' +
+    '<div class="note">只有验证为开发者的设备，才能使用你的 Azure 语音额度。设置一个<b>开发者口令</b>（至少 8 位）。你的 Key 会用这个口令加密后再保存在这台设备里；<b>每次重新打开网页，都要输入口令解锁</b>。口令丢了无法找回，只能删掉重设。</div>' +
+    '<div class="note" style="margin-top:10px">开发者口令</div><input id="devPass1" type="password" autocomplete="new-password" style="' + AZ_FLD + '">' +
+    '<div class="note">再输入一次</div><input id="devPass2" type="password" autocomplete="new-password" style="' + AZ_FLD + '">' +
+    '<div class="note">你用的 Azure（登录页是哪个）</div><select id="azCloud" onchange="azCloudChanged()" style="' + AZ_FLD + '">' + azCloudOptions(c0.cloud) + '</select>' +
+    '<div class="note">区域（要和创建语音资源时选的一致）</div><select id="azRegion" style="' + AZ_FLD + '">' + ropt + '</select>' +
+    '<div class="note">Azure 语音资源的 Key</div><input id="azKey" type="password" autocomplete="off" placeholder="粘贴 Key" style="' + AZ_FLD + '">' +
+    '<button onclick="azSetup()">设置并启用</button><div id="azStatus" class="note" style="margin-top:10px;min-height:20px"></div>'
+  );
+}
+async function azSetup() {
+  const v = id => (document.getElementById(id) || {}).value || '';
+  const p1 = v('devPass1'), p2 = v('devPass2'), key = v('azKey').trim();
+  if (p1.length < 8) { setAzStatus('口令至少 8 位'); return; }
+  if (p1 !== p2) { setAzStatus('两次输入的口令不一样'); return; }
+  if (!key) { setAzStatus('请先填 Key'); return; }
+  if (!(crypto && crypto.subtle)) { setAzStatus('这个浏览器不支持加密，无法使用开发者验证'); return; }
+  setAzStatus('正在加密保存…');
+  try {
+    const cl = v('azCloud') === 'cn' ? 'cn' : 'global';
+    localStorage.setItem('sr_az_cloud', cl); localStorage.setItem('sr_az_region', v('azRegion') || azRegionList(cl)[0]);
+    await azSetupPass(p1, key);
+    localStorage.setItem('sr_az_on', '1');
+    if (state) render();
+    openNaturalSettings(); toast('开发者验证已设置，自然语音已解锁', 3000);
+  } catch (e) { setAzStatus('设置失败：' + e.message); }
+}
+async function azUnlockBtn() {
+  const pass = (document.getElementById('devPassU') || {}).value || '';
+  if (!pass) { setAzStatus('请输入口令'); return; }
+  setAzStatus('正在验证…');
+  if (azFails > 0) await new Promise(r => setTimeout(r, Math.min(4000, azFails * 700)));     // 输错后一次比一次慢，防止有人一直试
+  if (await azUnlockWith(pass)) { if (state) render(); openNaturalSettings(); toast('已解锁（关闭网页后自动锁定）', 2500); }
+  else { azFails++; setAzStatus('口令不对'); }
+}
+function azExitDev() {
+  if (!confirm('退出开发者模式，并删除这台设备上保存的（加密的）Key？之后要重新设置口令和 Key。')) return;
+  ['sr_az_enc', 'sr_az_dev', 'sr_az_on'].forEach(k => localStorage.removeItem(k));
+  azLock(); closePop(); toast('已退出开发者模式，Key 已删除', 3000);
+}
+/* 设置页 */
+function setAzStatus(m) { const el = document.getElementById('azStatus'); if (el) el.textContent = m; }
+async function azSaveForm() {
+  const g = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+  const on = document.getElementById('azOn');
+  localStorage.setItem('sr_az_on', on && on.checked ? '1' : '0');
+  const cl = g('azCloud') === 'cn' ? 'cn' : 'global';
+  localStorage.setItem('sr_az_cloud', cl);
+  localStorage.setItem('sr_az_region', g('azRegion') || azRegionList(cl)[0]);
+  const ep = g('azEndpoint');
+  localStorage.setItem('sr_az_endpoint', /^https:\/\//i.test(ep) ? ep : '');
+  const key = g('azKey'); if (key && azCryptoKey) await azStoreKey(key);
+  const v = g('azVoice'); if (v && /^[A-Za-z0-9-]+$/.test(v)) localStorage.setItem('sr_az_voice', v);
+}
+async function azTest() {
+  await azSaveForm();
+  const c = azCfg();
+  if (!c.key) { setAzStatus('请先填写 Key'); return; }
+  azUnlock();
+  setAzStatus('正在向微软请求…');
+  try {
+    const r = await azLoad('Hello! This is a test of the natural voice.', c.voice);
+    markStopped();
+    const a = azSetSrc(r.blob); a.onended = a.onerror = null;
+    await a.play();
+    azLastError = '';
+    setAzStatus('成功 ✅ ' + (r.cached ? '（来自本机缓存）' : '（已联网生成）') + ' 音色：' + c.voice);
+  } catch (e) {
+    azLastError = e.message;
+    setAzStatus('失败：' + e.message + (e.code === 'network' ? '。如果你的网络是好的，多半是浏览器的跨域限制，请点“复制诊断信息”把结果告诉我。' : ''));
+  }
+  azRefreshStats();
+}
+async function azListVoices() {
+  await azSaveForm();
+  const c = azCfg();
+  if (!c.key) { setAzStatus('请先填写 Key'); return; }
+  setAzStatus('正在获取音色列表…');
+  try {
+    let r;
+    try { r = await fetch(azUrl('voices'), { headers: { 'Ocp-Apim-Subscription-Key': c.key } }); }
+    catch (e) { throw azErr('network', '连不上微软语音服务（网络问题，或被浏览器的跨域限制拦截）'); }
+    if (!r.ok) throw azErr('http' + r.status, azHttpMsg(r.status));
+    const all = await r.json();
+    const en = all.filter(v => /^en-/i.test(v.Locale || '')).map(v => ({ id: v.ShortName, label: (v.LocalName || v.ShortName) + ' · ' + v.Locale + ' ' + (/female/i.test(v.Gender) ? '女声' : '男声') }));
+    localStorage.setItem('sr_az_voices', JSON.stringify(en));
+    const sel = document.getElementById('azVoice');
+    if (sel) sel.innerHTML = en.map(v => '<option value="' + esc(v.id) + '"' + (v.id === c.voice ? ' selected' : '') + '>' + esc(v.label) + '</option>').join('');
+    const has = n => en.some(v => v.id.includes(n));
+    setAzStatus('找到 ' + en.length + ' 个英语音色。Sonia ' + (has('SoniaNeural') ? '✅' : '❌') + '  Ryan ' + (has('RyanNeural') ? '✅' : '❌') + '  Jenny ' + (has('JennyNeural') ? '✅' : '❌') + '  Guy ' + (has('GuyNeural') ? '✅' : '❌'));
+  } catch (e) { azLastError = e.message; setAzStatus('失败：' + e.message); }
+}
+async function azRefreshStats() { try { const st = await azCacheStats(); const el = document.getElementById('azStats'); if (el) el.textContent = '本机已缓存 ' + st.count + ' 段，' + (st.bytes / 1048576).toFixed(1) + ' MB（上限 150 MB，超过自动清理最久没听的）'; } catch (e) {} }
+async function azClearCacheBtn() { await azCacheClear(); azRefreshStats(); setAzStatus('缓存已清空'); }
+async function azSaveClose() { await azSaveForm(); closePop(); toast(azReady() ? '自然语音已启用' : '设置已保存（自然语音未启用）', 2500); }
+function openNaturalSettings() {
+  const c = azCfg();
+  if (!c.dev || !c.hasEnc) { openDevSetup(); return; }
+  if (!c.key) {                                   // 已设置但还没解锁
+    showPop(
+      '<h3 style="margin:0 0 6px">🔒 自然语音已锁定</h3>' +
+      '<div class="note">输入开发者口令解锁。解锁后，本次打开网页期间有效，关闭网页会自动锁定。</div>' +
+      '<input id="devPassU" type="password" autocomplete="current-password" placeholder="开发者口令" style="' + AZ_FLD + ';margin-top:12px" onkeydown="if(event.key===\'Enter\')azUnlockBtn()">' +
+      '<div class="row"><button onclick="azUnlockBtn()">解锁</button><button class="ghost sm" onclick="azExitDev()">忘了口令？删除重设</button></div>' +
+      '<div id="azStatus" class="note" style="margin-top:10px;min-height:20px"></div>'
+    );
+    return;
+  }
+  let list = []; try { list = JSON.parse(localStorage.getItem('sr_az_voices') || '[]'); } catch (e) {}
+  if (!list.length) list = AZ_PRESET_VOICES.map(([id, label]) => ({ id, label }));
+  const vopt = list.map(v => '<option value="' + esc(v.id) + '"' + (v.id === c.voice ? ' selected' : '') + '>' + esc(v.label) + '</option>').join('') + (list.some(v => v.id === c.voice) ? '' : '<option value="' + esc(c.voice) + '" selected>' + esc(c.voice) + '</option>');
+  const ropt = azRegionOptions(c.cloud, c.region);
+  showPop(
+    '<h3 style="margin:0 0 6px">🎧 自然语音（微软 Azure）</h3>' +
+    '<div class="note">🔓 已解锁。Key 用你的口令加密后保存在这台设备，关闭网页自动锁定。当前要朗读的那一句话会发给你的 Azure 账号生成语音；失败或没网时，自动用系统朗读。</div>' +
+    '<label style="display:block;margin:10px 0"><input type="checkbox" id="azOn"' + (c.on ? ' checked' : '') + '> 启用自然语音</label>' +
+    '<div class="note">你用的 Azure</div><select id="azCloud" onchange="azCloudChanged()" style="' + AZ_FLD + '">' + azCloudOptions(c.cloud) + '</select>' +
+    '<div class="note">区域（要和你创建语音资源时选的区域一致）</div><select id="azRegion" style="' + AZ_FLD + '">' + ropt + '</select>' +
+    '<div class="note">更换 Key（留空表示不修改）</div><input id="azKey" type="password" autocomplete="off" placeholder="••••••••（已加密保存）" style="' + AZ_FLD + '">' +
+    '<div class="note">音色</div><div class="row" style="flex-wrap:nowrap"><select id="azVoice" style="' + AZ_FLD + ';flex:1">' + vopt + '</select><button class="ghost sm" onclick="azListVoices()" style="margin-bottom:10px">拉取可用音色</button></div>' +
+    '<details style="margin-bottom:10px"><summary style="cursor:pointer" class="note">高级：自定义终结点（一般不用填）</summary><input id="azEndpoint" placeholder="https://你的资源名.cognitiveservices.azure.cn" value="' + esc(c.endpoint) + '" style="' + AZ_FLD + '"></details>' +
+    '<div class="row"><button onclick="azTest()">保存并试听</button><button class="ghost" onclick="azSaveClose()">保存并关闭</button></div>' +
+    '<div id="azStatus" class="note" style="margin-top:10px;min-height:20px"></div>' +
+    '<div id="azStats" class="note" style="margin-top:6px"></div>' +
+    '<div class="row" style="margin-top:8px"><button class="ghost sm" onclick="azLock();closePop()">🔒 立即锁定</button><button class="ghost sm" onclick="azClearCacheBtn()">清空语音缓存</button><button class="ghost sm" onclick="azExitDev()">退出开发者模式</button></div>' +
+    '<div class="note" style="margin-top:10px">费用：免费档每月 50 万字符免费（约 6000 句）；每句只生成一次，之后用缓存，不再计费。用量请在 Azure 门户里查看。</div>'
+  );
+  azRefreshStats();
 }
 
 function recKey() { return state.bookId + ':' + state.idx; }
@@ -1435,6 +1791,7 @@ async function copyDiag() {
     '朗读: ' + ('speechSynthesis' in window) + ' | 声音总数 ' + voices.length + '，英语 ' + en.length + ' | 当前音色 ' + (getSavedVoiceURI() || '默认'),
     '当前音色: ' + (((pickVoice(voices) || {}).name) || '默认') + ' | 本机声音: ' + ((pickVoice(voices) || {}).localService) + ' | 逐词读: ' + getWordMode(),
     '调速检测: ' + (Object.keys(rateIgnored).length ? JSON.stringify(rateIgnored) : '未检测') + ' | 测量: ' + JSON.stringify(rateProbes),
+    '自然语音: ' + (function () { const c = azCfg(); return '开发者模式 ' + c.dev + ' | 已解锁 ' + !!c.key + ' | 启用 ' + c.on + ' | 云 ' + c.cloud + ' | 区域 ' + c.region + ' | 音色 ' + c.voice + ' | 自定义终结点 ' + !!c.endpoint + ' | 最近错误 ' + (azLastError || '无'); })(),
     '录音: ' + !!(nav.mediaDevices && window.MediaRecorder) + ' | 语音识别打分: ' + speechRecoSupported(),
     '存储: ' + est,
     '词典: ' + (dictInfo && dictInfo.count ? dictInfo.count + ' 词条' : '未导入') + ' | 自动下载提示: ' + (getAutoMsg() || '无'),
@@ -1449,7 +1806,7 @@ function openHelp() {
   const li = t => '<li style="margin:5px 0">' + t + '</li>';
   const sec = (title, body, open) => '<details style="margin-top:10px"' + (open ? ' open' : '') + '><summary style="cursor:pointer;font-weight:600">' + title + '</summary><ul class="note" style="line-height:1.7;margin:8px 0 0;padding-left:20px">' + body + '</ul></details>';
   showPop(
-    '<h3 style="margin:0 0 4px">❓ 帮助与反馈</h3><div class="note">试用版 · 版本 ' + esc(APP_VERSION) + '</div>' +
+    '<h3 style="margin:0 0 4px">❓ 帮助与反馈</h3><div class="note">试用版 · 版本 <span onclick="devTap()" style="cursor:default;user-select:none">' + esc(APP_VERSION) + '</span></div>' +
     '<div class="row" style="margin:12px 0 4px"><button onclick="copyDiag()">复制诊断信息</button>' + (FEEDBACK_URL ? '<button class="ghost" onclick="openFeedback()">打开反馈问卷</button>' : '') + '</div>' +
     '<div class="note">遇到问题（没声音、录不了音、书导入不对等），先点“复制诊断信息”，粘贴发给发你链接的人。诊断信息只有设备和软件状态，没有书的内容和你的录音。</div>' +
     sec('快速上手',
@@ -1462,6 +1819,7 @@ function openHelp() {
       li('<b>整句翻译</b>：当前这一句英文会发送给第三方翻译服务；查词时本地词典没有的词也会发过去。书里自带中文译文的句子不会发送。') +
       li('<b>跟读打分</b>用的是浏览器自带的语音识别，在 Chrome、Edge 上你的声音会被发送到浏览器厂商的服务器处理。') +
       li('<b>识别图片里的文字</b>：第一次会从公共网络下载识别组件和英文语言数据，识别在你本机完成，图片不会上传。') +
+      li('<b>自然语音（仅开发者可用）</b>：需要开发者口令解锁。启用后，当前要朗读的那一句英文会发到开发者自己的微软 Azure 账号生成语音。Key 用口令加密后只保存在开发者的设备里，软件代码里没有任何 Key。') +
       li('软件本身不收集任何使用数据。')) +
     sec('开源与致谢',
       li('英汉词典数据：ECDICT（skywind3000，MIT 许可）') + li('PDF 解析：pdf.js（Mozilla，Apache-2.0）') + li('epub 解压：JSZip（MIT / GPLv3 双许可）') +
@@ -1911,7 +2269,7 @@ function render() {
   closeWordPop();
   const app = document.getElementById('app');
   const header = '<div class="topbar"><div><h1>一句一句读</h1><div class="sub">一次只读一句，一句一句读完整本书</div></div>' +
-    '<div class="tools">' + (state ? '<button class="iconbtn" onclick="openToc()">📑 目录</button>' : '') + '<button class="iconbtn" onclick="openVocabHome()">⭐ 生词本<span id="vocabBadge">' + (vocabDueCache > 0 ? ' (' + vocabDueCache + ')' : '') + '</span></button><button class="iconbtn" onclick="openDictSettings()">📚 词典</button><button class="iconbtn" onclick="openGrammarDict()">📘 语法字典</button><button class="iconbtn" onclick="openHelp()">❓ 帮助</button></div></div>';
+    '<div class="tools">' + (state ? '<button class="iconbtn" onclick="openToc()">📑 目录</button>' : '') + '<button class="iconbtn" onclick="openVocabHome()">⭐ 生词本<span id="vocabBadge">' + (vocabDueCache > 0 ? ' (' + vocabDueCache + ')' : '') + '</span></button>' + (azCfg().dev ? '<button class="iconbtn" onclick="openNaturalSettings()">' + (azKeyMem ? '🎧' : '🔒') + ' 自然语音</button>' : '') + '<button class="iconbtn" onclick="openDictSettings()">📚 词典</button><button class="iconbtn" onclick="openGrammarDict()">📘 语法字典</button><button class="iconbtn" onclick="openHelp()">❓ 帮助</button></div></div>';
   refreshVocabBadge();
 
   if (!state) {
@@ -1984,7 +2342,7 @@ function render() {
         '<div class="metric"><div class="num">' + cntLabel(p.reads, NEED_READS) + '</div><div class="lab">跟读（建议3遍）</div></div></div>' +
         '<div class="row">' +
           '<button onclick="playListen()">' +
-            (listenState.idx === state.idx && listenState.playing ? (listenState.paused ? '▶️ 继续' : '⏸ 暂停') : '🔊 听原音') + '</button>' +
+            (listenState.idx === state.idx && listenState.playing ? (listenState.paused ? '▶️ 继续' : (azLoading ? '⏳ 生成中…' : '⏸ 暂停')) : '🔊 听原音') + '</button>' +
           voiceSelectHtml() +
           '<button class="ghost sm" onclick="cycleRate()">语速 ' + getRate() + 'x' + (rateIgnored[voiceKeyNow()] ? '（此声音不支持）' : '') + '</button>' +
           '<button class="ghost sm" onclick="toggleWordMode()">' + (getWordMode() ? '🐢 逐词读：开' : '🐢 逐词读') + '</button>' +
