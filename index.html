@@ -1,0 +1,1503 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>一句一句读</title>
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<meta name="theme-color" content="#c1502e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="一句一句读">
+<style>
+:root{
+  --bg:#f7f5f0; --card:#ffffff; --ink:#2a2620; --sub:#7a7266;
+  --accent:#c1502e; --accent2:#2f6f5e; --line:#e7e1d6; --pop:#fff8ec; --rec:#c0392b;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1c1a17; --card:#26231f; --ink:#efe9de; --sub:#a89e8e;
+    --accent:#e07850; --accent2:#5fa893; --line:#3a352d; --pop:#2f2a24; --rec:#e0564a;
+  }
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:Georgia,'Songti SC','Noto Serif SC',serif;-webkit-font-smoothing:antialiased;}
+#app{max-width:680px;margin:0 auto;padding:20px 16px 60px;}
+h1{font-size:20px;letter-spacing:1px;margin:0 0 4px;font-weight:600}
+.sub{color:var(--sub);font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:16px}
+textarea{width:100%;min-height:160px;border:1px solid var(--line);border-radius:10px;padding:12px;font-size:15px;background:var(--pop);color:var(--ink);font-family:inherit}
+button{font-family:inherit;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;background:var(--accent);color:#fff}
+button:hover{opacity:.9}
+button:focus-visible,summary:focus-visible,.w:focus-visible{outline:2px solid var(--accent2);outline-offset:2px}
+button.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+button.sm{padding:7px 12px;font-size:13px}
+button:disabled{background:var(--line);color:var(--sub);cursor:not-allowed;border-color:var(--line)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:14px}
+.tools{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.iconbtn{background:transparent;color:var(--ink);border:1px solid var(--line);padding:6px 10px;font-size:13px}
+.levelbar{display:flex;justify-content:space-between;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 16px;font-size:13px}
+.badge{background:var(--accent2);color:#fff;border-radius:999px;padding:3px 12px;font-weight:600}
+.progressline{height:6px;background:var(--line);border-radius:6px;overflow:hidden;margin:8px 0 14px}
+.progressfill{height:100%;background:var(--accent2)}
+.sentence{font-size:26px;line-height:1.7;margin:4px 0 12px}
+.sentence .w{cursor:pointer;border-bottom:1.5px dotted var(--accent);padding:0 1px;border-radius:3px}
+.sentence .w:hover{background:var(--pop)}
+.zh{color:var(--sub);font-size:15px;line-height:1.6;font-style:italic}
+.section{margin-top:18px;padding-top:14px;border-top:1px dashed var(--line)}
+.section > h3,.section > summary{font-size:14px;margin:0 0 10px;font-weight:600;cursor:pointer}
+.metrics{display:flex;gap:12px;margin-bottom:12px}
+.metric{flex:1;background:var(--pop);border-radius:10px;padding:10px;text-align:center}
+.metric .num{font-size:20px;font-weight:700;color:var(--accent)}
+.metric .lab{font-size:12px;color:var(--sub);margin-top:2px}
+.recbtn{background:var(--accent2)}
+.recbtn.on{background:var(--rec);animation:pulse 1.2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.72}}
+@media (prefers-reduced-motion: reduce){.recbtn.on{animation:none}}
+.recitem{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:var(--sub)}
+.recitem audio{height:36px;flex:1;min-width:0}
+.gsum{display:inline-block;background:var(--pop);border-radius:8px;padding:4px 10px;font-size:13px;margin-bottom:6px}
+.gi{padding:10px 0;border-bottom:1px solid var(--line)}
+.gi:last-child{border-bottom:none}
+.gi .gt{font-weight:600;font-size:14px;color:var(--accent2)}
+.gi .gh{font-size:14px;margin:4px 0;font-style:italic}
+.gi .gd{font-size:13px;color:var(--sub);line-height:1.5}
+.link{background:none;border:none;color:var(--accent);padding:4px 0;font-size:12px;cursor:pointer}
+.examples li{margin-bottom:6px;font-size:15px;line-height:1.5}
+#overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:flex-end;justify-content:center;z-index:20}
+#overlay.show{display:flex}
+.wordpop{position:fixed;z-index:40;width:280px;max-width:calc(100vw - 24px);max-height:min(360px,60vh);overflow-y:auto;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.22);padding:14px 16px}
+.wordpop[hidden]{display:none}
+.wp-arrow{position:absolute;width:12px;height:12px;background:var(--card);border:1px solid var(--line);transform:rotate(45deg)}
+.wordpop.below .wp-arrow{top:-7px;border-right:none;border-bottom:none}
+.wordpop.above .wp-arrow{bottom:-7px;border-left:none;border-top:none}
+#pop{background:var(--card);border-radius:16px 16px 0 0;padding:22px;width:100%;max-width:680px;max-height:86vh;overflow-y:auto;padding-bottom:calc(22px + env(safe-area-inset-bottom,0px))}
+.dentry{padding:10px 0;border-bottom:1px solid var(--line)}
+.dhead{font-size:22px;font-weight:700;color:var(--accent)}
+.ph{font-size:14px;color:var(--sub);font-weight:400;margin-left:6px}
+.src{font-size:11px;color:#fff;background:var(--accent2);border-radius:6px;padding:2px 6px;margin-left:6px;font-weight:400;vertical-align:middle}
+.note{font-size:13px;color:var(--sub);margin-top:4px;line-height:1.5}
+.zhdef{margin-top:6px;font-size:15px;line-height:1.6}
+.endef{margin-top:6px;font-size:13px;color:var(--sub);line-height:1.5}
+.ref h4{margin:0 0 4px;color:var(--accent2)}
+.formula{background:var(--pop);border-radius:8px;padding:8px 10px;font-size:13px;margin:6px 0;line-height:1.5}
+.eg{font-size:14px;margin:6px 0;line-height:1.5}
+details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
+.filebtn{position:relative;display:inline-block}
+.filebtn input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+.pbar{height:8px;background:var(--line);border-radius:6px;overflow:hidden;margin-top:8px}
+.pbar > div{height:100%;background:var(--accent2);width:0}
+#loading{text-align:center;color:var(--sub);padding:40px 0}
+.fs-modal{position:fixed;inset:0;background:var(--bg);z-index:60;display:none;flex-direction:column}
+.fs-modal.show{display:flex}
+.fs-topbar{display:flex;align-items:center;gap:12px;padding:calc(14px + env(safe-area-inset-top,0px)) 16px 14px;border-bottom:1px solid var(--line);flex-shrink:0}
+.fs-topbar span{font-weight:600;font-size:15px}
+.fs-body{flex:1;overflow-y:auto;padding:20px 16px calc(24px + env(safe-area-inset-bottom,0px));max-width:680px;margin:0 auto;width:100%}
+.finish{text-align:center;padding:30px 0}
+.toastPlus{position:fixed;bottom:calc(24px + env(safe-area-inset-bottom,0px));left:50%;transform:translate(-50%,10px);background:var(--accent2);color:#fff;padding:9px 20px;border-radius:16px;font-size:14px;font-weight:600;opacity:0;transition:opacity .25s,transform .25s;z-index:50;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.25);max-width:min(90vw,420px);text-align:center;line-height:1.4}
+.toastPlus.show{opacity:1;transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+<div id="app"><div id="loading">加载中…</div></div>
+<div id="overlay" onclick="if(event.target.id==='overlay')closePop()"><div id="pop" role="dialog" aria-modal="true"></div></div>
+<div id="wordpop" class="wordpop" role="dialog" aria-live="polite" hidden><div class="wp-arrow"></div><div id="wpBody"></div></div>
+<div id="fsModal" class="fs-modal" role="dialog" aria-modal="true" hidden>
+  <div class="fs-topbar"><button class="iconbtn" onclick="closeFullscreen()">← 返回</button><span id="fsTitle"></span></div>
+  <div id="fsBody" class="fs-body"></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="./dict-basic.js"></script>
+<script src="./grammar.js"></script>
+<script>
+'use strict';
+let state = null, dictInfo = null, curTokens = [], curWord = '', curWordZh = '', gramOpen = true;
+let analysisCache = { idx: -1, res: null }, simCache = { idx: -1, list: [] };
+let rec = { mr: null, on: false, start: 0, timer: null };
+let recView = { key: '', urls: [] };
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+
+/* ---------- IndexedDB：离线大词典 + 录音 + 生词本 ---------- */
+let _db = null;
+function idb() {
+  if (_db) return _db;
+  _db = new Promise((res, rej) => {
+    const r = indexedDB.open('sentence-reader', 3);
+    r.onupgradeneeded = () => {
+      const d = r.result;
+      if (!d.objectStoreNames.contains('dict')) d.createObjectStore('dict', { keyPath: 'w' });
+      if (!d.objectStoreNames.contains('recs')) d.createObjectStore('recs');
+      if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta');
+      if (!d.objectStoreNames.contains('vocab')) d.createObjectStore('vocab', { keyPath: 'word' });
+      if (!d.objectStoreNames.contains('images')) d.createObjectStore('images');
+    };
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+  return _db;
+}
+async function idbGet(store, key) {
+  const d = await idb();
+  return new Promise((res, rej) => { const r = d.transaction(store).objectStore(store).get(key); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+}
+async function idbGetAll(store) {
+  const d = await idb();
+  return new Promise((res, rej) => { const r = d.transaction(store).objectStore(store).getAll(); r.onsuccess = () => res(r.result || []); r.onerror = () => rej(r.error); });
+}
+async function idbPut(store, val, key) {
+  const d = await idb();
+  return new Promise((res, rej) => { const t = d.transaction(store, 'readwrite'); if (key === undefined) t.objectStore(store).put(val); else t.objectStore(store).put(val, key); t.oncomplete = res; t.onerror = () => rej(t.error); });
+}
+async function idbPutMany(store, arr) {
+  const d = await idb();
+  return new Promise((res, rej) => { const t = d.transaction(store, 'readwrite'); const s = t.objectStore(store); arr.forEach(v => s.put(v)); t.oncomplete = res; t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); });
+}
+async function idbClear(store) {
+  const d = await idb();
+  return new Promise((res, rej) => { const t = d.transaction(store, 'readwrite'); t.objectStore(store).clear(); t.oncomplete = res; t.onerror = () => rej(t.error); });
+}
+async function idbDel(store, key) {
+  const d = await idb();
+  return new Promise((res, rej) => { const t = d.transaction(store, 'readwrite'); t.objectStore(store).delete(key); t.oncomplete = res; t.onerror = () => rej(t.error); });
+}
+
+/* ---------- 启动与保存 ---------- */
+async function boot() {
+  try { const raw = localStorage.getItem('sr_state'); if (raw) state = JSON.parse(raw); } catch (e) {}
+  if (state) {
+    if (!state.bookId) state.bookId = 'b' + (state.startDate || Date.now());
+    state.prog = state.prog || {}; state.cache = state.cache || {};
+    delete state.wordCache;
+  }
+  try { dictInfo = (await idbGet('meta', 'dictInfo')) || null; } catch (e) {}
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+  if (state) loadCurrent(); else render();
+  if (!dictInfo || !dictInfo.count) autoImportDict();
+}
+window.addEventListener('online', () => { if (state) loadCurrent(); });
+window.addEventListener('offline', () => render());
+boot();
+
+function saveState() {
+  if (!state) { localStorage.removeItem('sr_state'); return; }
+  try { localStorage.setItem('sr_state', JSON.stringify(state)); }
+  catch (e) {
+    const k = String(state.idx), keep = {};
+    if (state.cache[k]) keep[k] = state.cache[k];
+    state.cache = keep;
+    try { localStorage.setItem('sr_state', JSON.stringify(state)); } catch (e2) {}
+  }
+}
+
+/* ---------- 整句翻译（需联网，失败不影响学习） ---------- */
+let lastTranslateAt = 0;
+async function throttleGap() {
+  const gap = 700, wait = lastTranslateAt + gap - Date.now();
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  lastTranslateAt = Date.now();
+}
+async function fetchViaGoogle(q) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 6000);
+  try {
+    const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=' + encodeURIComponent(q);
+    const resp = await fetch(url, { signal: ctrl.signal });
+    if (!resp.ok) { const err = new Error('google-' + resp.status); err.code = resp.status; throw err; }
+    const data = await resp.json();
+    const t = (data && data[0] || []).map(seg => seg && seg[0]).join('');
+    if (!t) throw new Error('google-empty');
+    return t;
+  } finally { clearTimeout(timer); }
+}
+async function fetchViaMyMemory(q) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 6000);
+  let resp;
+  try {
+    resp = await fetch('https://api.mymemory.translated.net/get?q=' + encodeURIComponent(q) + '&langpair=en|zh-CN', { signal: ctrl.signal });
+  } catch (e) {
+    throw new Error(e && e.name === 'AbortError' ? '网络请求超时' : '网络请求失败');
+  } finally { clearTimeout(timer); }
+  if (resp.status === 429) { const err = new Error('翻译服务返回 429'); err.code = 429; throw err; }
+  if (!resp.ok) throw new Error('翻译服务返回 ' + resp.status);
+  const data = await resp.json();
+  const t = data && data.responseData && data.responseData.translatedText;
+  if (!t) throw new Error('没有返回翻译结果');
+  if (/MYMEMORY WARNING|QUOTA/i.test(t)) throw new Error('今天的免费翻译额度已用完，明天会恢复');
+  return t;
+}
+async function translateText(text) {
+  const q = text.slice(0, 480);
+  await throttleGap();
+  // 主用：Google 免费接口，容量更大更稳定
+  try { return await fetchViaGoogle(q); } catch (e) { /* 失败就换下一个源 */ }
+  // 备用：MyMemory，遇到 429 自动重试几次
+  const delays = [0, 1500, 3500];
+  let lastErr;
+  for (let i = 0; i < delays.length; i++) {
+    if (delays[i]) await new Promise(r => setTimeout(r, delays[i]));
+    await throttleGap();
+    try { return await fetchViaMyMemory(q); }
+    catch (e) { lastErr = e; if (e.code !== 429) throw e; }
+  }
+  throw lastErr || new Error('两个免费翻译源暂时都请求失败，请稍等一会儿再点重试');
+}
+
+
+/* ---------- 文本处理 ---------- */
+function splitSentences(text) {
+  text = text.replace(/\r/g, ' ').replace(/\s+/g, ' ').trim();
+  // 中英对照书：中文句号/问号/叹号当作句子边界，其余中文字符和全角符号一律去掉，只留英文
+  text = text.replace(/[。！？]+/g, ' \u2029 ');
+  text = text.replace(/[\u2160-\u217f\u2460-\u24ff\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/g, ' ');
+  text = text.replace(/[ \t]+/g, ' ').trim();
+  text = text.replace(/\b(Mr|Mrs|Ms|Dr|St|Jr|Sr|Prof|Mt|No)\./g, '$1\u2024');
+  text = text.replace(/([a-zA-Z])\.([A-Z])/g, '$1. $2'); // 修复类似 "I.Down"、"CHAPTER II.The" 这种缺空格的粘连
+  return text.replace(/([.!?]+["'”’)\]]*)\s+/g, '$1\u2029').split('\u2029')
+    .map(s => s.replace(/\u2024/g, '.').trim())
+    .filter(s => s.length > 1 && /[A-Za-z]{2}/.test(s) && !/https?:\/\/|www\.|ISBN|©/i.test(s));
+}
+function stripGutenberg(text) {
+  const startRe = /\*\*\*\s*START OF (?:THE|THIS) PROJECT GUTENBERG[^\n*]*\*\*\*/i;
+  const endRe = /\*\*\*\s*END OF (?:THE|THIS) PROJECT GUTENBERG[^\n*]*\*\*\*/i;
+  const sm = text.match(startRe);
+  if (sm) text = text.slice(sm.index + sm[0].length);
+  const em = text.match(endRe);
+  if (em) text = text.slice(0, em.index);
+  return text;
+}
+function finalizeImport(sentences, imageRanges, bookId, extraToast) {
+  if (!sentences.length) { alert('没有识别到英文句子，请检查导入的内容。'); return; }
+  idbClear('recs').catch(() => {});
+  const startIdx = detectStart(sentences);
+  state = { bookId: bookId || ('b' + Date.now()), sentences, idx: startIdx, prog: {}, cache: {}, startDate: Date.now(), totalCompleted: 0, imageRanges: imageRanges || [] };
+  saveState();
+  loadCurrent();
+  const msgs = [];
+  if (startIdx > 0) msgs.push('已跳过开头 ' + startIdx + ' 句目录/版权信息，从正文开始。可点"跳转句子"调整');
+  if (extraToast) msgs.push(extraToast);
+  if (msgs.length) toast(msgs.join('；'), 4200);
+}
+function importBook(text) {
+  idbClear('images').catch(() => {});
+  const gutenberg = /project gutenberg/i.test(text.slice(0, 3000));
+  if (gutenberg) text = stripGutenberg(text);
+  const sentences = splitSentences(text).slice(0, 50000);
+  finalizeImport(sentences, [], null, gutenberg ? '已按 Project Gutenberg 的标记裁掉开头的版权声明' : null);
+}
+async function importBookBlocks(blocks) {
+  const bookId = 'b' + Date.now();
+  const sentences = [];
+  const imageRanges = [];   // [起始句序号, 结束句序号(不含)]，这个范围内的句子都显示这组插图
+  let pendingImages = [], totalImages = 0;
+  const saves = [];
+  try { await idbClear('images'); } catch (e) {}
+  for (const block of blocks) {
+    const blockSentences = splitSentences(block.text || '');
+    const images = (block.images || []).slice(0, 3);
+    if (!blockSentences.length) { if (images.length) pendingImages = pendingImages.concat(images); continue; }
+    const first = sentences.length;
+    const useImages = pendingImages.concat(images).slice(0, 3);
+    pendingImages = [];
+    sentences.push(...blockSentences);
+    if (useImages.length) {
+      imageRanges.push([first, sentences.length]);
+      totalImages += useImages.length;
+      saves.push(idbPut('images', useImages, bookId + ':' + first));
+    }
+    if (sentences.length > 50000) break;
+  }
+  let saveFailed = false;
+  try { await Promise.all(saves); } catch (e) { saveFailed = true; }
+  const msg = saveFailed ? '插图保存失败（可能是存储空间不足），只导入了文字'
+    : totalImages ? '已提取 ' + totalImages + ' 张插图，会跟对应页的文字一起显示'
+    : '没有找到可提取的插图（有些图画书的图是背景图或特殊排版，暂不支持）';
+  finalizeImport(sentences, saveFailed ? [] : imageRanges, bookId, msg);
+}
+
+/* ---------- 自动识别正文起点：跳过书名页、版权页、献词、目录等 ---------- */
+const FRONT_MATTER_RE = /\b(copyright|all rights reserved|isbn|library of congress|published (by|in)|first published|printed in|no part of this|permission of the publisher|table of contents|^contents\b|dedicat|illustrat(ed|ions?)\s+by|pictures?\s+by|cover (design|art|illustration)|edited by|translated by|acknowledg|about the author|www\.\w|\.com\b|project gutenberg|this ebook is for the use of|almost no restrictions whatsoever|redistribut(e|ing) it|terms of the project gutenberg|^(prologue|preface|foreword)$)/i;
+function looksLikeFrontMatter(s) {
+  if (FRONT_MATTER_RE.test(s)) return true;
+  if (/^ACTIVITIES\b|\b(Before|While|After) Reading\b/.test(s)) return true;
+  const words = s.split(/\s+/).filter(Boolean);
+  if (words.length < 2 && !/[.!?]["'”’)\]]*$/.test(s.trim())) return true;
+  if (/^(to|for)\s+[A-Z][a-z]+[.,]?$/.test(s.trim()) && words.length <= 5) return true; // 献词，如 "To Emma."
+  if (words.length <= 6) {
+    const capRatio = words.filter(w => /^[A-Z]/.test(w)).length / words.length;
+    if (capRatio >= 0.8 && !/[.!?]$/.test(s.trim())) return true; // 短且几乎全是大写开头、又没有句末标点，多半是标题/署名行
+  }
+  return false;
+}
+const CHAPTER_WORD = 'one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\\d{1,3}|[ivxlcdm]{1,7}';
+function isJunkSentence(s) {
+  const t = s.trim();
+  const words = t.split(/\s+/).filter(Boolean), n = words.length;
+  if (!/[.!?]["'”’)\]]*$/.test(t)) return true;                 // 没有句末标点：多半是标题/署名/目录
+  if (/https?:\/\/|www\.|ISBN|©/i.test(t)) return true;         // 网址、书号、版权符号
+  if ((t.match(/\d/g) || []).length / t.length >= 0.1) return true; // 数字太多
+  if (n >= 3 && !words.some(w => /^[a-z]/.test(w))) return true;   // 没有一个小写开头的词：全是专有名词/标题
+  return false;
+}
+function detectStart(sentences) {
+  let idx = detectStartBase(sentences);
+  if (isJunkSentence(sentences[idx])) {
+    const cap = Math.min(sentences.length, idx + 80);
+    for (let j = idx; j < cap; j++) {
+      if (!isJunkSentence(sentences[j]) && sentences[j].trim().split(/\s+/).length >= 4) { idx = j; break; }
+    }
+  }
+  return idx;
+}
+function detectStartBase(sentences) {
+  const N = Math.min(sentences.length, 100);
+  const markerRe = new RegExp('\\bchapter\\s+(' + CHAPTER_WORD + ')\\b\\.?', 'i');
+  const idxs = [];
+  for (let i = 0; i < N; i++) { if (markerRe.test(sentences[i])) idxs.push(i); }
+  // 如果开头密集出现好几个"CHAPTER X."，说明这是目录列表，而不是正文，整段跳过
+  let searchFrom = 0;
+  if (idxs.length >= 3 && idxs[0] <= 15) {
+    let last = idxs[0];
+    for (let k = 1; k < idxs.length; k++) {
+      const idx = idxs[k], wc = sentences[idx].trim().split(/\s+/).length;
+      if (idx - last <= 2 && wc <= 20) last = idx; else break;
+    }
+    if (last > idxs[0]) searchFrom = last + 1;
+  }
+  const startHeadingRe = new RegExp('^(chapter\\s+(' + CHAPTER_WORD + ')\\b\\.?|prologue\\b)', 'i');
+  const M = Math.min(sentences.length, searchFrom + 60);
+  for (let i = searchFrom; i < M; i++) {
+    const trimmed = sentences[i].trim();
+    if (startHeadingRe.test(trimmed)) {
+      const wc = trimmed.split(/\s+/).length;
+      return wc <= 6 ? Math.min(i + 1, sentences.length - 1) : i; // 短标题单独一句就跳过它；若和正文粘在一起，就从这句开始
+    }
+  }
+  let i = searchFrom;
+  const cap = Math.min(sentences.length, searchFrom + 40);
+  while (i < cap && looksLikeFrontMatter(sentences[i])) i++;
+  return Math.min(i, sentences.length - 1);
+}
+const NEED_READS = 3, NEED_LISTENS = 3;
+function cntLabel(n, need) { return n >= need ? '✓ ' + n : n + '/' + need; }
+function currentProg() {
+  if (!state.prog[state.idx]) state.prog[state.idx] = { reads: 0, listens: 0 };
+  return state.prog[state.idx];
+}
+function levelInfo() {
+  const grades = ['学前启蒙', '一年级 · 上', '一年级 · 下', '二年级 · 上', '二年级 · 下', '三年级 · 上', '三年级 · 下', '四年级 · 上', '四年级 · 下', '五年级 · 上', '五年级 · 下', '六年级 · 毕业挑战'];
+  const weeks = Math.floor((Date.now() - state.startDate) / (7 * 24 * 3600 * 1000));
+  const bySent = Math.floor(state.totalCompleted / 20);
+  const idx = Math.min(grades.length - 1, Math.max(weeks, bySent));
+  return { label: grades[idx], idx };
+}
+
+/* ---------- 词序对比打分（听写 / 跟读打分共用） ---------- */
+function normWords(s) { return (s.match(/[A-Za-z']+/g) || []).map(w => w.toLowerCase()); }
+function lcsMatch(target, user) {
+  const n = target.length, m = user.length;
+  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = 1; i <= n; i++) for (let j = 1; j <= m; j++) {
+    dp[i][j] = target[i - 1] === user[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+  }
+  let i = n, j = m; const matchedTarget = new Set(), matchedUser = new Set();
+  while (i > 0 && j > 0) {
+    if (target[i - 1] === user[j - 1]) { matchedTarget.add(i - 1); matchedUser.add(j - 1); i--; j--; }
+    else if (dp[i - 1][j] >= dp[i][j - 1]) i--; else j--;
+  }
+  return { matchedTarget, matchedUser, matchedCount: matchedTarget.size };
+}
+function scoreAgainst(targetSentence, userText) {
+  const targetDisplay = targetSentence.match(/[A-Za-z']+/g) || [];
+  const userDisplay = userText.match(/[A-Za-z']+/g) || [];
+  const tN = normWords(targetSentence), uN = normWords(userText);
+  const r = lcsMatch(tN, uN);
+  const pct = tN.length ? Math.round(r.matchedCount / tN.length * 100) : 0;
+  const userHtml = userDisplay.map((w, idx) => '<span style="color:' + (r.matchedUser.has(idx) ? 'var(--accent2)' : 'var(--rec)') + (r.matchedUser.has(idx) ? '' : ';text-decoration:line-through') + '">' + esc(w) + '</span>').join(' ') || '<span class="sub">（没有识别到内容）</span>';
+  const missing = targetDisplay.filter((_, idx) => !r.matchedTarget.has(idx));
+  return { pct, userHtml, missing, matchedCount: r.matchedCount, total: tN.length };
+}
+
+const STOP = new Set('the a an and or but is are was were be been being to of in on at for with as it this that he she they we you i his her its their our your not so if then than from by about into over after before up down out no yes do does did have has had will would can could should just also very more most some such what which who whom when where why how there here them him me my us'.split(' '));
+
+/* ---------- 听写练习 ---------- */
+function openDictation() {
+  const html = '<div class="note">点播放听这句话（可以反复听），凭听力打出你听到的内容，然后点"检查"。</div>' +
+    '<div class="row" style="margin:12px 0"><button onclick="playDictationAudio()">🔊 播放</button></div>' +
+    '<textarea id="dictationInput" placeholder="在这里输入你听到的英文…" style="min-height:90px"></textarea>' +
+    '<div class="row" style="margin-top:10px"><button onclick="checkDictation()">检查</button><button class="ghost sm" onclick="revealDictation()">直接看答案</button></div>' +
+    '<div id="dictationResult"></div>';
+  showFullscreen('✍️ 听写练习', html);
+}
+function playDictationAudio() {
+  (async () => {
+    try {
+      const u = new SpeechSynthesisUtterance(state.sentences[state.idx]);
+      await applyVoice(u); u.rate = getRate();
+      stopSpeech(); speechSynthesis.speak(u);
+    } catch (e) {}
+  })();
+}
+function checkDictation() {
+  const val = document.getElementById('dictationInput').value.trim();
+  if (!val) { alert('请先输入你听到的内容'); return; }
+  const r = scoreAgainst(state.sentences[state.idx], val);
+  let html = '<div class="note" style="margin-top:12px;font-weight:600;color:var(--ink)">正确率约 ' + r.pct + '%（' + r.matchedCount + '/' + r.total + ' 词）</div>';
+  html += '<div class="eg" style="margin-top:8px">你写的：' + r.userHtml + '</div>';
+  if (r.missing.length) html += '<div class="note" style="margin-top:6px">漏掉或写错的词：' + esc(r.missing.join(', ')) + '</div>';
+  html += '<div class="note" style="margin-top:10px">原句：' + esc(state.sentences[state.idx]) + '</div>';
+  document.getElementById('dictationResult').innerHTML = html;
+}
+function revealDictation() {
+  document.getElementById('dictationResult').innerHTML = '<div class="note" style="margin-top:12px">原句：' + esc(state.sentences[state.idx]) + '</div>';
+}
+
+/* ---------- 句子重组小游戏 ---------- */
+let jumbleState = { pool: [], answer: [], target: [] };
+function openJumble() {
+  const words = state.sentences[state.idx].split(/\s+/).filter(Boolean);
+  jumbleState.target = words;
+  let pool = words.slice();
+  for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+  if (pool.length > 1 && pool.join(' ') === words.join(' ')) { [pool[0], pool[1]] = [pool[1], pool[0]]; }
+  jumbleState.pool = pool.map((w, i) => ({ w, id: i }));
+  jumbleState.answer = [];
+  renderJumble();
+}
+function renderJumble() {
+  const chip = (item, inAnswer) => '<span onclick="' + (inAnswer ? 'jumbleRemove' : 'jumbleAdd') + '(' + item.id + ')" style="display:inline-block;margin:4px;padding:6px 10px;background:var(--pop);border:1px solid var(--line);border-radius:8px;cursor:pointer;font-size:15px">' + esc(item.w) + '</span>';
+  let html = '<div class="note">点击下面打乱的词语，按正确顺序把句子拼出来；点已拼好的词可以撤回。</div>';
+  html += '<div style="min-height:46px;border:1px dashed var(--line);border-radius:8px;padding:6px;margin-top:10px">' + (jumbleState.answer.length ? jumbleState.answer.map(it => chip(it, true)).join('') : '<span class="sub">（你拼的句子会显示在这里）</span>') + '</div>';
+  html += '<div style="margin-top:10px">' + jumbleState.pool.map(it => chip(it, false)).join('') + '</div>';
+  html += '<div class="row" style="margin-top:14px"><button onclick="checkJumble()" ' + (jumbleState.pool.length ? 'disabled' : '') + '>检查</button><button class="ghost sm" onclick="openJumble()">重新打乱</button></div>';
+  html += '<div id="jumbleResult"></div>';
+  if (fsOpen()) setFullscreenBody(html); else showFullscreen('🔀 句子重组', html);
+}
+function jumbleAdd(id) {
+  const idx = jumbleState.pool.findIndex(x => x.id === id);
+  if (idx < 0) return;
+  jumbleState.answer.push(jumbleState.pool[idx]);
+  jumbleState.pool.splice(idx, 1);
+  renderJumble();
+}
+function jumbleRemove(id) {
+  const idx = jumbleState.answer.findIndex(x => x.id === id);
+  if (idx < 0) return;
+  jumbleState.pool.push(jumbleState.answer[idx]);
+  jumbleState.answer.splice(idx, 1);
+  renderJumble();
+}
+function checkJumble() {
+  const userOrder = jumbleState.answer.map(x => x.w);
+  const ok = userOrder.join(' ') === jumbleState.target.join(' ');
+  let correctCount = 0;
+  userOrder.forEach((w, i) => { if (w === jumbleState.target[i]) correctCount++; });
+  const el = document.getElementById('jumbleResult');
+  if (!el) return;
+  el.innerHTML = ok
+    ? '<div class="note" style="margin-top:10px;color:var(--accent2);font-weight:600">🎉 完全正确！</div>'
+    : '<div class="note" style="margin-top:10px">还不完全对：' + correctCount + '/' + jumbleState.target.length + ' 个词位置正确。再试试，或点"重新打乱"。</div>';
+}
+
+/* ---------- 跟读打分（语音识别，需联网，Safari 不支持） ---------- */
+function speechRecoSupported() { return !!(window.SpeechRecognition || window.webkitSpeechRecognition); }
+function openSpeechScore() {
+  if (!speechRecoSupported()) {
+    showFullscreen('🎯 跟读打分', '<div class="note">这个功能依赖浏览器自带的语音识别，你现在用的浏览器不支持（常见于 iPhone/Mac 的 Safari）。请换 <b>Chrome 或 Edge</b> 浏览器打开试试。</div>');
+    return;
+  }
+  stopSpeech();
+  showFullscreen('🎯 跟读打分', '<div class="sentence" style="font-size:22px">' + esc(state.sentences[state.idx]) + '</div><div class="note">点"开始"后对着麦克风朗读上面这句话，说完稍等一下会自动识别打分。需要联网。</div><div class="row" style="margin-top:12px"><button onclick="startSpeechScore()">🎙️ 开始</button></div><div id="speechScoreResult"></div>');
+}
+function startSpeechScore() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const el = document.getElementById('speechScoreResult');
+  if (el) el.innerHTML = '<div class="note" style="margin-top:10px">🎙️ 正在聆听，请朗读这句话…</div>';
+  let rec;
+  try { if (fsSpeechRec) fsSpeechRec.abort(); } catch (e) {}
+  try { rec = new SR(); } catch (e) { if (el) el.innerHTML = '<div class="note">无法启动语音识别：' + esc(e.message) + '</div>'; return; }
+  fsSpeechRec = rec;
+  rec.lang = 'en-US'; rec.interimResults = false; rec.maxAlternatives = 1;
+  rec.onresult = (e) => {
+    const transcript = e.results[0][0].transcript;
+    const r = scoreAgainst(state.sentences[state.idx], transcript);
+    let html = '<div class="note" style="margin-top:10px;font-weight:600;color:var(--ink)">正确率约 ' + r.pct + '%（' + r.matchedCount + '/' + r.total + ' 词）</div>';
+    html += '<div class="eg" style="margin-top:8px">识别到你说的：' + r.userHtml + '</div>';
+    if (r.missing.length) html += '<div class="note" style="margin-top:6px">没说到或没识别出的词：' + esc(r.missing.join(', ')) + '</div>';
+    html += '<div class="row" style="margin-top:10px"><button onclick="startSpeechScore()">🔁 再来一次</button></div>';
+    if (document.getElementById('speechScoreResult')) document.getElementById('speechScoreResult').innerHTML = html;
+  };
+  rec.onerror = (e) => {
+    const msg = e.error === 'not-allowed' ? '没有获得麦克风权限，请在浏览器设置里允许。' : e.error === 'no-speech' ? '没有识别到声音，请靠近麦克风再试一次。' : '识别出错：' + e.error;
+    if (document.getElementById('speechScoreResult')) document.getElementById('speechScoreResult').innerHTML = '<div class="note" style="margin-top:10px">' + esc(msg) + '</div><div class="row" style="margin-top:8px"><button onclick="startSpeechScore()">重试</button></div>';
+  };
+  try { rec.start(); } catch (e) { if (el) el.innerHTML = '<div class="note">无法启动：' + esc(e.message) + '</div>'; }
+}
+function keyWords(s) { return (s.match(/[a-zA-Z']+/g) || []).map(w => w.toLowerCase()).filter(w => w.length > 3 && !STOP.has(w)); }
+function getSimilar() {
+  if (simCache.idx === state.idx) return simCache.list;
+  const cur = state.sentences[state.idx], kws = new Set(keyWords(cur)), scored = [];
+  if (kws.size) state.sentences.forEach((s, i) => {
+    if (i === state.idx) return;
+    let score = 0; keyWords(s).forEach(w => { if (kws.has(w)) score++; });
+    if (score > 0) scored.push({ s, score, d: Math.abs(s.length - cur.length) });
+  });
+  scored.sort((a, b) => b.score - a.score || a.d - b.d);
+  simCache = { idx: state.idx, list: scored.slice(0, 3).map(x => x.s) };
+  return simCache.list;
+}
+function getAnalysis() {
+  if (analysisCache.idx === state.idx) return analysisCache.res;
+  let res = null;
+  try { res = EG.analyze(state.sentences[state.idx]); } catch (e) { res = { summary: '', items: [] }; }
+  analysisCache = { idx: state.idx, res };
+  return res;
+}
+
+async function loadCurrent() {
+  if (!state || state.idx >= state.sentences.length) { render(); return; }
+  const idx = state.idx, key = String(idx);
+  render();
+  loadRecs();
+  loadCurrentImage();
+  const c = state.cache[key];
+  if (c && !c.failed) return;
+  if (!navigator.onLine) return;
+  try { state.cache[key] = { translation: await translateText(state.sentences[idx]) }; }
+  catch (e) { state.cache[key] = { failed: true, err: e.message }; }
+  saveState();
+  if (state && state.idx === idx) render();
+}
+let curImageUrls = [], curImageStart = -1;
+function imageRangeFor(idx) {
+  if (!state) return null;
+  if (state.imageRanges) return state.imageRanges.find(r => idx >= r[0] && idx < r[1]) || null;
+  if (state.imageIdxList && state.imageIdxList.includes(idx)) return [idx, idx + 1]; // 兼容旧版本导入的书
+  return null;
+}
+function clearCurImages() { curImageUrls.forEach(u => URL.revokeObjectURL(u)); curImageUrls = []; curImageStart = -1; }
+async function loadCurrentImage() {
+  const idx = state.idx, range = imageRangeFor(idx);
+  if (!range) { if (curImageStart !== -1) clearCurImages(); render(); return; }
+  if (range[0] === curImageStart && curImageUrls.length) { render(); return; } // 同一页，图已经加载好了
+  clearCurImages();
+  try {
+    let data = await idbGet('images', state.bookId + ':' + range[0]);
+    if (!state || state.idx !== idx) return;
+    if (data && !Array.isArray(data)) data = [data];
+    if (data && data.length) { curImageUrls = data.map(b => URL.createObjectURL(b)); curImageStart = range[0]; }
+  } catch (e) {}
+  render();
+}
+
+/* ---------- 听、读、录音 ---------- */
+function toast(msg, ms) {
+  const t = document.createElement('div');
+  t.className = 'toastPlus';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  requestAnimationFrame(() => t.classList.add('show'));
+  const dur = ms || 850;
+  setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, dur);
+}
+/* ---------- 朗读音色（美音/英音等） ---------- */
+let voiceListCache = null;
+function loadVoices() {
+  if (voiceListCache && voiceListCache.length) return Promise.resolve(voiceListCache);
+  return new Promise(resolve => {
+    let v = speechSynthesis.getVoices();
+    if (v && v.length) { voiceListCache = v; resolve(v); return; }
+    speechSynthesis.onvoiceschanged = () => { v = speechSynthesis.getVoices(); voiceListCache = v; resolve(v); };
+    setTimeout(() => resolve(speechSynthesis.getVoices() || []), 1200);
+  });
+}
+function getSavedVoiceURI() { return localStorage.getItem('sr_voice_uri') || ''; }
+function pickVoice(voices) {
+  const uri = getSavedVoiceURI();
+  if (uri) { const v = voices.find(x => x.voiceURI === uri); if (v) return v; }
+  return null;
+}
+async function applyVoice(u) {
+  try {
+    const voices = await loadVoices();
+    const v = pickVoice(voices);
+    if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'en-US'; }
+  } catch (e) { u.lang = 'en-US'; }
+}
+/* ---------- 语速 ---------- */
+const RATE_STEPS = [0.5, 0.6, 0.75, 0.9, 1.0, 1.25, 1.5, 1.75, 2.0];
+function getRate() { const r = parseFloat(localStorage.getItem('sr_rate')); return RATE_STEPS.includes(r) ? r : 0.9; }
+function cycleRate() {
+  const steps = RATE_STEPS, cur = getRate();
+  const idx = (steps.indexOf(cur) + 1) % steps.length;
+  localStorage.setItem('sr_rate', String(steps[idx]));
+  render();
+  toast('语速已调整为 ' + steps[idx] + 'x，下次朗读生效');
+}
+function stopSpeech() { try { speechSynthesis.cancel(); } catch (e) {} listenState = { idx: -1, playing: false, paused: false }; }
+let listenState = { idx: -1, playing: false, paused: false };
+function playListen() {
+  const idx = state.idx;
+  if (listenState.idx === idx && listenState.playing && !listenState.paused) {
+    try { speechSynthesis.pause(); } catch (e) {}
+    listenState.paused = true; render(); return;
+  }
+  if (listenState.idx === idx && listenState.playing && listenState.paused) {
+    try { speechSynthesis.resume(); } catch (e) {}
+    listenState.paused = false; render(); return;
+  }
+  (async () => {
+    try {
+      const u = new SpeechSynthesisUtterance(state.sentences[idx]);
+      await applyVoice(u); u.rate = getRate();
+      u.onend = () => { if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false }; const p = state.prog[idx]; if (p) { p.listens++; saveState(); } if (state.idx === idx) render(); };
+      u.onerror = () => { if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false }; if (state.idx === idx) render(); };
+      speechSynthesis.cancel();
+      listenState = { idx, playing: true, paused: false };
+      speechSynthesis.speak(u);
+      render();
+    } catch (e) { alert('当前浏览器不支持朗读。'); }
+  })();
+}
+function speakWord() {
+  (async () => {
+    try { const u = new SpeechSynthesisUtterance(curWord); await applyVoice(u); u.rate = getRate(); stopSpeech(); speechSynthesis.speak(u); } catch (e) {}
+  })();
+}
+function previewVoice(uri) {
+  const voices = voiceListCache || [];
+  const v = voices.find(x => x.voiceURI === uri);
+  try {
+    const u = new SpeechSynthesisUtterance('Hello! This is how I sound when I read to you.');
+    if (v) { u.voice = v; u.lang = v.lang; }
+    u.rate = 0.95;
+    stopSpeech(); speechSynthesis.speak(u);
+  } catch (e) {}
+}
+function chooseVoice(uri) {
+  localStorage.setItem('sr_voice_uri', uri || '');
+  openVoiceSettings();
+  previewVoice(uri);
+}
+async function openVoiceSettings() {
+  showPop('<h3 style="margin:0 0 8px">🔊 朗读音色</h3><div class="note">加载可用声音中…</div>');
+  const voices = await loadVoices();
+  const en = voices.filter(v => /^en/i.test(v.lang));
+  const cur = getSavedVoiceURI();
+  const group = (label, list) => {
+    if (!list.length) return '';
+    return '<div class="note" style="margin:12px 0 6px;font-weight:600;color:var(--ink)">' + label + '</div>' +
+      list.map(v => '<div class="row" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)">' +
+        '<div style="font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (v.voiceURI === cur ? '✅ ' : '') + esc(v.name) + '</div>' +
+        '<div class="row" style="flex-wrap:nowrap"><button class="iconbtn" onclick="previewVoice(\'' + esc(v.voiceURI).replace(/'/g, "\\'") + '\')">试听</button>' +
+        (v.voiceURI === cur ? '' : '<button class="sm" onclick="chooseVoice(\'' + esc(v.voiceURI).replace(/'/g, "\\'") + '\')">选用</button>') + '</div></div>').join('');
+  };
+  const us = en.filter(v => /US/i.test(v.lang));
+  const gb = en.filter(v => /GB|UK/i.test(v.lang));
+  const other = en.filter(v => !us.includes(v) && !gb.includes(v));
+  let html = '<h3 style="margin:0 0 4px">🔊 朗读音色</h3>' +
+    '<div class="note">这里列出的是你这台设备/浏览器自带的语音。<b>Windows 上用 Edge 浏览器</b>声音选择最多、音质最好（微软的多种自然音色）；手机上声音选项通常较少，因系统而异。</div>' +
+    '<div class="row" style="justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);margin-top:8px"><div>' + (cur ? '' : '✅ ') + '系统默认</div>' + (cur ? '<button class="sm" onclick="chooseVoice(\'\')">选用</button>' : '') + '</div>';
+  html += group('🇺🇸 美音', us) + group('🇬🇧 英音', gb) + group('其他英语口音', other);
+  if (!en.length) html += '<div class="note" style="margin-top:10px">没有检测到可用的英文语音，朗读功能可能无法正常工作。</div>';
+  showPop(html);
+}
+
+function recKey() { return state.bookId + ':' + state.idx; }
+async function loadRecs() {
+  if (!state) return;
+  const key = recKey();
+  recView.urls.forEach(u => URL.revokeObjectURL(u.url));
+  let arr = [];
+  try { arr = (await idbGet('recs', key)) || []; } catch (e) {}
+  if (!state || recKey() !== key) return;
+  recView = { key, urls: arr.map(r => ({ url: URL.createObjectURL(r.blob), t: r.t, dur: r.dur })) };
+  render();
+}
+async function toggleRecord() {
+  if (rec.on) { if (rec.mr && rec.mr.state === 'recording') rec.mr.stop(); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+    alert('这个浏览器不支持录音。请用最新版 Chrome、Edge 或 Safari 打开。'); return;
+  }
+  stopSpeech();
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (e) { alert('没有拿到麦克风权限。请在浏览器地址栏左侧的权限设置里允许使用麦克风，然后再试。'); return; }
+  const chunks = [], mr = new MediaRecorder(stream);
+  const idxAtStart = state.idx, keyAtStart = recKey(), start = Date.now();
+  mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  mr.onstop = async () => {
+    stream.getTracks().forEach(t => t.stop());
+    clearInterval(rec.timer); rec.on = false;
+    const dur = (Date.now() - start) / 1000;
+    const blob = new Blob(chunks, { type: mr.mimeType || 'audio/webm' });
+    if (blob.size > 0 && dur >= 0.8) {
+      try {
+        const arr = (await idbGet('recs', keyAtStart)) || [];
+        arr.unshift({ blob, t: Date.now(), dur });
+        await idbPut('recs', arr.slice(0, 3), keyAtStart);
+      } catch (e) {}
+      const p = state.prog[idxAtStart] || (state.prog[idxAtStart] = { reads: 0, listens: 0 });
+      p.reads++; saveState(); toast('跟读 +1（已 ' + p.reads + ' 遍）');
+    }
+    if (state && state.idx === idxAtStart) loadRecs(); else render();
+  };
+  mr.start();
+  rec = { mr, on: true, start, timer: setInterval(() => { const el = document.getElementById('recTime'); if (el) el.textContent = ((Date.now() - start) / 1000).toFixed(1) + ' 秒'; }, 200) };
+  render();
+}
+async function deleteRecs() {
+  if (!confirm('删除这一句的所有录音？')) return;
+  try { await idbDel('recs', recKey()); } catch (e) {}
+  loadRecs();
+}
+function nextSentence() {
+  if (rec.on) return;
+  stopSpeech();
+  state.totalCompleted++; state.idx++;
+  saveState(); loadCurrent();
+}
+function prevSentence() {
+  if (rec.on || state.idx === 0) return;
+  stopSpeech();
+  state.idx--; saveState(); loadCurrent();
+}
+function retryTranslate() { delete state.cache[String(state.idx)]; loadCurrent(); }
+function resetBook() {
+  if (!confirm('换一本书会清除当前进度和录音，确定吗？')) return;
+  stopSpeech();
+  clearCurImages();
+  state = null; saveState(); idbClear('recs').catch(() => {}); idbClear('images').catch(() => {}); render();
+}
+
+/* ---------- 查词：离线大词典 → 内置词典 → （联网时）在线翻译 ---------- */
+async function dictLookup(w) {
+  if (!dictInfo || !dictInfo.count) return null;
+  try { return (await idbGet('dict', w)) || (await idbGet('dict', '^' + w)) || null; } catch (e) { return null; }
+}
+async function lookupWord(raw) {
+  const cands = EG.lemmaCandidates(raw), results = [], seen = new Set(), extra = [];
+  const tryOne = async c => {
+    if (seen.has(c.w) || results.length >= 3) return;
+    const e = await dictLookup(c.w);
+    if (e) {
+      seen.add(c.w);
+      results.push({ head: e.w.replace(/^\^/, ''), p: e.p, t: e.t, d: e.d, note: c.note, src: '离线大词典' });
+      const m = (e.x || '').match(/(?:^|\/)0:([^\/]+)/);
+      if (m && m[1].toLowerCase() !== c.w) extra.push({ w: m[1].toLowerCase(), note: c.w + ' 的原形是 ' + m[1] });
+      return;
+    }
+    const b = BASIC_DICT[c.w];
+    if (b) { seen.add(c.w); results.push({ head: c.w, t: b, note: c.note, src: '内置词典' }); }
+  };
+  for (const c of cands) { if (c.r && results.length) continue; await tryOne(c); }
+  for (const c of extra) await tryOne(c);
+  if (!results.length && navigator.onLine && cands.length) {
+    try { results.push({ head: cands[0].w, t: await translateText(cands[0].w), src: '在线翻译' }); } catch (e) {}
+  }
+  return results;
+}
+function positionWordPop(rect) {
+  const pop = document.getElementById('wordpop');
+  pop.hidden = false; pop.style.visibility = 'hidden';
+  pop.className = 'wordpop';
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const pw = pop.offsetWidth, ph = pop.offsetHeight;
+  let left = rect.left + rect.width / 2 - pw / 2;
+  left = Math.max(8, Math.min(left, vw - pw - 8));
+  const spaceBelow = vh - rect.bottom, spaceAbove = rect.top;
+  let top, cls;
+  if (spaceBelow >= ph + 14 || spaceBelow >= spaceAbove) { top = rect.bottom + 12; cls = 'below'; }
+  else { top = rect.top - ph - 12; cls = 'above'; }
+  top = Math.max(8, Math.min(top, vh - ph - 8));
+  pop.className = 'wordpop ' + cls;
+  pop.style.left = left + 'px';
+  pop.style.top = top + 'px';
+  const arrowLeft = Math.max(14, Math.min(rect.left + rect.width / 2 - left - 6, pw - 26));
+  pop.querySelector('.wp-arrow').style.left = arrowLeft + 'px';
+  pop.style.visibility = 'visible';
+}
+function closeWordPop() { const p = document.getElementById('wordpop'); if (p) p.hidden = true; curWord = ''; }
+document.addEventListener('click', e => {
+  const pop = document.getElementById('wordpop');
+  if (!pop || pop.hidden) return;
+  if (pop.contains(e.target) || e.target.closest('.w')) return;
+  closeWordPop();
+}, true);
+window.addEventListener('scroll', closeWordPop, true);
+window.addEventListener('resize', closeWordPop);
+
+let lastWordIdx = -1, lastWordEl = null;
+/* ---------- 生词本 + 间隔重复复习 ---------- */
+const LEITNER_DAYS = [0, 1, 3, 7, 16, 35];
+async function addToVocab(word, zh, sentence) {
+  const key = word.toLowerCase();
+  await idbPut('vocab', { word: key, display: word, zh: zh || '', sentence: sentence || '', box: 1, dueAt: Date.now(), addedAt: Date.now() });
+}
+async function isInVocab(word) { try { return !!(await idbGet('vocab', word.toLowerCase())); } catch (e) { return false; } }
+async function removeFromVocab(word) { try { await idbDel('vocab', word.toLowerCase()); } catch (e) {} }
+async function vocabDueCount() {
+  try { const all = await idbGetAll('vocab'); const now = Date.now(); return all.filter(v => v.dueAt <= now).length; } catch (e) { return 0; }
+}
+async function gradeVocab(word, remembered) {
+  const v = await idbGet('vocab', word); if (!v) return;
+  if (remembered) { v.box = Math.min(v.box + 1, LEITNER_DAYS.length - 1); }
+  else { v.box = 1; }
+  v.dueAt = Date.now() + LEITNER_DAYS[v.box] * 86400000;
+  await idbPut('vocab', v);
+}
+
+let reviewQueue = [], reviewShowAnswer = false;
+async function openVocabHome() {
+  let all = [];
+  try { all = await idbGetAll('vocab'); } catch (e) {}
+  const now = Date.now();
+  const due = all.filter(v => v.dueAt <= now);
+  let html = '<h3 style="margin:0 0 8px">⭐ 生词本</h3>';
+  html += '<div class="note" style="font-size:14px;color:var(--ink)">共 ' + all.length + ' 个词，其中 <b>' + due.length + '</b> 个到复习时间了。</div>';
+  html += '<div class="row" style="margin-top:12px">' + (due.length ? '<button onclick="startReview()">开始复习（' + due.length + '）</button>' : '<button disabled>暂无需要复习的词</button>') + '</div>';
+  if (all.length) {
+    html += '<div class="note" style="margin:14px 0 6px;font-weight:600;color:var(--ink)">全部生词</div>';
+    all.sort((a, b) => a.dueAt - b.dueAt).forEach(v => {
+      const days = Math.ceil((v.dueAt - now) / 86400000);
+      html += '<div class="row" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)">' +
+        '<div style="font-size:13px;flex:1;min-width:0"><b>' + esc(v.display || v.word) + '</b> <span class="sub">' + esc((v.zh || '').slice(0, 20)) + '</span></div>' +
+        '<div class="sub" style="flex-shrink:0;margin-right:8px">' + (days <= 0 ? '待复习' : days + '天后') + '</div>' +
+        '<button class="iconbtn" onclick="removeFromVocab(\'' + v.word.replace(/'/g, "\\'") + '\');openVocabHome()">删除</button></div>';
+    });
+  } else {
+    html += '<div class="note" style="margin-top:14px">还没有生词。查单词的时候，点弹窗里的"⭐ 加入生词本"就能收进来。</div>';
+  }
+  showPop(html);
+}
+async function startReview() {
+  const all = await idbGetAll('vocab');
+  const now = Date.now();
+  reviewQueue = all.filter(v => v.dueAt <= now).sort(() => Math.random() - 0.5);
+  reviewShowAnswer = false;
+  renderReviewCard();
+}
+function renderReviewCard() {
+  if (!reviewQueue.length) {
+    showPop('<h3 style="margin:0 0 8px">⭐ 复习完成</h3><div class="note" style="font-size:14px;color:var(--ink)">这一批都复习完了，干得漂亮！</div><button style="margin-top:12px" onclick="openVocabHome()">返回生词本</button>');
+    return;
+  }
+  const v = reviewQueue[0];
+  let html = '<h3 style="margin:0 0 4px">⭐ 复习（剩 ' + reviewQueue.length + ' 个）</h3>';
+  html += '<div style="text-align:center;padding:24px 0">';
+  html += '<div class="dhead" style="font-size:28px">' + esc(v.display || v.word) + '</div>';
+  html += '<button class="iconbtn" style="margin-top:8px" onclick="speakReviewWord(\'' + v.word.replace(/'/g, "\\'") + '\')">🔊</button>';
+  if (reviewShowAnswer) {
+    html += '<div class="zhdef" style="margin-top:14px;font-size:17px">' + fmt(v.zh || '（无释义）') + '</div>';
+    if (v.sentence) html += '<div class="note" style="margin-top:8px">例句：' + esc(v.sentence) + '</div>';
+  }
+  html += '</div>';
+  if (!reviewShowAnswer) {
+    html += '<div class="row" style="justify-content:center"><button onclick="revealReview()">显示释义</button></div>';
+  } else {
+    html += '<div class="row" style="justify-content:center;gap:16px">' +
+      '<button class="ghost" onclick="answerReview(false)">😵 不记得</button>' +
+      '<button onclick="answerReview(true)">✅ 记得</button></div>';
+  }
+  showPop(html);
+}
+function speakReviewWord(word) { (async () => { try { const u = new SpeechSynthesisUtterance(word); await applyVoice(u); u.rate = getRate(); stopSpeech(); speechSynthesis.speak(u); } catch (e) {} })(); }
+function revealReview() { reviewShowAnswer = true; renderReviewCard(); }
+async function answerReview(remembered) {
+  const v = reviewQueue.shift();
+  await gradeVocab(v.word, remembered);
+  reviewShowAnswer = false;
+  renderReviewCard();
+}
+
+async function wordClick(i, el) {
+  const raw = curTokens[i] || '';
+  const clean = raw.replace(/[’‘]/g, "'").replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, '');
+  if (!clean) return;
+  curWord = clean; curWordZh = ''; lastWordIdx = i; lastWordEl = el;
+  const rect = el.getBoundingClientRect();
+  const head = '<div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div class="dhead">' + esc(clean) + '</div><button class="iconbtn" onclick="speakWord()">🔊</button></div>';
+  document.getElementById('wpBody').innerHTML = head + '<div class="note">查询中…</div>';
+  positionWordPop(rect);
+  let res = [];
+  try { res = await lookupWord(clean); }
+  catch (e) {
+    if (curWord !== clean) return;
+    document.getElementById('wpBody').innerHTML = head + '<div class="note" style="margin-top:10px">查询失败：' + esc(e && e.message ? e.message : '未知错误') + '</div><button class="link" onclick="retryWordLookup()">重试</button>';
+    positionWordPop(rect);
+    return;
+  }
+  if (curWord !== clean) return;
+  let html = head;
+  if (!res.length) html += '<div class="note" style="margin-top:10px">词典里没有找到这个词，可能是人名、地名或较生僻的词。' + (navigator.onLine ? '' : '（当前离线）') + '</div>';
+  res.forEach(r => {
+    html += '<div class="dentry"><div><b>' + esc(r.head) + '</b>' + (r.p ? '<span class="ph">/' + esc(r.p) + '/</span>' : '') + '<span class="src">' + r.src + '</span></div>' +
+      (r.note ? '<div class="note">' + esc(r.note) + '</div>' : '') +
+      (r.t ? '<div class="zhdef">' + fmt(r.t) + '</div>' : '') +
+      (r.d ? '<div class="endef">' + fmt(r.d) + '</div>' : '') + '</div>';
+    if (!curWordZh) curWordZh = r.t || r.d || '';
+  });
+  if (!dictInfo || !dictInfo.count) html += '<div class="note" style="margin-top:12px">现在用的是内置词典（常用词）。完整离线大词典' + (localStorage.getItem('sr_autodict_tried') ? '自动下载未成功，' : '正在后台自动下载，') + '<button class="link" onclick="closeWordPop();openDictSettings()">查看词典状态</button></div>';
+  const already = await isInVocab(clean);
+  if (curWord !== clean) return;
+  html += '<div class="row" style="margin-top:12px">' + (already
+    ? '<button class="ghost sm" disabled>✅ 已在生词本</button>'
+    : '<button class="sm" onclick="addWordToVocabFromPopup()">⭐ 加入生词本</button>') + '</div>';
+  document.getElementById('wpBody').innerHTML = html;
+  positionWordPop(rect);
+}
+function retryWordLookup() { if (lastWordEl && lastWordIdx >= 0) wordClick(lastWordIdx, lastWordEl); }
+async function addWordToVocabFromPopup() {
+  const sentence = (state && state.sentences[state.idx]) || '';
+  await addToVocab(curWord, curWordZh, sentence);
+  if (lastWordEl && lastWordIdx >= 0) wordClick(lastWordIdx, lastWordEl);
+}
+
+/* ---------- 离线大词典导入 ---------- */
+async function parseDictBlob(blob, name, onProgress) {
+  if (!window.Papa) throw new Error('导入组件没有加载成功，请联网刷新页面后再试');
+  const head = await blob.slice(0, 4096).text();
+  const firstLine = head.split(/\r?\n/)[0].toLowerCase();
+  const isEcdict = firstLine.includes('word') && firstLine.includes('translation');
+  const isTsv = !isEcdict && firstLine.includes('\t');
+  await idbClear('dict');
+  await idbPut('meta', null, 'dictInfo');
+  dictInfo = null;
+  let count = 0, pending = Promise.resolve();
+  await new Promise((resolve, reject) => {
+    Papa.parse(blob, {
+      header: isEcdict,
+      delimiter: isTsv ? '\t' : '',
+      skipEmptyLines: true,
+      chunkSize: 2 * 1024 * 1024,
+      chunk: (results, parser) => {
+        parser.pause();
+        const items = [];
+        for (const r of results.data) {
+          let w, t, p = '', d = '', x = '';
+          if (isEcdict) { w = r.word; t = r.translation; p = r.phonetic || ''; d = r.definition || ''; x = r.exchange || ''; }
+          else { w = r[0]; t = (r.slice(1) || []).join(' '); }
+          if (!w) continue;
+          w = String(w).trim();
+          if (!w || w.indexOf(' ') >= 0 || w.length > 40) continue;
+          t = String(t || '').replace(/\\n/g, '\n').trim();
+          d = String(d || '').replace(/\\n/g, '\n').trim();
+          if (!t && !d) continue;
+          const low = w.toLowerCase();
+          items.push({ w: (w === low ? low : '^' + low), t, p, d: d.slice(0, 400), x });
+        }
+        count += items.length;
+        pending = idbPutMany('dict', items).then(() => {
+          if (onProgress) onProgress(count, 100 * (results.meta.cursor || 0) / blob.size);
+          parser.resume();
+        }).catch(err => { parser.abort(); reject(err); });
+      },
+      complete: () => { pending.then(resolve, reject); },
+      error: err => reject(err)
+    });
+  });
+  dictInfo = { count, name, at: Date.now() };
+  await idbPut('meta', dictInfo, 'dictInfo');
+  return count;
+}
+
+const AUTO_DICT_URL = 'https://cdn.jsdelivr.net/gh/skywind3000/ECDICT@master/ecdict.csv';
+async function autoImportDict() {
+  if (localStorage.getItem('sr_autodict_tried')) return;
+  localStorage.setItem('sr_autodict_tried', '1');
+  if (!navigator.onLine) return;
+  try {
+    toast('首次使用，正在后台下载离线词典（几十MB，完成前可先用基础词典查词）…', 4000);
+    const resp = await fetch(AUTO_DICT_URL);
+    if (!resp.ok) throw new Error('http-' + resp.status);
+    const blob = await resp.blob();
+    if (blob.size < 1024 * 1024) throw new Error('文件异常偏小');
+    const count = await parseDictBlob(blob, 'ecdict.csv（自动下载）');
+    toast('离线大词典下载完成，共 ' + count.toLocaleString() + ' 词条，以后查词都能离线用了', 3200);
+    if (document.getElementById('pop') && document.getElementById('overlay').classList.contains('show')) render();
+  } catch (e) {
+    // 静默失败：基础词典仍可用，用户可在"词典"设置里手动导入
+  }
+}
+
+function openDictSettings() {
+  const status = dictInfo && dictInfo.count
+    ? '已导入 ' + dictInfo.count.toLocaleString() + ' 个词条（' + esc(dictInfo.name || '') + '），离线可用。'
+    : (localStorage.getItem('sr_autodict_tried')
+        ? '自动下载未成功（可能是网络问题），现在查词使用内置词典。可以手动导入试试。'
+        : '正在后台自动下载中，请稍候…（或手动导入）');
+  showPop(
+    '<h3 style="margin:0 0 8px">📚 离线大词典</h3>' +
+    '<div class="note" style="font-size:14px;color:var(--ink)">' + status + '</div>' +
+    '<div class="note" style="margin-top:10px">如果自动下载一直没成功，也可以手动导入：GitHub 搜索 "ECDICT"（作者 skywind3000），下载仓库里的 <b>ecdict.csv</b> 文件（压缩包先解压），点下面按钮选择这个文件导入。</div>' +
+    '<div class="note">也支持自制词典：每行"单词[Tab]释义"的 .txt 或 .csv 文件。</div>' +
+    '<div class="row" style="margin-top:12px"><div class="filebtn"><button type="button" tabindex="-1">选择词典文件并导入</button><input type="file" accept=".csv,.txt,.tsv" onchange="importDictFromInput(event)"></div>' +
+    (dictInfo && dictInfo.count ? '<button class="ghost sm" onclick="clearDict()">删除已导入的词典</button>' : '') + '</div>' +
+    '<div id="dictStatus" class="note" style="margin-top:10px"></div><div class="pbar" id="dictBar" style="display:none"><div></div></div>'
+  );
+}
+function setDictStatus(msg, pct) {
+  const el = document.getElementById('dictStatus'); if (el) el.textContent = msg;
+  const bar = document.getElementById('dictBar');
+  if (bar) { bar.style.display = pct == null ? 'none' : 'block'; if (pct != null) bar.firstChild.style.width = Math.min(100, pct) + '%'; }
+}
+async function importDictFromInput(ev) {
+  const file = ev.target.files[0];
+  if (!file) return;
+  setDictStatus('正在导入…', 0);
+  try {
+    const count = await parseDictBlob(file, file.name, (c, pct) => setDictStatus('已导入 ' + c.toLocaleString() + ' 个词条…', pct));
+    setDictStatus('导入完成：' + count.toLocaleString() + ' 个词条，现在可以离线查词了。', 100);
+  } catch (err) {
+    setDictStatus('导入失败：' + (err && err.message ? err.message : '未知错误') + '。可能是存储空间不足或文件格式不对。');
+  }
+}
+async function clearDict() {
+  if (!confirm('删除已导入的离线大词典？')) return;
+  try { await idbClear('dict'); await idbPut('meta', null, 'dictInfo'); } catch (e) {}
+  dictInfo = null; localStorage.removeItem('sr_autodict_tried'); openDictSettings();
+}
+
+/* ---------- 语法字典 ---------- */
+function refHtml(r, noTitle) {
+  return '<div class="ref">' + (noTitle ? '' : '<h4>' + esc(r.t) + '</h4>') +
+    '<div class="formula">' + esc(r.f) + '</div><div style="font-size:14px;line-height:1.6">' + esc(r.b) + '</div>' +
+    r.eg.map(e => { const p = e.split('｜'); return '<div class="eg">• ' + esc(p[0]) + (p[1] ? '<br><span class="sub">' + esc(p[1]) + '</span>' : '') + '</div>'; }).join('') + '</div>';
+}
+function openGrammarDict(key) {
+  if (key && EG.REF[key]) { showPop(refHtml(EG.REF[key]) + '<button class="link" onclick="openGrammarDict()">查看全部语法条目</button>'); return; }
+  let html = '<h3 style="margin:0 0 4px">📘 语法字典</h3><div class="note">离线可用，共 ' + Object.keys(EG.REF).length + ' 个条目。</div>';
+  EG.GROUPS.forEach(g => {
+    html += '<details class="grp"><summary>' + g[0] + '（' + g[1].length + '）</summary>' +
+      g[1].filter(k => EG.REF[k]).map(k => '<details class="grp" style="margin-left:12px"><summary>' + esc(EG.REF[k].t) + '</summary>' + refHtml(EG.REF[k], true) + '</details>').join('') + '</details>';
+  });
+  showPop(html);
+}
+
+/* ---------- 弹窗与工具 ---------- */
+/* ---------- 全屏练习页面（听写 / 句子重组 / 跟读打分） ---------- */
+let fsSpeechRec = null;
+function showFullscreen(title, html) {
+  document.getElementById('fsTitle').textContent = title || '';
+  document.getElementById('fsBody').innerHTML = html;
+  document.getElementById('fsModal').classList.add('show');
+  document.getElementById('fsModal').hidden = false;
+  document.body.style.overflow = 'hidden';
+  closeWordPop();
+}
+function setFullscreenBody(html) { document.getElementById('fsBody').innerHTML = html; }
+function closeFullscreen() {
+  try { if (fsSpeechRec) { fsSpeechRec.onresult = fsSpeechRec.onerror = fsSpeechRec.onend = null; fsSpeechRec.abort(); } } catch (e) {}
+  fsSpeechRec = null;
+  stopSpeech();
+  const m = document.getElementById('fsModal');
+  m.classList.remove('show'); m.hidden = true;
+  document.body.style.overflow = '';
+}
+function fsOpen() { return document.getElementById('fsModal').classList.contains('show'); }
+
+function showPop(html) {
+  document.getElementById('pop').innerHTML = html + '<div class="row" style="margin-top:16px"><button class="ghost sm" onclick="closePop()">关闭</button></div>';
+  document.getElementById('overlay').classList.add('show');
+}
+function closePop() { document.getElementById('overlay').classList.remove('show'); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (fsOpen()) closeFullscreen(); else { closePop(); closeWordPop(); } } });
+function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function fmt(s) { return esc(s).replace(/\n/g, '<br>'); }
+function renderSentenceHTML(sentence) {
+  curTokens = [];
+  return sentence.split(/(\s+)/).map(tok => {
+    if (!tok || /^\s+$/.test(tok)) return tok;
+    if (!/[A-Za-z]/.test(tok)) return esc(tok);
+    const i = curTokens.push(tok) - 1;
+    return '<span class="w" tabindex="0" role="button" onclick="wordClick(' + i + ',this)" onkeydown="if(event.key===\'Enter\')wordClick(' + i + ',this)">' + esc(tok) + '</span>';
+  }).join('');
+}
+
+/* ---------- 文件导入 ---------- */
+function readAsArrayBuffer(file) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = e => res(e.target.result); r.onerror = rej; r.readAsArrayBuffer(file); }); }
+function readAsText(file) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = e => res(e.target.result); r.onerror = rej; r.readAsText(file); }); }
+function normalizeZipPath(p) {
+  const parts = p.split('/'), out = [];
+  for (const part of parts) { if (part === '.' || part === '') continue; if (part === '..') out.pop(); else out.push(part); }
+  return out.join('/');
+}
+async function parseEpub(buf) {
+  const zip = await JSZip.loadAsync(buf);
+  const cf = zip.file('META-INF/container.xml');
+  if (!cf) throw new Error('这不是有效的 epub 文件');
+  const parser = new DOMParser();
+  const cdoc = parser.parseFromString(await cf.async('string'), 'application/xml');
+  const opfPath = cdoc.querySelector('rootfile').getAttribute('full-path');
+  const opfDir = opfPath.includes('/') ? opfPath.split('/').slice(0, -1).join('/') : '';
+  const odoc = parser.parseFromString(await zip.file(opfPath).async('string'), 'application/xml');
+  const manifest = {};
+  odoc.querySelectorAll('manifest > item').forEach(it => { manifest[it.getAttribute('id')] = it.getAttribute('href'); });
+  const blocks = [];
+  for (const it of odoc.querySelectorAll('spine > itemref')) {
+    const href = manifest[it.getAttribute('idref')]; if (!href) continue;
+    const path = opfDir ? opfDir + '/' + href : href;
+    const f = zip.file(path) || zip.file(decodeURIComponent(path)); if (!f) continue;
+    const doc = parser.parseFromString(await f.async('string'), 'text/html');
+    const fileDir = path.includes('/') ? path.split('/').slice(0, -1).join('/') : '';
+    const images = [];
+    const imgEls = doc.querySelectorAll('img, image');
+    for (const img of imgEls) {
+      let src = img.getAttribute('src') || img.getAttribute('xlink:href') || img.getAttribute('href');
+      if (!src || /^(data:|https?:)/i.test(src)) continue;
+      src = decodeURIComponent(src.split('#')[0]);
+      const imgPath = normalizeZipPath(src.startsWith('/') ? src.slice(1) : (fileDir ? fileDir + '/' + src : src));
+      const imgFile = zip.file(imgPath) || zip.file(decodeURIComponent(imgPath));
+      if (!imgFile) continue;
+      try {
+        const raw = await imgFile.async('blob');
+        const ext = (imgPath.split('.').pop() || '').toLowerCase();
+        const mime = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' }[ext] || raw.type || 'image/jpeg';
+        if (raw.size > 1500) images.push(new Blob([raw], { type: mime }));
+      } catch (e) {}
+    }
+    doc.querySelectorAll('p,div,h1,h2,h3,h4,li,br').forEach(el => el.append(' \n'));
+    const text = (doc.body ? doc.body.textContent : '').trim();
+    if (text || images.length) blocks.push({ text, images });
+  }
+  return blocks;
+}
+/* ---------- OCR：识别图片里的英文（图画书 / 漫画），在浏览器本地运行，免费 ---------- */
+let ocrWorker = null, ocrCancel = false;
+const TESSERACT_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+function setImportStatus(html) { const el = document.getElementById('importStatus'); if (el) el.innerHTML = html; }
+function letterCount(t) { return ((t || '').match(/[A-Za-z]/g) || []).length; }
+function ocrStatus(msg) { setImportStatus(esc(msg) + ' <button class="link" onclick="ocrCancel=true;this.textContent=\'正在取消…\'">取消识别（保留已识别的部分）</button>'); }
+function askOcr(pages, total) {
+  return confirm('发现 ' + pages + ' 页（共 ' + total + ' 页）的英文是画在图片里的，需要做文字识别才能一句一句读。\n\n· 在你自己的浏览器里运行，免费\n· 第一次需要联网下载语言数据（几 MB）\n· 每页大约 3–15 秒，识别中可以随时取消\n\n现在开始识别吗？（点“取消”则只导入图片，不识别文字）');
+}
+function loadScriptOnce(src) {
+  return new Promise((resolve, reject) => {
+    if (window.Tesseract) { resolve(); return; }
+    const sc = document.createElement('script');
+    sc.src = src; sc.onload = () => resolve(); sc.onerror = () => reject(new Error('x'));
+    document.head.appendChild(sc);
+  });
+}
+async function getOcrWorker() {
+  if (ocrWorker) return ocrWorker;
+  try {
+    await loadScriptOnce(TESSERACT_URL);
+    ocrWorker = await Tesseract.createWorker('eng', 1, {});
+    try { await ocrWorker.setParameters({ tessedit_pageseg_mode: '11', preserve_interword_spaces: '1' }); } catch (e) {}
+  } catch (e) {
+    ocrWorker = null;
+    const err = new Error('文字识别引擎准备失败。第一次使用需要联网下载识别组件和语言数据，请连上网络后重新导入这本书。');
+    err.fatal = true; throw err;
+  }
+  return ocrWorker;
+}
+async function stopOcrWorker() { try { if (ocrWorker) await ocrWorker.terminate(); } catch (e) {} ocrWorker = null; }
+
+function extractOcrLines(data) {
+  const out = [];
+  const add = l => {
+    if (!l || !l.text || !l.bbox) return;
+    out.push({ text: String(l.text).replace(/\s+/g, ' ').trim(), conf: typeof l.confidence === 'number' ? l.confidence : 80, x0: l.bbox.x0, y0: l.bbox.y0, x1: l.bbox.x1, y1: l.bbox.y1 });
+  };
+  if (data && Array.isArray(data.lines) && data.lines.length) data.lines.forEach(add);
+  else if (data && Array.isArray(data.blocks)) data.blocks.forEach(b => (b.paragraphs || []).forEach(p => (p.lines || []).forEach(add)));
+  return out;
+}
+function isGoodOcrLine(l) {
+  const t = l.text, letters = letterCount(t), nonSpace = t.replace(/\s/g, '').length;
+  if (letters < 2 || !nonSpace || l.conf < 45) return false;
+  if (letters / nonSpace < 0.6) return false;                       // 符号、数字太多，多半是画面杂点
+  const words = t.split(/\s+/).filter(w => /[A-Za-z]{2,}/.test(w));
+  if (!words.length) return false;
+  if (words.length === 1 && t.length < 4 && l.conf < 75) return false;
+  return true;
+}
+function groupOcrLines(lines, pageH) {
+  const ls = lines.slice().sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0), groups = [];
+  for (const l of ls) {                                              // 上下相邻、左右重叠的行 = 同一个对话气泡/说明框
+    const h = Math.max(1, l.y1 - l.y0);
+    let target = null;
+    for (let gi = groups.length - 1; gi >= 0; gi--) {
+      const g = groups[gi], gap = l.y0 - g.y1;
+      const overlap = Math.min(l.x1, g.x1) - Math.max(l.x0, g.x0);
+      const minW = Math.max(1, Math.min(l.x1 - l.x0, g.x1 - g.x0));
+      if (gap >= -h * 0.5 && gap <= h * 1.1 && overlap > minW * 0.25) { target = g; break; }
+    }
+    if (target) { target.lines.push(l); target.x0 = Math.min(target.x0, l.x0); target.x1 = Math.max(target.x1, l.x1); target.y1 = Math.max(target.y1, l.y1); }
+    else groups.push({ lines: [l], x0: l.x0, y0: l.y0, x1: l.x1, y1: l.y1 });
+  }
+  const band = Math.max(20, pageH * 0.08), rows = [];              // 阅读顺序：先分“行带”，带内从左到右
+  groups.sort((a, b) => a.y0 - b.y0);
+  for (const g of groups) { const row = rows.find(r => Math.abs(g.y0 - r.y) < band); if (row) row.items.push(g); else rows.push({ y: g.y0, items: [g] }); }
+  rows.sort((a, b) => a.y - b.y);
+  const ordered = [];
+  rows.forEach(r => { r.items.sort((a, b) => a.x0 - b.x0); ordered.push(...r.items); });
+  return ordered;
+}
+function bubbleText(g) {
+  let t = g.lines.map(l => l.text).join(' ');
+  t = t.replace(/(\w)- (\w)/g, '$1$2').replace(/(^|\s)[|\\\/](?=\s|$)/g, ' I ');
+  t = t.replace(/^[^A-Za-z0-9"'“‘(]+/, '').replace(/[^A-Za-z0-9.!?"'”’)]+$/, '').replace(/\s+/g, ' ').trim();
+  if (t && !/[.!?]["'”’)]*$/.test(t)) t += '.';                      // 每个气泡结尾补句号，保证一个气泡至少是一句
+  return t;
+}
+function ocrLinesToText(lines, pageH) {
+  return groupOcrLines(lines.filter(isGoodOcrLine), pageH).map(bubbleText).filter(t => letterCount(t) >= 3).join(' ');
+}
+async function ocrCanvas(canvas) {
+  const worker = await getOcrWorker();
+  const { data } = await worker.recognize(canvas, {}, { text: true, blocks: true });
+  const lines = extractOcrLines(data);
+  if (lines.length) return ocrLinesToText(lines, canvas.height);
+  return String((data && data.text) || '').split(/\n\s*\n/).map(p => p.replace(/\s+/g, ' ').trim()).filter(p => letterCount(p) >= 3)
+    .map(p => /[.!?]["'”’)]*$/.test(p) ? p : p + '.').join(' ');
+}
+async function blobToOcrCanvas(blob) {
+  const bmp = await createImageBitmap(blob);
+  const scale = Math.min(2.5, Math.max(0.5, 2200 / Math.max(bmp.width, bmp.height)));
+  const c = document.createElement('canvas');
+  c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+  const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+  ctx.drawImage(bmp, 0, 0, c.width, c.height);
+  if (bmp.close) bmp.close();
+  return c;
+}
+async function ocrBlocksIfNeeded(blocks) {                           // epub：对“只有图、没有文字”的页做识别
+  const idxs = [];
+  blocks.forEach((b, i) => { if (letterCount(b.text) < 15 && b.images && b.images.length) idxs.push(i); });
+  if (!idxs.length || !askOcr(idxs.length, blocks.length)) return blocks;
+  ocrCancel = false;
+  let done = 0;
+  for (const i of idxs) {
+    if (ocrCancel) break;
+    ocrStatus('正在识别第 ' + (++done) + '/' + idxs.length + ' 页的文字…');
+    const texts = [];
+    for (const img of blocks[i].images.slice(0, 3)) {
+      try { const c = await blobToOcrCanvas(img); texts.push(await ocrCanvas(c)); c.width = c.height = 0; }
+      catch (e) { if (e.fatal) { alert(e.message); await stopOcrWorker(); return blocks; } }
+    }
+    const t = texts.join(' ').trim();
+    if (letterCount(t) >= 3) blocks[i].text = t;
+  }
+  await stopOcrWorker();
+  return blocks;
+}
+
+async function parsePdf(buf) {
+  if (!window.pdfjsLib) throw new Error('PDF 组件没有加载成功，请联网刷新后再试');
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const n = pdf.numPages, texts = [];
+  for (let i = 1; i <= n; i++) {
+    setImportStatus('正在读取第 ' + i + '/' + n + ' 页的文字…');
+    const content = await (await pdf.getPage(i)).getTextContent();
+    texts.push(content.items.map(it => it.str).join(' '));
+  }
+  const sparse = texts.map(t => letterCount(t) < 15);                 // 文字很少的页 = 文字多半画在图里
+  const sparseCount = sparse.filter(Boolean).length;
+  let doOcr = sparseCount > 0 && askOcr(sparseCount, n);
+  ocrCancel = false;
+  const blocks = []; let ocrDone = 0;
+  for (let i = 1; i <= n; i++) {
+    const page = await pdf.getPage(i);
+    let text = texts[i - 1], images = [];
+    setImportStatus('正在处理第 ' + i + '/' + n + ' 页…');
+    try {
+      const viewport = page.getViewport({ scale: 1.3 });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(viewport.width); canvas.height = Math.round(viewport.height);
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+      const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.72));
+      if (blob) images = [blob];
+    } catch (e) {}
+    if (doOcr && sparse[i - 1] && !ocrCancel) {
+      ocrStatus('正在识别第 ' + i + '/' + n + ' 页的文字（已识别 ' + ocrDone + '/' + sparseCount + ' 页）…');
+      try {
+        const v1 = page.getViewport({ scale: 1 });
+        const vp = page.getViewport({ scale: Math.min(3, Math.max(1, 2200 / Math.max(v1.width, v1.height))) });
+        const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+        await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+        const t = await ocrCanvas(c); c.width = c.height = 0;
+        if (letterCount(t) >= 3) text = t;
+        ocrDone++;
+      } catch (e) { if (e.fatal) { alert(e.message); doOcr = false; } }
+    }
+    blocks.push({ text, images });
+  }
+  await stopOcrWorker();
+  return blocks;
+}
+async function importFromFile(ev) {
+  const file = ev.target.files[0]; if (!file) return;
+  const name = file.name.toLowerCase();
+  setImportStatus('正在读取 ' + esc(file.name) + ' …');
+  try {
+    if (name.endsWith('.txt')) importBook(await readAsText(file));
+    else if (name.endsWith('.epub')) { const blocks = await parseEpub(await readAsArrayBuffer(file)); await importBookBlocks(await ocrBlocksIfNeeded(blocks)); }
+    else if (name.endsWith('.pdf')) await importBookBlocks(await parsePdf(await readAsArrayBuffer(file)));
+    else if (name.endsWith('.mobi')) alert('暂不支持 .mobi。请先用免费软件 Calibre 转成 epub 或 txt。');
+    else alert('请选择 .txt、.epub 或 .pdf 文件。');
+  } catch (err) { alert('文件读取失败：' + (err && err.message ? err.message : '未知错误')); }
+  await stopOcrWorker();
+  setImportStatus('');
+}
+function importFromBox() {
+  const t = document.getElementById('pasteBox').value.trim();
+  if (t.length < 5) { alert('请先粘贴一些英文文本。'); return; }
+  importBook(t);
+}
+function openAppendModal() {
+  showPop('<h3 style="margin:0 0 10px">追加内容到这本书</h3><textarea id="appendBox" style="min-height:140px" placeholder="粘贴后续的英文文本…"></textarea><div class="row" style="margin-top:12px"><button onclick="doAppend()">追加</button></div>');
+}
+let jumpPageStart = 0, jumpQuery = '';
+function jumpRowHtml(s, i, cur) {
+  return '<div style="padding:6px 0;border-bottom:1px solid var(--line);font-size:13px;cursor:pointer" onclick="jumpTo(' + i + ')"><b>' + (i + 1) + (i === cur ? '　⬅ 当前' : '') + '.</b> ' + esc(s.slice(0, 90)) + (s.length > 90 ? '…' : '') + '</div>';
+}
+function openJumpModal(startAt, query) {
+  const cur = state.idx, total = state.sentences.length, PAGE = 30;
+  jumpQuery = typeof query === 'string' ? query : jumpQuery;
+  if (typeof startAt === 'number') jumpPageStart = startAt; else if (typeof query !== 'string') { jumpPageStart = Math.max(0, Math.floor(cur / PAGE) * PAGE); jumpQuery = ''; }
+  const inputStyle = 'border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--pop);color:var(--ink);font-family:inherit';
+  let html = '<h3 style="margin:0 0 6px">跳转句子</h3><div class="note" style="margin-bottom:10px">开头自动跳过不准时，可以搜索故事开头的几个词（比如 Chapter 1），或翻页找到正文真正开始的那一句，点一下就跳过去。</div>';
+  html += '<div class="row" style="margin-bottom:8px"><input type="text" id="jumpSearch" placeholder="搜索句子里的英文…" value="' + esc(jumpQuery) + '" style="flex:1;min-width:0;' + inputStyle + '" onkeydown="if(event.key===\'Enter\')doJumpSearch()"><button class="sm" onclick="doJumpSearch()">搜索</button></div>';
+  html += '<div class="row" style="margin-bottom:10px"><input type="number" id="jumpNum" min="1" max="' + total + '" value="' + (cur + 1) + '" style="width:90px;' + inputStyle + '"><button class="ghost sm" onclick="doJump()">跳到第几句</button></div>';
+  if (jumpQuery) {
+    const q = jumpQuery.toLowerCase(), hits = [];
+    for (let i = 0; i < total && hits.length < 40; i++) if (state.sentences[i].toLowerCase().includes(q)) hits.push(i);
+    html += '<div class="note">搜索“' + esc(jumpQuery) + '”：' + (hits.length ? '找到 ' + hits.length + (hits.length >= 40 ? '+' : '') + ' 句（点击跳转）' : '没有找到') + ' <button class="link" onclick="openJumpModal(' + jumpPageStart + ',\'\')">清除搜索</button></div>';
+    hits.forEach(i => { html += jumpRowHtml(state.sentences[i], i, cur); });
+  } else {
+    const end = Math.min(total, jumpPageStart + PAGE);
+    html += '<div class="row" style="justify-content:space-between;margin-bottom:4px"><div class="note">第 ' + (jumpPageStart + 1) + '–' + end + ' 句 / 共 ' + total + ' 句</div><div class="row">' +
+      '<button class="iconbtn" ' + (jumpPageStart <= 0 ? 'disabled' : '') + ' onclick="openJumpModal(' + Math.max(0, jumpPageStart - PAGE) + ')">上一页</button>' +
+      '<button class="iconbtn" ' + (end >= total ? 'disabled' : '') + ' onclick="openJumpModal(' + end + ')">下一页</button></div></div>';
+    for (let i = jumpPageStart; i < end; i++) html += jumpRowHtml(state.sentences[i], i, cur);
+  }
+  showPop(html);
+}
+function doJumpSearch() {
+  const q = (document.getElementById('jumpSearch').value || '').trim();
+  openJumpModal(jumpPageStart, q);
+}
+function doJump() {
+  const n = parseInt(document.getElementById('jumpNum').value, 10);
+  if (!n || n < 1 || n > state.sentences.length) { alert('请输入 1 到 ' + state.sentences.length + ' 之间的数字'); return; }
+  jumpTo(n - 1);
+}
+function jumpTo(i) {
+  stopSpeech();
+  state.idx = i; saveState(); closePop(); loadCurrent();
+}
+function doAppend() {
+  const t = document.getElementById('appendBox').value.trim();
+  if (t.length < 3) { alert('请先粘贴内容。'); return; }
+  state.sentences = state.sentences.concat(splitSentences(t));
+  simCache.idx = -1; saveState(); closePop(); render();
+}
+
+function getShowZh() { return localStorage.getItem('sr_show_zh') !== 'no'; }
+function toggleZh() { localStorage.setItem('sr_show_zh', getShowZh() ? 'no' : 'yes'); render(); }
+
+let vocabDueCache = 0;
+async function refreshVocabBadge() {
+  try { vocabDueCache = await vocabDueCount(); } catch (e) {}
+  const el = document.getElementById('vocabBadge');
+  if (el) el.textContent = vocabDueCache > 0 ? ' (' + vocabDueCache + ')' : '';
+}
+
+/* ---------- 界面 ---------- */
+function render() {
+  closeWordPop();
+  const app = document.getElementById('app');
+  const header = '<div class="topbar"><div><h1>一句一句读</h1><div class="sub">一次只读一句，一句一句读完整本书</div></div>' +
+    '<div class="tools"><button class="iconbtn" onclick="openVocabHome()">⭐ 生词本<span id="vocabBadge">' + (vocabDueCache > 0 ? ' (' + vocabDueCache + ')' : '') + '</span></button><button class="iconbtn" onclick="openVoiceSettings()">🔊 音色</button><button class="iconbtn" onclick="openDictSettings()">📚 词典</button><button class="iconbtn" onclick="openGrammarDict()">📘 语法字典</button></div></div>';
+  refreshVocabBadge();
+
+  if (!state) {
+    app.innerHTML = header +
+      '<div class="card"><textarea id="pasteBox" placeholder="在这里粘贴英文文本…"></textarea>' +
+      '<div class="row" style="margin-top:12px"><button onclick="importFromBox()">用粘贴的文本开始</button>' +
+      '<div class="filebtn"><button class="ghost" type="button" tabindex="-1">上传 .txt / .epub / .pdf</button><input type="file" accept=".txt,.epub,.pdf,.mobi" onchange="importFromFile(event)"></div></div>' +
+      '<div id="importStatus" class="note"></div>' +
+      '<div class="note" style="margin-top:8px">图画书/漫画也支持：会保留每页插图；如果英文是画在图里的，导入时会问你要不要用文字识别（OCR）把它读出来，然后一句一句读。</div>' +
+      '<div class="note" style="margin-top:6px">点单词查词、语法讲解、跟读录音都可以离线使用。整句翻译需要联网。' +
+      (dictInfo && dictInfo.count ? '离线大词典已就绪（' + dictInfo.count.toLocaleString() + ' 词条）。' : '离线大词典会在联网时自动后台下载，也可在右上角"词典"里查看进度或手动导入。') + '</div></div>';
+    return;
+  }
+  if (state.idx >= state.sentences.length) {
+    app.innerHTML = header + '<div class="card finish"><div style="font-size:40px">🎉</div><h2>整本书读完了！</h2><div class="sub">共 ' + state.sentences.length + ' 句。</div><button style="margin-top:16px" onclick="resetBook()">导入下一本书</button></div>';
+    return;
+  }
+  const lvl = levelInfo(), pct = Math.round(state.idx / state.sentences.length * 100);
+  const p = currentProg(), c = state.cache[String(state.idx)];
+
+  let trans;
+  if (c && c.translation) trans = esc(c.translation);
+  else if (c && c.failed) trans = '整句翻译失败：' + esc(c.err) + ' <button class="link" onclick="retryTranslate()">重试</button>';
+  else if (!navigator.onLine) trans = '当前离线，整句翻译需要联网。点单词查词和下面的语法讲解可以正常使用。';
+  else trans = '正在翻译…';
+
+  const ga = getAnalysis();
+  const gHtml = '<details class="section" ' + (gramOpen ? 'open' : '') + ' ontoggle="gramOpen=this.open"><summary>📘 语法讲解（离线）</summary>' +
+    (ga.summary ? '<div class="gsum">' + esc(ga.summary) + '</div>' : '') +
+    ga.items.map(it => '<div class="gi"><div class="gt">' + esc(it.title) + '</div>' +
+      (it.hit ? '<div class="gh">“' + esc(it.hit) + '”</div>' : '') +
+      '<div class="gd">' + esc(it.detail) + '</div>' +
+      (EG.REF[it.key] ? '<button class="link" onclick="openGrammarDict(\'' + it.key + '\')">在语法字典中查看</button>' : '') + '</div>').join('') +
+    '<div class="note" style="margin-top:6px">语法讲解由规则自动分析，适合作为读句子的提示；遇到复杂长句时仅供参考。</div></details>';
+
+  const recs = (recView.key === recKey() && recView.urls.length)
+    ? '<div class="note" style="margin-top:10px">我的录音（最近 3 次，先听原音再听自己的，对比发音）：</div>' +
+      recView.urls.map((u, i) => '<div class="recitem"><span>' + (i === 0 ? '最新' : '第 ' + (i + 1) + ' 条') + '</span><audio controls preload="metadata" src="' + u.url + '"></audio></div>').join('') +
+      '<button class="link" onclick="deleteRecs()">删除这句的录音</button>'
+    : '<div class="note" style="margin-top:10px">点"跟读录音"录下自己的声音，读完点停止。每录一次计 1 遍朗读，录音保存在本机。</div>';
+
+  const practiceHtml = '<div class="section"><h3>更多练习（不影响解锁下一句进度）</h3><div class="row">' +
+    '<button class="ghost sm" onclick="openDictation()">✍️ 听写</button>' +
+    '<button class="ghost sm" onclick="openJumble()">🔀 句子重组</button>' +
+    '<button class="ghost sm" onclick="openSpeechScore()">🎯 跟读打分' + (speechRecoSupported() ? '' : '（需Chrome/Edge）') + '</button>' +
+    '</div></div>';
+
+  const sim = getSimilar();
+  const simHtml = '<div class="section"><h3>书中相似句子</h3>' + (sim.length ? '<ul class="examples">' + sim.map(s => '<li>' + esc(s) + '</li>').join('') + '</ul>' : '<div class="note">书中暂时没有用词相近的句子。</div>') + '</div>';
+
+  app.innerHTML = header +
+    '<div class="levelbar"><div><span class="badge">Lv.' + (lvl.idx + 1) + '</span> 美国 ' + lvl.label + ' 水平</div><div>第 ' + (state.idx + 1) + ' / ' + state.sentences.length + ' 句</div></div>' +
+    '<div class="progressline"><div class="progressfill" style="width:' + pct + '%"></div></div>' +
+    '<div class="card">' +
+      (function () { const r = imageRangeFor(state.idx); return (r && r[0] === curImageStart) ? curImageUrls.map(u => '<img src="' + u + '" alt="书页插图" style="max-width:100%;max-height:60vh;object-fit:contain;border-radius:10px;margin:0 auto 14px;display:block">').join('') : ''; })() +
+      '<div class="sentence">' + renderSentenceHTML(state.sentences[state.idx]) + '</div>' +
+      '<div class="row" style="justify-content:space-between;align-items:flex-start;gap:8px">' +
+        '<div class="zh">' + (getShowZh() ? trans : '<span class="sub">中文翻译已隐藏</span>') + '</div>' +
+        '<button class="iconbtn" style="flex-shrink:0" onclick="toggleZh()">' + (getShowZh() ? '隐藏中文' : '显示中文') + '</button>' +
+      '</div>' +
+      '<div class="section"><div class="metrics">' +
+        '<div class="metric"><div class="num">' + cntLabel(p.listens, NEED_LISTENS) + '</div><div class="lab">听原音（建议3遍）</div></div>' +
+        '<div class="metric"><div class="num">' + cntLabel(p.reads, NEED_READS) + '</div><div class="lab">跟读（建议3遍）</div></div></div>' +
+        '<div class="row">' +
+          '<button onclick="playListen()">' +
+            (listenState.idx === state.idx && listenState.playing ? (listenState.paused ? '▶️ 继续' : '⏸ 暂停') : '🔊 听原音') + '</button>' +
+          '<button class="ghost sm" onclick="cycleRate()">语速 ' + getRate() + 'x</button>' +
+          '<button class="recbtn ' + (rec.on ? 'on' : '') + '" onclick="toggleRecord()">' + (rec.on ? '⏹ 停止录音 <span id="recTime">0.0 秒</span>' : '🎙️ 跟读录音') + '</button>' +
+        '</div>' + recs + '</div>' +
+      practiceHtml +
+      gHtml + simHtml +
+      '<div class="row" style="margin-top:18px">' +
+        '<button onclick="nextSentence()" ' + (rec.on ? 'disabled' : '') + '>进入下一句</button>' +
+        (state.idx > 0 ? '<button class="ghost sm" onclick="prevSentence()">回到上一句</button>' : '') +
+      '</div></div>' +
+    '<div class="row"><button class="ghost sm" onclick="openJumpModal()">跳转句子</button><button class="ghost sm" onclick="openAppendModal()">追加内容</button><button class="ghost sm" onclick="resetBook()">换一本书</button></div>';
+}
+</script>
+</body>
+</html>
