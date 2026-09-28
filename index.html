@@ -45,6 +45,8 @@ button:disabled{background:var(--line);color:var(--sub);cursor:not-allowed;borde
 .iconbtn{background:transparent;color:var(--ink);border:1px solid var(--line);padding:6px 10px;font-size:13px}
 .levelbar{display:flex;justify-content:space-between;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 16px;font-size:13px}
 .badge{background:var(--accent2);color:#fff;border-radius:999px;padding:3px 12px;font-weight:600}
+.navsticky{position:sticky;top:env(safe-area-inset-top,0px);z-index:15;background:var(--bg);padding:8px 0;margin-bottom:8px;border-bottom:1px solid var(--line)}
+.navsticky .row{flex-wrap:nowrap}
 .progressline{height:6px;background:var(--line);border-radius:6px;overflow:hidden;margin:8px 0 14px}
 .progressfill{height:100%;background:var(--accent2)}
 .sentence{font-size:26px;line-height:1.7;margin:4px 0 12px}
@@ -272,6 +274,87 @@ function splitSentences(text) {
     .map(s => s.replace(/\u2024/g, '.').trim())
     .filter(s => s.length > 1 && /[A-Za-z]{2}/.test(s) && !/https?:\/\/|www\.|ISBN|©/i.test(s));
 }
+/* ---------- 中英对照：把书里自带的中文译文，和对应的英文句子配上对 ---------- */
+const ANNOT_RE = /[（(][^()（）A-Za-z]*[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff][^()（）A-Za-z]*[)）]/g;
+const ZH_KEEP = '\\u3000-\\u303f\\u3400-\\u4dbf\\u4e00-\\u9fff\\uf900-\\ufaff\\u2160-\\u217f\\u2460-\\u24ff\\uff00-\\uffef';   // 含全角标点：中文译文按原样保留
+const ZH_RUN_RE = new RegExp('[' + ZH_KEEP + '“‘](?:[' + ZH_KEEP + '\\s\\d,.;:!?"\'“”‘’()\\-·…—]*[' + ZH_KEEP + '”’])?', 'g');
+const IDEO_RE = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
+// 把一页/一节文字切成按顺序排列的“英文段”和“中文段”。英文段里的句子照常切句；中文段先留着，后面配对用。
+function parseBlockSegs(text) {
+  let t = String(text || '').replace(/\r/g, ' ').replace(/\s+/g, ' ').trim();
+  t = t.replace(ANNOT_RE, ' ');
+  const raw = []; let last = 0, m;
+  ZH_RUN_RE.lastIndex = 0;
+  while ((m = ZH_RUN_RE.exec(t))) {
+    if (!IDEO_RE.test(m[0])) continue;                    // 只有标点，不算中文
+    if (m.index > last) raw.push({ lang: 'en', text: t.slice(last, m.index) });
+    raw.push({ lang: 'zh', text: m[0] });
+    last = m.index + m[0].length;
+  }
+  if (last < t.length) raw.push({ lang: 'en', text: t.slice(last) });
+  const segs = [];                                         // 夹在两段中文之间的一小段英文（如人名 Hank）算作中文的一部分
+  for (let i = 0; i < raw.length; i++) {
+    const r = raw[i], prev = segs[segs.length - 1], nxt = raw[i + 1];
+    if (r.lang === 'en' && prev && prev.lang === 'zh' && nxt && nxt.lang === 'zh' && r.text.trim().split(/\s+/).length <= 3 && !/[.!?]["”’)]*\s*$/.test(r.text)) { prev.text += r.text + nxt.text; i++; continue; }
+    segs.push({ lang: r.lang, text: r.text });
+  }
+  const sentences = [], out = [];
+  for (const sg of segs) {
+    if (sg.lang === 'zh') { out.push({ lang: 'zh', text: sg.text }); continue; }
+    if (!/[A-Za-z]/.test(sg.text)) continue;
+    const ss = splitSentences(sg.text);
+    if (ss.length) { out.push({ lang: 'en', n: ss.length }); sentences.push(...ss); }
+  }
+  return { sentences, segs: out };
+}
+function splitZh(t) {
+  const parts = String(t).replace(/\s+/g, ' ').trim().match(/[^。！？!?]+[。！？!?]*[”’」』）)]*/g) || [];
+  return parts.map(x => x.trim()).filter(x => IDEO_RE.test(x));
+}
+// 中文的章节标题（如“第一章 陌生人”）后面常常没有句号，会和第一句正文粘在一起：单独拆出来，才能和英文的标题句对上
+const ZH_HEAD_RE = /^(第[一二三四五六七八九十百零〇\d]+[章节回幕部篇集](?:\s*[^\s。！？]{1,10}(?=\s))?)\s*/;
+function fixZhHeading(zs, firstEn) {
+  const m = zs.length ? zs[0].match(ZH_HEAD_RE) : null;
+  if (!m) return zs;
+  const head = m[1].trim(), rest = zs[0].slice(m[0].length).trim();
+  if (!rest) return zs;
+  return (TOC_CHAPTER_RE.test(String(firstEn || '').trim()) ? [head, rest] : [rest]).concat(zs.slice(1));   // 英文没有标题句时，中文标题不用
+}
+// allSegs：全书按顺序排列的语言段（英文段带全书句子序号 idxs）。英文段和紧挨着的中文段配成一对；
+// 句数相同就一句对一句；句数不同就把整段译文给这一段的每一句。译文长度和英文差太多的（如版权页）不配。
+function alignSegs(allSegs, sentences) {
+  const merged = [];
+  for (const sg of allSegs) {
+    const last = merged[merged.length - 1];
+    if (last && last.lang === sg.lang) { if (sg.lang === 'en') last.idxs = last.idxs.concat(sg.idxs); else last.text += ' ' + sg.text; }
+    else merged.push(sg.lang === 'en' ? { lang: 'en', idxs: sg.idxs.slice() } : { lang: 'zh', text: sg.text });
+  }
+  let ez = 0, ze = 0;
+  for (let i = 0; i + 1 < merged.length; i++) { if (merged[i].lang === 'en' && merged[i + 1].lang === 'zh') ez++; else if (merged[i].lang === 'zh' && merged[i + 1].lang === 'en') ze++; }
+  const enFirst = ez >= ze, zh = {}, para = {};              // 英文在前中文在后，还是中文在前英文在后，看哪种更多
+  let exact = 0, paraN = 0;
+  for (let i = 0; i + 1 < merged.length; i++) {
+    const a = merged[i], b = merged[i + 1];
+    const en = enFirst ? (a.lang === 'en' && b.lang === 'zh' ? a : null) : (a.lang === 'zh' && b.lang === 'en' ? b : null);
+    const zseg = enFirst ? b : a;
+    if (!en) continue;
+    const enLetters = en.idxs.reduce((n, gi) => n + letterCount(sentences[gi]), 0);
+    const zs = fixZhHeading(splitZh(zseg.text), sentences[en.idxs[0]]), zChars = zs.join('').replace(/[^\u3400-\u9fff]/g, '').length;
+    const ratio = zChars / Math.max(1, enLetters);
+    if (enLetters < 8 || zChars < 2 || ratio < 0.12 || ratio > 1.3) continue;
+    if (zs.length === en.idxs.length) { en.idxs.forEach((gi, k) => { zh[gi] = zs[k]; }); exact += en.idxs.length; }
+    else if (zseg.text.length <= 500) { const whole = zs.join(''); en.idxs.forEach(gi => { zh[gi] = whole; para[gi] = 1; }); paraN += en.idxs.length; }
+  }
+  if (exact + paraN < 3) return { zh: {}, para: {}, exact: 0, paraN: 0 };   // 配上的太少，多半是误配，不要
+  return { zh, para, exact, paraN };
+}
+function bookZh(idx) { return (state && state.zh && state.zh[idx] && !(state.zhOff && state.zhOff[idx])) ? state.zh[idx] : ''; }
+function toggleBookZh() {
+  state.zhOff = state.zhOff || {};
+  if (state.zhOff[state.idx]) delete state.zhOff[state.idx]; else state.zhOff[state.idx] = 1;
+  saveState(); loadCurrent();
+}
+
 function stripGutenberg(text) {
   const startRe = /\*\*\*\s*START OF (?:THE|THIS) PROJECT GUTENBERG[^\n*]*\*\*\*/i;
   const endRe = /\*\*\*\s*END OF (?:THE|THIS) PROJECT GUTENBERG[^\n*]*\*\*\*/i;
@@ -281,11 +364,11 @@ function stripGutenberg(text) {
   if (em) text = text.slice(0, em.index);
   return text;
 }
-function finalizeImport(sentences, imageRanges, bookId, extraToast, toc) {
+function finalizeImport(sentences, imageRanges, bookId, extraToast, toc, bil) {
   if (!sentences.length) { alert('没有识别到英文句子，请检查导入的内容。如果是扫描版或英文画在图里的书，导入时请选择文字识别。'); return; }
   idbClear('recs').catch(() => {});
   const startIdx = detectStart(sentences);
-  state = { bookId: bookId || ('b' + Date.now()), sentences, idx: startIdx, prog: {}, cache: {}, startDate: Date.now(), totalCompleted: 0, imageRanges: imageRanges || [], toc: toc || buildTextToc(sentences, startIdx) };
+  state = { bookId: bookId || ('b' + Date.now()), sentences, idx: startIdx, prog: {}, cache: {}, startDate: Date.now(), totalCompleted: 0, imageRanges: imageRanges || [], toc: toc || buildTextToc(sentences, startIdx), zh: (bil && bil.zh) || {}, zhp: (bil && bil.para) || {}, zhOff: {} };
   saveState();
   loadCurrent();
   const msgs = [];
@@ -298,17 +381,23 @@ function importBook(text) {
   const gutenberg = /project gutenberg/i.test(text.slice(0, 3000));
   if (gutenberg) text = stripGutenberg(text);
   const hadCjk = /[\u3400-\u9fff]/.test(text);
-  const sentences = splitSentences(text).slice(0, 50000);
+  const pb = parseBlockSegs(text);
+  const sentences = pb.sentences.slice(0, 50000);
+  const allSegs = []; let off = 0;
+  for (const sg of pb.segs) { if (sg.lang === 'en') { allSegs.push({ lang: 'en', idxs: Array.from({ length: sg.n }, (_, k) => off + k) }); off += sg.n; } else allSegs.push(sg); }
+  const al = hadCjk ? alignSegs(allSegs, pb.sentences) : { zh: {}, para: {}, exact: 0, paraN: 0 };
   const parts = [];
   if (gutenberg) parts.push('已按 Project Gutenberg 的标记裁掉开头的版权声明');
-  if (hadCjk) parts.push('中文已自动去掉，只保留英文');
-  finalizeImport(sentences, [], null, parts.join('；') || null);
+  if (al.exact + al.paraN > 0) parts.push('书里自带的中文译文已对上 ' + (al.exact + al.paraN) + ' 句' + (al.paraN ? '（其中 ' + al.paraN + ' 句是整段译文）' : '') + '，这些句子不再机器翻译');
+  else if (hadCjk) parts.push('中文已自动去掉，没能和英文一一对上，仍用机器翻译');
+  finalizeImport(sentences, [], null, parts.join('；') || null, null, al);
 }
 async function importBookBlocks(blocks) {
   const bookId = 'b' + Date.now();
   const sentences = [];
   const imageRanges = [];   // [起始句序号, 结束句序号(不含)]，这个范围内的句子都显示这组插图
   const tocItems = [];      // 目录：每一页（或每一节）一条
+  const allSegs = [];       // 全书按顺序排列的英文段/中文段，用来把书中译文配对
   let pendingImages = [], totalImages = 0, hasPage = false, pagesWithText = 0, hadCjk = false, bi = 0;
   const saves = [];
   try { await idbClear('images'); } catch (e) {}
@@ -317,7 +406,9 @@ async function importBookBlocks(blocks) {
     const n = block.page || bi;
     if (block.page) hasPage = true;
     if (/[\u3400-\u9fff]/.test(block.text || '')) hadCjk = true;
-    const blockSentences = splitSentences(block.text || '');
+    const pb = parseBlockSegs(block.text || '');
+    const blockSentences = pb.sentences;
+    { let off = sentences.length; for (const sg of pb.segs) { if (sg.lang === 'en') { allSegs.push({ lang: 'en', idxs: Array.from({ length: sg.n }, (_, k) => off + k) }); off += sg.n; } else allSegs.push(sg); } }
     const images = (block.images || []).slice(0, 3);
     if (!blockSentences.length) { tocItems.push({ n, t: block.title || '', s: -1, e: 0 }); if (images.length) pendingImages = pendingImages.concat(images); continue; }
     const first = sentences.length;
@@ -337,13 +428,15 @@ async function importBookBlocks(blocks) {
   for (let k = tocItems.length - 1; k >= 0; k--) { if (tocItems[k].s < 0) tocItems[k].s = next; else next = tocItems[k].s; }
   let saveFailed = false;
   try { await Promise.all(saves); } catch (e) { saveFailed = true; }
+  const al = hadCjk ? alignSegs(allSegs, sentences) : { zh: {}, para: {}, exact: 0, paraN: 0 };
   const unit = hasPage ? '页' : '节';
   const parts = ['读到 ' + sentences.length + ' 句英文（' + pagesWithText + '/' + blocks.length + ' ' + unit + '有英文）'];
-  if (hadCjk) parts.push('中文已自动去掉');
+  if (al.exact + al.paraN > 0) parts.push('书里自带的中文译文已对上 ' + (al.exact + al.paraN) + ' 句' + (al.paraN ? '（其中 ' + al.paraN + ' 句是整段译文）' : '') + '，这些句子不再机器翻译');
+  else if (hadCjk) parts.push('中文已自动去掉，没能和英文一一对上，仍用机器翻译');
   parts.push(saveFailed ? '插图保存失败（可能是存储空间不足），只导入了文字'
     : totalImages ? '已提取 ' + totalImages + ' 张插图'
     : '没有找到可提取的插图');
-  finalizeImport(sentences, saveFailed ? [] : imageRanges, bookId, parts.join('；'), { kind: hasPage ? 'page' : 'section', items: tocItems });
+  finalizeImport(sentences, saveFailed ? [] : imageRanges, bookId, parts.join('；'), { kind: hasPage ? 'page' : 'section', items: tocItems }, al);
 }
 
 /* ---------- 自动识别正文起点：跳过书名页、版权页、献词、目录等 ---------- */
@@ -591,6 +684,7 @@ async function loadCurrent() {
   render();
   loadRecs();
   loadCurrentImage();
+  if (bookZh(idx)) return;                       // 书里自带中文译文，不需要机器翻译
   const c = state.cache[key];
   if (c && !c.failed) return;
   if (!navigator.onLine) return;
@@ -1645,8 +1739,10 @@ function render() {
   const lvl = levelInfo(), pct = Math.round(state.idx / state.sentences.length * 100);
   const p = currentProg(), c = state.cache[String(state.idx)];
 
+  const bz = bookZh(state.idx), hasBz = !!(state.zh && state.zh[state.idx]);
   let trans;
-  if (c && c.translation) trans = esc(c.translation);
+  if (bz) trans = esc(bz);
+  else if (c && c.translation) trans = esc(c.translation);
   else if (c && c.failed) trans = '整句翻译失败：' + esc(c.err) + ' <button class="link" onclick="retryTranslate()">重试</button>';
   else if (!navigator.onLine) trans = '当前离线，整句翻译需要联网。点单词查词和下面的语法讲解可以正常使用。';
   else trans = '正在翻译…';
@@ -1678,11 +1774,16 @@ function render() {
   app.innerHTML = header +
     '<div class="levelbar"><div><span class="badge">Lv.' + (lvl.idx + 1) + '</span> 美国 ' + lvl.label + ' 水平</div><div>' + (tocLabel() ? esc(tocLabel()) + ' · ' : '') + '第 ' + (state.idx + 1) + ' / ' + state.sentences.length + ' 句</div></div>' +
     '<div class="progressline"><div class="progressfill" style="width:' + pct + '%"></div></div>' +
+    '<div class="navsticky"><div class="row">' +
+      '<button class="ghost" style="flex:1" onclick="prevSentence()" ' + (state.idx > 0 && !rec.on ? '' : 'disabled') + '>◀ 上一句</button>' +
+      '<button style="flex:2" onclick="nextSentence()" ' + (rec.on ? 'disabled' : '') + '>进入下一句 ▶</button>' +
+    '</div></div>' +
+    '<div class="row" style="margin-bottom:12px"><button class="ghost sm" onclick="openJumpModal()">跳转句子</button><button class="ghost sm" onclick="openAppendModal()">追加内容</button><button class="ghost sm" onclick="resetBook()">换一本书</button></div>' +
     '<div class="card">' +
       (function () { const r = imageRangeFor(state.idx); return (r && r[0] === curImageStart) ? curImageUrls.map(u => '<img src="' + u + '" alt="书页插图" style="max-width:100%;max-height:60vh;object-fit:contain;border-radius:10px;margin:0 auto 14px;display:block">').join('') : ''; })() +
       '<div class="sentence">' + renderSentenceHTML(state.sentences[state.idx]) + '</div>' +
       '<div class="row" style="justify-content:space-between;align-items:flex-start;gap:8px">' +
-        '<div class="zh">' + (getShowZh() ? trans : '<span class="sub">中文翻译已隐藏</span>') + '</div>' +
+        '<div class="zh">' + (getShowZh() ? (bz ? '<span class="src" style="margin:0 6px 0 0">书中译文' + (state.zhp && state.zhp[state.idx] ? '·整段' : '') + '</span>' : '') + trans + (hasBz ? ' <button class="link" onclick="toggleBookZh()">' + (bz ? '改看机器翻译' : '改看书中译文') + '</button>' : '') : '<span class="sub">中文翻译已隐藏</span>') + '</div>' +
         '<button class="iconbtn" style="flex-shrink:0" onclick="toggleZh()">' + (getShowZh() ? '隐藏中文' : '显示中文') + '</button>' +
       '</div>' +
       '<div class="section"><div class="metrics">' +
@@ -1696,11 +1797,7 @@ function render() {
         '</div>' + recs + '</div>' +
       practiceHtml +
       gHtml + simHtml +
-      '<div class="row" style="margin-top:18px">' +
-        '<button onclick="nextSentence()" ' + (rec.on ? 'disabled' : '') + '>进入下一句</button>' +
-        (state.idx > 0 ? '<button class="ghost sm" onclick="prevSentence()">回到上一句</button>' : '') +
-      '</div></div>' +
-    '<div class="row"><button class="ghost sm" onclick="openJumpModal()">跳转句子</button><button class="ghost sm" onclick="openAppendModal()">追加内容</button><button class="ghost sm" onclick="resetBook()">换一本书</button></div>';
+    '</div>';
 }
 </script>
 </body>
