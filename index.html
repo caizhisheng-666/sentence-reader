@@ -124,7 +124,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.09.28-34';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.09.28-35';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null }, simCache = { idx: -1, list: [] };
@@ -2264,12 +2264,96 @@ function tocGoPage() {
   tocJump(i);
 }
 
+/* ---------- 整页翻译：把当前页/节的所有句子和译文一起显示，方便通读、对照 ---------- */
+let pgJobId = 0, pgRunning = false, pgS = 0, pgE = 0, pgCi = -1;
+function tocRange(ci) {                            // 这一页/节覆盖哪些句子：[s, e)
+  const items = getToc().items, it = items[ci];
+  if (!it) return [0, 0];
+  if (it.e === 0) return [it.s, it.s];               // 这一页本身没有文字（“e”标记的是有没有文字），不把后面页的句子算进来
+  let end = state.sentences.length;
+  for (let i = ci + 1; i < items.length; i++) { if (items[i].s > it.s) { end = items[i].s; break; } }
+  return [it.s, Math.max(it.s, end)];
+}
+function pgSentLabel(idx, toc, ci) {
+  if (toc.kind === 'page') return '';
+  return '';
+}
+function pgItemLabel(it, toc) {
+  if (toc.kind === 'page') return '第 ' + it.n + ' 页';
+  return it.t || ('第 ' + it.n + ' 节');
+}
+function pgTransHtml(idx) {
+  const bz = bookZh(idx);
+  if (bz) return '<span class="src">书中译文</span>' + esc(bz);
+  const c = state.cache[idx];
+  if (c && c.translation) return esc(c.translation);
+  if (c && c.failed) return '<span class="sub">翻译失败</span>';
+  return '<span class="sub">· 尚未翻译</span>';
+}
+function pgRowHtml(idx) {
+  return '<div id="pgs-' + idx + '" onclick="pgGo(' + idx + ')" style="padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer">' +
+    '<div style="font-size:17px;line-height:1.6">' + (idx === state.idx ? '▶ ' : '') + esc(state.sentences[idx]) + '</div>' +
+    (getShowZh() ? '<div class="zh" id="pgz-' + idx + '" style="margin-top:4px;font-size:14px">' + pgTransHtml(idx) + '</div>' : '') +
+    '</div>';
+}
+function pgGo(idx) { stopSpeech(); state.idx = idx; saveState(); closePop(); loadCurrent(); }
+function pgNeedsTranslate(s, e) {
+  if (!getShowZh()) return false;
+  for (let i = s; i < e; i++) { if (!bookZh(i) && !(state.cache[i] && state.cache[i].translation)) return true; }
+  return false;
+}
+function openPageView(ci) {
+  if (!state) return;
+  const toc = getToc();
+  if (ci == null) ci = tocIndexFor(state.idx);
+  if (ci < 0) ci = 0;
+  ci = Math.max(0, Math.min(ci, toc.items.length - 1));
+  const [s, e] = tocRange(ci);
+  pgCi = ci; pgS = s; pgE = e;
+  const it = toc.items[ci];
+  let html = '<h3 style="margin:0 0 4px">📄 整页翻译</h3>';
+  html += '<div class="note" style="margin-bottom:8px">' + esc(pgItemLabel(it, toc)) + (e > s ? '（共 ' + (e - s) + ' 句）' : '') + '。点任意一句可跳去精读那一句。</div>';
+  html += '<div class="row" style="margin-bottom:6px">' +
+    '<button class="ghost sm" ' + (ci > 0 ? 'onclick="openPageView(' + (ci - 1) + ')"' : 'disabled') + '>◀ 上一页</button>' +
+    '<button class="ghost sm" ' + (ci < toc.items.length - 1 ? 'onclick="openPageView(' + (ci + 1) + ')"' : 'disabled') + '>下一页 ▶</button>' +
+    (pgNeedsTranslate(s, e) ? '<button id="pgTransBtn" onclick="pgStartTranslate()">🌐 翻译整页</button>' : '') +
+    '</div>';
+  html += '<div id="pgProgress" class="note" style="min-height:18px"></div>';
+  if (e <= s) html += '<div class="note">这一页没有可显示的文字（可能只有图片或中文）。</div>';
+  else { html += '<div>'; for (let i = s; i < e; i++) html += pgRowHtml(i); html += '</div>'; }
+  showPop(html);
+  const cur = document.getElementById('pgs-' + state.idx);
+  if (cur) setTimeout(() => cur.scrollIntoView({ block: 'center' }), 60);
+}
+async function pgStartTranslate() {
+  if (pgRunning) { pgJobId++; pgRunning = false; const b = document.getElementById('pgTransBtn'); if (b) b.textContent = '🌐 翻译整页'; return; }   // 再点一下 = 停止
+  const s = pgS, e = pgE, count = e - s;
+  if (count > 150 && !confirm('这一页有 ' + count + ' 句，翻译可能需要几分钟，确定要继续吗？')) return;
+  const my = ++pgJobId; pgRunning = true;
+  const btn = document.getElementById('pgTransBtn'); if (btn) btn.textContent = '⏹ 停止翻译';
+  let done = 0, total = 0;
+  for (let i = s; i < e; i++) if (!bookZh(i) && !(state.cache[i] && state.cache[i].translation)) total++;
+  const setProg = () => { const p = document.getElementById('pgProgress'); if (p) p.textContent = total ? '已翻译 ' + done + ' / ' + total + ' 句…' : ''; };
+  setProg();
+  for (let i = s; i < e; i++) {
+    if (pgJobId !== my) return;
+    if (bookZh(i) || (state.cache[i] && state.cache[i].translation)) continue;
+    try { state.cache[i] = { translation: await translateText(state.sentences[i]) }; }
+    catch (err) { state.cache[i] = { failed: true, err: err.message }; }
+    if (pgJobId !== my) return;
+    saveState(); done++; setProg();
+    const z = document.getElementById('pgz-' + i); if (z) z.innerHTML = pgTransHtml(i);
+  }
+  pgRunning = false;
+  if (pgJobId === my) { const b = document.getElementById('pgTransBtn'); if (b) b.remove(); const p = document.getElementById('pgProgress'); if (p) p.textContent = '整页翻译完成。'; }
+}
+
 /* ---------- 界面 ---------- */
 function render() {
   closeWordPop();
   const app = document.getElementById('app');
   const header = '<div class="topbar"><div><h1>一句一句读</h1><div class="sub">一次只读一句，一句一句读完整本书</div></div>' +
-    '<div class="tools">' + (state ? '<button class="iconbtn" onclick="openToc()">📑 目录</button>' : '') + '<button class="iconbtn" onclick="openVocabHome()">⭐ 生词本<span id="vocabBadge">' + (vocabDueCache > 0 ? ' (' + vocabDueCache + ')' : '') + '</span></button>' + (azCfg().dev ? '<button class="iconbtn" onclick="openNaturalSettings()">' + (azKeyMem ? '🎧' : '🔒') + ' 自然语音</button>' : '') + '<button class="iconbtn" onclick="openDictSettings()">📚 词典</button><button class="iconbtn" onclick="openGrammarDict()">📘 语法字典</button><button class="iconbtn" onclick="openHelp()">❓ 帮助</button></div></div>';
+    '<div class="tools">' + (state ? '<button class="iconbtn" onclick="openToc()">📑 目录</button><button class="iconbtn" onclick="openPageView()">📄 整页翻译</button>' : '') + '<button class="iconbtn" onclick="openVocabHome()">⭐ 生词本<span id="vocabBadge">' + (vocabDueCache > 0 ? ' (' + vocabDueCache + ')' : '') + '</span></button>' + (azCfg().dev ? '<button class="iconbtn" onclick="openNaturalSettings()">' + (azKeyMem ? '🎧' : '🔒') + ' 自然语音</button>' : '') + '<button class="iconbtn" onclick="openDictSettings()">📚 词典</button><button class="iconbtn" onclick="openGrammarDict()">📘 语法字典</button><button class="iconbtn" onclick="openHelp()">❓ 帮助</button></div></div>';
   refreshVocabBadge();
 
   if (!state) {
