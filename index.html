@@ -132,7 +132,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.04-36';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.04-38';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null }, simCache = { idx: -1, list: [] };
@@ -189,6 +189,7 @@ async function idbDel(store, key) {
 /* ---------- 启动与保存 ---------- */
 async function boot() {
   try { const raw = localStorage.getItem('sr_state'); if (raw) state = JSON.parse(raw); } catch (e) {}
+  if (!state) { try { state = (await idbGet('meta', 'bigState')) || null; } catch (e) {} }
   if (state) {
     if (!state.bookId) state.bookId = 'b' + (state.startDate || Date.now());
     state.prog = state.prog || {}; state.cache = state.cache || {};
@@ -205,14 +206,16 @@ window.addEventListener('offline', () => render());
 boot();
 
 function saveState() {
-  if (!state) { localStorage.removeItem('sr_state'); return; }
-  try { localStorage.setItem('sr_state', JSON.stringify(state)); }
-  catch (e) {
-    const k = String(state.idx), keep = {};
-    if (state.cache[k]) keep[k] = state.cache[k];
-    state.cache = keep;
-    try { localStorage.setItem('sr_state', JSON.stringify(state)); } catch (e2) {}
-  }
+  if (!state) { try { localStorage.removeItem('sr_state'); } catch (e) {} idbDel('meta', 'bigState').catch(() => {}); return; }
+  const tryLocal = () => { try { localStorage.setItem('sr_state', JSON.stringify(state)); return true; } catch (e) { return false; } };
+  if (tryLocal()) { idbDel('meta', 'bigState').catch(() => {}); return; }
+  const k = String(state.idx), keep = {};
+  if (state.cache && state.cache[k]) keep[k] = state.cache[k];
+  state.cache = keep;
+  if (tryLocal()) { idbDel('meta', 'bigState').catch(() => {}); return; }
+  // 书太大，localStorage 放不下：改存到 IndexedDB（容量大得多），并清掉旧的小副本，避免下次打开读到旧书
+  try { localStorage.removeItem('sr_state'); } catch (e) {}
+  idbPut('meta', state, 'bigState').catch(() => { toast('这本书太大，浏览器存不下，关闭网页后会丢失进度。建议拆成几份分开导入。', 6000); });
 }
 
 /* ---------- 整句翻译（需联网，失败不影响学习） ---------- */
@@ -379,7 +382,7 @@ function stripGutenberg(text) {
   return text;
 }
 function finalizeImport(sentences, imageRanges, bookId, extraToast, toc, bil) {
-  if (!sentences.length) { alert('没有识别到英文句子，请检查导入的内容。如果是扫描版或英文画在图里的书，导入时请选择文字识别。'); return; }
+  if (!sentences.length) { alert('没有读到英文句子。这个文件里的文字很可能是图片（扫描版 PDF），无法读取成文字。请换成能选中、复制文字的 PDF，或 epub、txt，也可以把文字粘贴进来。'); return; }
   idbClear('recs').catch(() => {});
   const startIdx = detectStart(sentences);
   state = { bookId: bookId || ('b' + Date.now()), sentences, idx: startIdx, prog: {}, cache: {}, startDate: Date.now(), totalCompleted: 0, imageRanges: imageRanges || [], toc: toc || buildTextToc(sentences, startIdx), zh: (bil && bil.zh) || {}, zhp: (bil && bil.para) || {}, zhOff: {} };
