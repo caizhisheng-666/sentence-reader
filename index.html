@@ -26,14 +26,6 @@
   }
 }
 *{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
-html,body{max-width:100%;overflow-x:hidden}
-#app,.card,.levelbar>div,.fs-body,#pop{min-width:0}
-#app,.card,.fs-body,#pop,.sentence,.zh,.gd,.gh,.eg,.endef,.zhdef,.note{overflow-wrap:anywhere;word-break:break-word}
-.levelbar{gap:8px;flex-wrap:wrap}
-img,video,canvas,svg{max-width:100%;height:auto}
-pre,code,table{max-width:100%}
-pre{overflow-x:auto;white-space:pre-wrap}
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--ink);font-family:Georgia,'Songti SC','Noto Serif SC',serif;-webkit-font-smoothing:antialiased;}
 #app{max-width:680px;margin:0 auto;padding:20px 16px 60px;}
@@ -132,7 +124,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.04-38';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.09.28-35';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null }, simCache = { idx: -1, list: [] };
@@ -189,7 +181,6 @@ async function idbDel(store, key) {
 /* ---------- 启动与保存 ---------- */
 async function boot() {
   try { const raw = localStorage.getItem('sr_state'); if (raw) state = JSON.parse(raw); } catch (e) {}
-  if (!state) { try { state = (await idbGet('meta', 'bigState')) || null; } catch (e) {} }
   if (state) {
     if (!state.bookId) state.bookId = 'b' + (state.startDate || Date.now());
     state.prog = state.prog || {}; state.cache = state.cache || {};
@@ -206,16 +197,14 @@ window.addEventListener('offline', () => render());
 boot();
 
 function saveState() {
-  if (!state) { try { localStorage.removeItem('sr_state'); } catch (e) {} idbDel('meta', 'bigState').catch(() => {}); return; }
-  const tryLocal = () => { try { localStorage.setItem('sr_state', JSON.stringify(state)); return true; } catch (e) { return false; } };
-  if (tryLocal()) { idbDel('meta', 'bigState').catch(() => {}); return; }
-  const k = String(state.idx), keep = {};
-  if (state.cache && state.cache[k]) keep[k] = state.cache[k];
-  state.cache = keep;
-  if (tryLocal()) { idbDel('meta', 'bigState').catch(() => {}); return; }
-  // 书太大，localStorage 放不下：改存到 IndexedDB（容量大得多），并清掉旧的小副本，避免下次打开读到旧书
-  try { localStorage.removeItem('sr_state'); } catch (e) {}
-  idbPut('meta', state, 'bigState').catch(() => { toast('这本书太大，浏览器存不下，关闭网页后会丢失进度。建议拆成几份分开导入。', 6000); });
+  if (!state) { localStorage.removeItem('sr_state'); return; }
+  try { localStorage.setItem('sr_state', JSON.stringify(state)); }
+  catch (e) {
+    const k = String(state.idx), keep = {};
+    if (state.cache[k]) keep[k] = state.cache[k];
+    state.cache = keep;
+    try { localStorage.setItem('sr_state', JSON.stringify(state)); } catch (e2) {}
+  }
 }
 
 /* ---------- 整句翻译（需联网，失败不影响学习） ---------- */
@@ -382,7 +371,7 @@ function stripGutenberg(text) {
   return text;
 }
 function finalizeImport(sentences, imageRanges, bookId, extraToast, toc, bil) {
-  if (!sentences.length) { alert('没有读到英文句子。这个文件里的文字很可能是图片（扫描版 PDF），无法读取成文字。请换成能选中、复制文字的 PDF，或 epub、txt，也可以把文字粘贴进来。'); return; }
+  if (!sentences.length) { alert('没有识别到英文句子，请检查导入的内容。如果是扫描版或英文画在图里的书，导入时请选择文字识别。'); return; }
   idbClear('recs').catch(() => {});
   const startIdx = detectStart(sentences);
   state = { bookId: bookId || ('b' + Date.now()), sentences, idx: startIdx, prog: {}, cache: {}, startDate: Date.now(), totalCompleted: 0, imageRanges: imageRanges || [], toc: toc || buildTextToc(sentences, startIdx), zh: (bil && bil.zh) || {}, zhp: (bil && bil.para) || {}, zhOff: {} };
@@ -1834,7 +1823,7 @@ function openHelp() {
       li('软件本身不收集任何使用数据。')) +
     sec('开源与致谢',
       li('英汉词典数据：ECDICT（skywind3000，MIT 许可）') + li('PDF 解析：pdf.js（Mozilla，Apache-2.0）') + li('epub 解压：JSZip（MIT / GPLv3 双许可）') +
-      li('表格解析：PapaParse（MIT）') + li('各组件版权归原作者所有。')) +
+      li('表格解析：PapaParse（MIT）') + li('图片文字识别：Tesseract.js 与 Tesseract OCR（Apache-2.0）') + li('各组件版权归原作者所有。')) +
     sec('免责声明',
       li('软件不提供书籍，请只导入你有权使用的书（如公版书、你自己购买的电子书）。') +
       li('“对照美国 X 年级阶段”只是按学习进度给出的标识，<b>不是官方分级，也不是水平测评</b>。') +
@@ -1935,19 +1924,179 @@ async function parseEpub(buf) {
   }
   return blocks;
 }
+/* ---------- OCR：识别图片里的英文（图画书 / 漫画），在浏览器本地运行，免费 ---------- */
+let ocrWorker = null, ocrCancel = false;
+const TESSERACT_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
 function setImportStatus(html) { const el = document.getElementById('importStatus'); if (el) el.innerHTML = html; }
 function letterCount(t) { return ((t || '').match(/[A-Za-z]/g) || []).length; }
+function ocrStatus(msg) { setImportStatus(esc(msg) + ' <button class="link" onclick="ocrCancel=true;this.textContent=\'正在取消…\'">取消识别（保留已识别的部分）</button>'); }
+function askOcr(pages, total) {
+  return confirm('发现 ' + pages + ' 页（共 ' + total + ' 页）的英文是画在图片里的，需要做文字识别才能一句一句读。\n\n· 在你自己的浏览器里运行，免费\n· 第一次需要联网下载语言数据（几 MB）\n· 每页大约 3–15 秒，识别中可以随时取消\n\n现在开始识别吗？（点“取消”则只导入图片，不识别文字）');
+}
+function loadScriptOnce(src) {
+  return new Promise((resolve, reject) => {
+    if (window.Tesseract) { resolve(); return; }
+    const sc = document.createElement('script');
+    sc.src = src; sc.onload = () => resolve(); sc.onerror = () => reject(new Error('x'));
+    document.head.appendChild(sc);
+  });
+}
+async function getOcrWorker() {
+  if (ocrWorker) return ocrWorker;
+  try {
+    await loadScriptOnce(TESSERACT_URL);
+    ocrWorker = await Tesseract.createWorker('eng', 1, {});
+    try { await ocrWorker.setParameters({ tessedit_pageseg_mode: '11', preserve_interword_spaces: '1' }); } catch (e) {}
+  } catch (e) {
+    ocrWorker = null;
+    const err = new Error('文字识别引擎准备失败。第一次使用需要联网下载识别组件和语言数据，请连上网络后重新导入这本书。');
+    err.fatal = true; throw err;
+  }
+  return ocrWorker;
+}
+async function stopOcrWorker() { try { if (ocrWorker) await ocrWorker.terminate(); } catch (e) {} ocrWorker = null; }
+
+function extractOcrLines(data) {
+  const out = [];
+  const add = l => {
+    if (!l || !l.text || !l.bbox) return;
+    out.push({ text: String(l.text).replace(/\s+/g, ' ').trim(), conf: typeof l.confidence === 'number' ? l.confidence : 80, x0: l.bbox.x0, y0: l.bbox.y0, x1: l.bbox.x1, y1: l.bbox.y1 });
+  };
+  if (data && Array.isArray(data.lines) && data.lines.length) data.lines.forEach(add);
+  else if (data && Array.isArray(data.blocks)) data.blocks.forEach(b => (b.paragraphs || []).forEach(p => (p.lines || []).forEach(add)));
+  return out;
+}
+function isGoodOcrLine(l) {
+  const t = l.text, letters = letterCount(t), nonSpace = t.replace(/\s/g, '').length;
+  if (letters < 2 || !nonSpace || l.conf < 45) return false;
+  if (letters / nonSpace < 0.6) return false;                       // 符号、数字太多，多半是画面杂点
+  const words = t.split(/\s+/).filter(w => /[A-Za-z]{2,}/.test(w));
+  if (!words.length) return false;
+  if (words.length === 1 && t.length < 4 && l.conf < 75) return false;
+  return true;
+}
+function groupOcrLines(lines, pageH) {
+  const ls = lines.slice().sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0), groups = [];
+  for (const l of ls) {                                              // 上下相邻、左右重叠的行 = 同一个对话气泡/说明框
+    const h = Math.max(1, l.y1 - l.y0);
+    let target = null;
+    for (let gi = groups.length - 1; gi >= 0; gi--) {
+      const g = groups[gi], gap = l.y0 - g.y1;
+      const overlap = Math.min(l.x1, g.x1) - Math.max(l.x0, g.x0);
+      const minW = Math.max(1, Math.min(l.x1 - l.x0, g.x1 - g.x0));
+      if (gap >= -h * 0.5 && gap <= h * 1.1 && overlap > minW * 0.25) { target = g; break; }
+    }
+    if (target) { target.lines.push(l); target.x0 = Math.min(target.x0, l.x0); target.x1 = Math.max(target.x1, l.x1); target.y1 = Math.max(target.y1, l.y1); }
+    else groups.push({ lines: [l], x0: l.x0, y0: l.y0, x1: l.x1, y1: l.y1 });
+  }
+  const band = Math.max(20, pageH * 0.08), rows = [];              // 阅读顺序：先分“行带”，带内从左到右
+  groups.sort((a, b) => a.y0 - b.y0);
+  for (const g of groups) { const row = rows.find(r => Math.abs(g.y0 - r.y) < band); if (row) row.items.push(g); else rows.push({ y: g.y0, items: [g] }); }
+  rows.sort((a, b) => a.y - b.y);
+  const ordered = [];
+  rows.forEach(r => { r.items.sort((a, b) => a.x0 - b.x0); ordered.push(...r.items); });
+  return ordered;
+}
+function bubbleText(g) {
+  let t = g.lines.map(l => l.text).join(' ');
+  t = t.replace(/(\w)- (\w)/g, '$1$2').replace(/(^|\s)[|\\\/](?=\s|$)/g, ' I ');
+  t = t.replace(/^[^A-Za-z0-9"'“‘(]+/, '').replace(/[^A-Za-z0-9.!?"'”’)]+$/, '').replace(/\s+/g, ' ').trim();
+  if (t && !/[.!?]["'”’)]*$/.test(t)) t += '.';                      // 每个气泡结尾补句号，保证一个气泡至少是一句
+  return t;
+}
+function ocrLinesToText(lines, pageH) {
+  return groupOcrLines(lines.filter(isGoodOcrLine), pageH).map(bubbleText).filter(t => letterCount(t) >= 3).join(' ');
+}
+function extractOcrWords(data) {
+  const out = [];
+  const add = w => { if (w && w.text && w.bbox) out.push({ text: String(w.text).trim(), conf: typeof w.confidence === 'number' ? w.confidence : 80, x0: w.bbox.x0, y0: w.bbox.y0, x1: w.bbox.x1, y1: w.bbox.y1 }); };
+  if (data && Array.isArray(data.words) && data.words.length) data.words.forEach(add);
+  else if (data && Array.isArray(data.blocks)) data.blocks.forEach(b => (b.paragraphs || []).forEach(p => (p.lines || []).forEach(l => (l.words || []).forEach(add))));
+  return out;
+}
+function isGoodOcrWord(w) {
+  const t = w.text, letters = letterCount(t);
+  if (!t || !letters || letters / t.length < 0.5 || w.conf < 50) return false;   // 中文被误认成的乱码符号、数字，几乎都过不了这一关
+  const core = t.replace(/[^A-Za-z]/g, '');
+  if (core.length === 1 && (!/^[aAI]$/.test(core) || w.conf < 70)) return false;
+  return true;
+}
+function wordsToLines(words) {
+  const ws = words.filter(isGoodOcrWord).sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0), lines = [];
+  for (const w of ws) {
+    const h = Math.max(1, w.y1 - w.y0);
+    let target = null;
+    for (let i = lines.length - 1; i >= 0 && i >= lines.length - 30; i--) {
+      const l = lines[i], lh = Math.max(1, l.y1 - l.y0);
+      const overlap = Math.min(w.y1, l.y1) - Math.max(w.y0, l.y0), gap = w.x0 - l.x1;
+      if (overlap > 0.5 * Math.min(h, lh) && gap > -h && gap < 2.5 * Math.max(h, lh)) { target = l; break; }   // 同一行、且离得不远（左右两栏不会连成一行）
+    }
+    if (target) { target.words.push(w); target.x0 = Math.min(target.x0, w.x0); target.x1 = Math.max(target.x1, w.x1); target.y0 = Math.min(target.y0, w.y0); target.y1 = Math.max(target.y1, w.y1); }
+    else lines.push({ words: [w], x0: w.x0, y0: w.y0, x1: w.x1, y1: w.y1 });
+  }
+  return lines.map(l => { l.words.sort((a, b) => a.x0 - b.x0); return { text: l.words.map(w => w.text).join(' '), conf: l.words.reduce((m, w) => m + w.conf, 0) / l.words.length, x0: l.x0, y0: l.y0, x1: l.x1, y1: l.y1 }; });
+}
+async function ocrCanvas(canvas) {
+  const worker = await getOcrWorker();
+  const { data } = await worker.recognize(canvas, {}, { text: true, blocks: true });
+  const wl = wordsToLines(extractOcrWords(data));
+  const lines = wl.length ? wl : extractOcrLines(data);
+  if (lines.length) return ocrLinesToText(lines, canvas.height);
+  return String((data && data.text) || '').split(/\n\s*\n/).map(p => p.replace(/\s+/g, ' ').trim()).filter(p => letterCount(p) >= 3)
+    .map(p => /[.!?]["'”’)]*$/.test(p) ? p : p + '.').join(' ');
+}
+async function blobToOcrCanvas(blob) {
+  const bmp = await createImageBitmap(blob);
+  const scale = Math.min(2.5, Math.max(0.5, 2200 / Math.max(bmp.width, bmp.height)));
+  const c = document.createElement('canvas');
+  c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+  const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+  ctx.drawImage(bmp, 0, 0, c.width, c.height);
+  if (bmp.close) bmp.close();
+  return c;
+}
+async function ocrBlocksIfNeeded(blocks) {                           // epub：对“只有图、没有文字”的页做识别
+  const idxs = [];
+  blocks.forEach((b, i) => { if (letterCount(b.text) < 15 && b.images && b.images.length) idxs.push(i); });
+  if (!idxs.length || !askOcr(idxs.length, blocks.length)) return blocks;
+  ocrCancel = false;
+  let done = 0;
+  for (const i of idxs) {
+    if (ocrCancel) break;
+    ocrStatus('正在识别第 ' + (++done) + '/' + idxs.length + ' 页的文字…');
+    const texts = [];
+    for (const img of blocks[i].images.slice(0, 3)) {
+      try { const c = await blobToOcrCanvas(img); texts.push(await ocrCanvas(c)); c.width = c.height = 0; }
+      catch (e) { if (e.fatal) { alert(e.message); await stopOcrWorker(); return blocks; } }
+    }
+    const t = texts.join(' ').trim();
+    if (letterCount(t) >= 3) blocks[i].text = t;
+  }
+  await stopOcrWorker();
+  return blocks;
+}
 
 async function parsePdf(buf) {
   if (!window.pdfjsLib) throw new Error('PDF 组件没有加载成功，请联网刷新后再试');
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-  const n = pdf.numPages, blocks = [];
+  const n = pdf.numPages, texts = [];
   for (let i = 1; i <= n; i++) {
-    setImportStatus('正在处理第 ' + i + '/' + n + ' 页…');
+    setImportStatus('正在读取第 ' + i + '/' + n + ' 页的文字…');
+    const content = await (await pdf.getPage(i)).getTextContent();
+    texts.push(content.items.map(it => it.str).join(' '));
+  }
+  const hasCJK = t => /[\u3400-\u9fff]/.test(t);
+  const usableLetters = t => splitSentences(t).filter(x => x.trim().split(/\s+/).length >= 4).reduce((m, x) => m + letterCount(x), 0);
+  // 文字很少的页 = 文字多半画在图里；中英对照书里“有中文、几乎没有英文”的页，多半是英文画在图里
+  const sparse = texts.map(t => letterCount(t) < 15 || (hasCJK(t) && usableLetters(t) < 40));
+  const sparseCount = sparse.filter(Boolean).length;
+  let doOcr = sparseCount > 0 && askOcr(sparseCount, n);
+  ocrCancel = false;
+  const blocks = []; let ocrDone = 0;
+  for (let i = 1; i <= n; i++) {
     const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    const text = content.items.map(it => it.str).join(' ');
-    let images = [];
+    let text = texts[i - 1], images = [];
+    setImportStatus('正在处理第 ' + i + '/' + n + ' 页…');
     try {
       const viewport = page.getViewport({ scale: 1.3 });
       const canvas = document.createElement('canvas');
@@ -1956,8 +2105,21 @@ async function parsePdf(buf) {
       const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.72));
       if (blob) images = [blob];
     } catch (e) {}
+    if (doOcr && sparse[i - 1] && !ocrCancel) {
+      ocrStatus('正在识别第 ' + i + '/' + n + ' 页的文字（已识别 ' + ocrDone + '/' + sparseCount + ' 页）…');
+      try {
+        const v1 = page.getViewport({ scale: 1 });
+        const vp = page.getViewport({ scale: Math.min(3, Math.max(1, 2200 / Math.max(v1.width, v1.height))) });
+        const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+        await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+        const t = await ocrCanvas(c); c.width = c.height = 0;
+        if (letterCount(t) >= 3 && letterCount(t) > usableLetters(text)) text = t;   // 识别出的英文比原来的文字层多才替换
+        ocrDone++;
+      } catch (e) { if (e.fatal) { alert(e.message); doOcr = false; } }
+    }
     blocks.push({ text, images, page: i });
   }
+  await stopOcrWorker();
   return blocks;
 }
 async function importFromFile(ev) {
@@ -1966,11 +2128,12 @@ async function importFromFile(ev) {
   setImportStatus('正在读取 ' + esc(file.name) + ' …');
   try {
     if (name.endsWith('.txt')) importBook(await readAsText(file));
-    else if (name.endsWith('.epub')) { const blocks = await parseEpub(await readAsArrayBuffer(file)); await importBookBlocks(blocks); }
+    else if (name.endsWith('.epub')) { const blocks = await parseEpub(await readAsArrayBuffer(file)); await importBookBlocks(await ocrBlocksIfNeeded(blocks)); }
     else if (name.endsWith('.pdf')) await importBookBlocks(await parsePdf(await readAsArrayBuffer(file)));
     else if (name.endsWith('.mobi')) alert('暂不支持 .mobi。请先用免费软件 Calibre 转成 epub 或 txt。');
     else alert('请选择 .txt、.epub 或 .pdf 文件。');
   } catch (err) { alert('文件读取失败：' + (err && err.message ? err.message : '未知错误')); }
+  await stopOcrWorker();
   setImportStatus('');
 }
 function importFromBox() {
@@ -2199,7 +2362,7 @@ function render() {
       '<div class="row" style="margin-top:12px"><button onclick="importFromBox()">用粘贴的文本开始</button>' +
       '<div class="filebtn"><button class="ghost" type="button" tabindex="-1">上传 .txt / .epub / .pdf</button><input type="file" accept=".txt,.epub,.pdf,.mobi" onchange="importFromFile(event)"></div></div>' +
       '<div id="importStatus" class="note"></div>' +
-      '<div class="note" style="margin-top:8px">图画书/漫画也支持：会保留每页插图；英文如果是画在图里的，无法识别成文字，建议改用 txt 或可复制文字的 epub/pdf，或把文字粘贴进来。</div>' +
+      '<div class="note" style="margin-top:8px">图画书/漫画也支持：会保留每页插图；如果英文是画在图里的，导入时会问你要不要用文字识别（OCR）把它读出来，然后一句一句读。</div>' +
       '<div class="note" style="margin-top:6px">点单词查词、语法讲解、跟读录音都可以离线使用。整句翻译需要联网。' +
       (dictInfo && dictInfo.count ? '离线大词典已就绪（' + dictInfo.count.toLocaleString() + ' 词条）。' : '离线大词典会在联网时自动后台下载，也可在右上角"词典"里查看进度或手动导入。') + '</div></div>';
     return;
