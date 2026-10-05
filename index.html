@@ -54,6 +54,9 @@ button:disabled{background:var(--line);color:var(--sub);cursor:not-allowed;borde
 .sentence{font-size:26px;line-height:1.7;margin:4px 0 12px}
 .sentence .w{cursor:pointer;border-bottom:1.5px dotted var(--accent);padding:0 1px;border-radius:3px}
 .sentence .w:hover{background:var(--pop)}
+.pgsent .w{cursor:pointer;border-bottom:1.5px dotted var(--accent);padding:0 1px;border-radius:3px}
+.pgsent .w:hover{background:var(--pop)}
+.pgplay{flex-shrink:0;width:38px;height:38px;padding:0;border-radius:50%;font-size:15px;line-height:1;display:inline-flex;align-items:center;justify-content:center;margin-top:2px}
 .zh{color:var(--sub);font-size:15px;line-height:1.6;font-style:italic}
 .section{margin-top:18px;padding-top:14px;border-top:1px dashed var(--line)}
 .section > h3,.section > summary{font-size:14px;margin:0 0 10px;font-weight:600;cursor:pointer}
@@ -583,12 +586,6 @@ function detectStartBase(sentences) {
   while (i < cap && looksLikeFrontMatter(sentences[i])) i++;
   return Math.min(i, sentences.length - 1);
 }
-const NEED_READS = 3, NEED_LISTENS = 3;
-function cntLabel(n, need) { return n >= need ? '✓ ' + n : n + '/' + need; }
-function currentProg() {
-  if (!state.prog[state.idx]) state.prog[state.idx] = { reads: 0, listens: 0 };
-  return state.prog[state.idx];
-}
 function levelInfo() {
   const grades = ['学前启蒙', '一年级 · 上', '一年级 · 下', '二年级 · 上', '二年级 · 下', '三年级 · 上', '三年级 · 下', '四年级 · 上', '四年级 · 下', '五年级 · 上', '五年级 · 下', '六年级 · 毕业挑战'];
   const weeks = Math.floor((Date.now() - state.startDate) / (7 * 24 * 3600 * 1000));
@@ -951,8 +948,6 @@ function playListenWords(idx) {
     clearSpeakHighlight();
     if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false };
     wm = null;
-    const p = state.prog[idx] || (state.prog[idx] = { reads: 0, listens: 0 });
-    p.listens++; saveState();
     if (state.idx === idx) render();
   };
   const next = () => {
@@ -1003,8 +998,6 @@ function playListen() {
     if (u._stopped) return;
     clearSpeakHighlight();
     if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false };
-    const p = state.prog[idx] || (state.prog[idx] = { reads: 0, listens: 0 });
-    p.listens++; saveState();
     if (state.idx === idx) render();
   };
   u.onerror = () => { if (u._stopped) return; clearSpeakHighlight(); if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false }; if (state.idx === idx) render(); };
@@ -1013,7 +1006,7 @@ function playListen() {
   speakNow(u);
   render();
 }
-function speakText(text, rate) {               // 单词、听写、生词复习等用：同步播放，不影响“听原音”的计数
+function speakText(text, rate) {               // 单词、听写、生词复习、整页翻译里的单句朗读等用：同步播放
   if (azReady()) { azSpeakShort(text); return; }
   try {
     const u = new SpeechSynthesisUtterance(text);
@@ -1176,8 +1169,6 @@ function azStart(blob, text, idx, job) {
     if (job._stopped) return;
     azTimerStop(); azActive = false; clearSpeakHighlight();
     if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false };
-    const p = state.prog[idx] || (state.prog[idx] = { reads: 0, listens: 0 });
-    p.listens++; saveState();
     if (state.idx === idx) render();
   };
   a.onerror = () => { if (job._stopped) return; azFail(new Error('音频播放失败')); azFallbackSystem(idx); };
@@ -1429,8 +1420,6 @@ async function toggleRecord() {
         arr.unshift({ blob, t: Date.now(), dur });
         await idbPut('recs', arr.slice(0, 3), keyAtStart);
       } catch (e) {}
-      const p = state.prog[idxAtStart] || (state.prog[idxAtStart] = { reads: 0, listens: 0 });
-      p.reads++; saveState(); toast('跟读 +1（已 ' + p.reads + ' 遍）');
     }
     if (state && state.idx === idxAtStart) loadRecs(); else render();
   };
@@ -1519,7 +1508,7 @@ document.addEventListener('click', e => {
 window.addEventListener('scroll', closeWordPop, true);
 window.addEventListener('resize', closeWordPop);
 
-let lastWordIdx = -1, lastWordEl = null;
+let lastWordIdx = -1, lastWordEl = null, lastWordSentIdx = -1;
 /* ---------- 生词本 + 间隔重复复习 ---------- */
 const LEITNER_DAYS = [0, 1, 3, 7, 16, 35];
 async function addToVocab(word, zh, sentence) {
@@ -1603,10 +1592,11 @@ async function answerReview(remembered) {
 }
 
 async function wordClick(i, el) {
-  const raw = curTokens[i] || '';
+  const raw = (el && el.dataset && el.dataset.t) || curTokens[i] || '';   // 整页翻译里的词自带 data-t（所在句子的序号在 data-s），主界面的词按序号取
   const clean = raw.replace(/[’‘]/g, "'").replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, '');
   if (!clean) return;
   curWord = clean; curWordZh = ''; lastWordIdx = i; lastWordEl = el;
+  lastWordSentIdx = (el && el.dataset && el.dataset.s) ? parseInt(el.dataset.s, 10) : -1;
   const rect = el.getBoundingClientRect();
   const head = '<div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div class="dhead">' + esc(clean) + '</div><button class="iconbtn" onclick="speakWord()">🔊</button></div>';
   document.getElementById('wpBody').innerHTML = head + '<div class="note">查询中…</div>';
@@ -1640,7 +1630,8 @@ async function wordClick(i, el) {
 }
 function retryWordLookup() { if (lastWordEl && lastWordIdx >= 0) wordClick(lastWordIdx, lastWordEl); }
 async function addWordToVocabFromPopup() {
-  const sentence = (state && state.sentences[state.idx]) || '';
+  const si = lastWordSentIdx >= 0 ? lastWordSentIdx : (state ? state.idx : 0);
+  const sentence = (state && state.sentences[si]) || '';
   await addToVocab(curWord, curWordZh, sentence);
   if (lastWordEl && lastWordIdx >= 0) wordClick(lastWordIdx, lastWordEl);
 }
@@ -2400,13 +2391,28 @@ function pgTransHtml(idx) {
   if (c && c.failed) return '<span class="sub">翻译失败</span>';
   return '<span class="sub">· 尚未翻译</span>';
 }
+// 整页里的一句：每个单词可点（查词）；句首的 ▶ 朗读这一句；右边的“精读”回到主界面读这一句
+function pgWordsHtml(idx) {
+  return String(state.sentences[idx]).split(/(\s+)/).map(tok => {
+    if (!tok || /^\s+$/.test(tok)) return tok;
+    if (!/[A-Za-z]/.test(tok)) return esc(tok);
+    return '<span class="w" data-t="' + esc(tok) + '" data-s="' + idx + '" tabindex="0" role="button" onclick="wordClick(0,this)" onkeydown="if(event.key===\'Enter\')wordClick(0,this)">' + esc(tok) + '</span>';
+  }).join('');
+}
 function pgRowHtml(idx) {
-  return '<div id="pgs-' + idx + '" onclick="pgGo(' + idx + ')" style="padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer">' +
-    '<div style="font-size:17px;line-height:1.6">' + (idx === state.idx ? '▶ ' : '') + esc(state.sentences[idx]) + '</div>' +
-    (getShowZh() ? '<div class="zh" id="pgz-' + idx + '" style="margin-top:4px;font-size:14px">' + pgTransHtml(idx) + '</div>' : '') +
+  const cur = idx === state.idx;
+  return '<div id="pgs-' + idx + '" style="display:flex;gap:10px;align-items:flex-start;padding:10px ' + (cur ? '8px' : '0') + ';border-bottom:1px solid var(--line);' + (cur ? 'background:var(--pop);border-radius:10px' : '') + '">' +
+    '<button class="pgplay" onclick="pgSpeak(' + idx + ')" aria-label="朗读这一句" title="朗读这一句">▶</button>' +
+    '<div style="flex:1;min-width:0">' +
+      '<div class="pgsent" style="font-size:17px;line-height:1.6">' + pgWordsHtml(idx) + '</div>' +
+      (getShowZh() ? '<div class="zh" id="pgz-' + idx + '" style="margin-top:4px;font-size:14px">' + pgTransHtml(idx) + '</div>' : '') +
+    '</div>' +
+    '<button class="link" style="flex-shrink:0;margin-top:6px" onclick="pgGo(' + idx + ')">精读</button>' +
     '</div>';
 }
-function pgGo(idx) { stopSpeech(); state.idx = idx; saveState(); closePop(); loadCurrent(); }
+function pgSpeak(idx) { closeWordPop(); speakText(state.sentences[idx]); }
+function pgCancel() { pgJobId++; pgRunning = false; }
+function pgGo(idx) { pgCancel(); stopSpeech(); state.idx = idx; saveState(); closePop(); loadCurrent(); }
 function pgNeedsTranslate(s, e) {
   if (!getShowZh()) return false;
   for (let i = s; i < e; i++) { if (!bookZh(i) && !(state.cache[i] && state.cache[i].translation)) return true; }
@@ -2419,10 +2425,11 @@ function openPageView(ci) {
   if (ci < 0) ci = 0;
   ci = Math.max(0, Math.min(ci, toc.items.length - 1));
   const [s, e] = tocRange(ci);
+  pgCancel();                                    // 换页时先停掉上一页还没翻完的任务
   pgCi = ci; pgS = s; pgE = e;
   const it = toc.items[ci];
   let html = '<h3 style="margin:0 0 4px">📄 整页翻译</h3>';
-  html += '<div class="note" style="margin-bottom:8px">' + esc(pgItemLabel(it, toc)) + (e > s ? '（共 ' + (e - s) + ' 句）' : '') + '。点任意一句可跳去精读那一句。</div>';
+  html += '<div class="note" style="margin-bottom:8px">' + esc(pgItemLabel(it, toc)) + (e > s ? '（共 ' + (e - s) + ' 句）' : '') + '。点 ▶ 朗读这一句，点单词查词，点“精读”回到主界面读这一句。</div>';
   html += '<div class="row" style="margin-bottom:6px">' +
     '<button class="ghost sm" ' + (ci > 0 ? 'onclick="openPageView(' + (ci - 1) + ')"' : 'disabled') + '>◀ 上一页</button>' +
     '<button class="ghost sm" ' + (ci < toc.items.length - 1 ? 'onclick="openPageView(' + (ci + 1) + ')"' : 'disabled') + '>下一页 ▶</button>' +
@@ -2434,25 +2441,38 @@ function openPageView(ci) {
   showPop(html);
   const cur = document.getElementById('pgs-' + state.idx);
   if (cur) setTimeout(() => cur.scrollIntoView({ block: 'center' }), 60);
+  // 打开就自动翻译这一页（不用再点“翻译整页”）：句子特别多的页（>150 句）仍然让你自己点，免得一下子用光免费额度
+  if (e > s && pgNeedsTranslate(s, e)) {
+    const prog = document.getElementById('pgProgress');
+    if (!navigator.onLine) { if (prog) prog.textContent = '当前离线，整页翻译需要联网。'; }
+    else if (e - s > 150) { if (prog) prog.textContent = '这一页有 ' + (e - s) + ' 句，点上面的“翻译整页”开始翻译。'; }
+    else pgStartTranslate(true);
+  }
 }
-async function pgStartTranslate() {
-  if (pgRunning) { pgJobId++; pgRunning = false; const b = document.getElementById('pgTransBtn'); if (b) b.textContent = '🌐 翻译整页'; return; }   // 再点一下 = 停止
+async function pgStartTranslate(auto) {
+  if (pgRunning) { pgCancel(); const b = document.getElementById('pgTransBtn'); if (b) b.textContent = '🌐 翻译整页'; return; }   // 再点一下 = 停止
   const s = pgS, e = pgE, count = e - s;
-  if (count > 150 && !confirm('这一页有 ' + count + ' 句，翻译可能需要几分钟，确定要继续吗？')) return;
+  if (!auto && count > 150 && !confirm('这一页有 ' + count + ' 句，翻译可能需要几分钟，确定要继续吗？')) return;
   const my = ++pgJobId; pgRunning = true;
   const btn = document.getElementById('pgTransBtn'); if (btn) btn.textContent = '⏹ 停止翻译';
-  let done = 0, total = 0;
+  let done = 0, total = 0, fails = 0, lastErr = '';
   for (let i = s; i < e; i++) if (!bookZh(i) && !(state.cache[i] && state.cache[i].translation)) total++;
   const setProg = () => { const p = document.getElementById('pgProgress'); if (p) p.textContent = total ? '已翻译 ' + done + ' / ' + total + ' 句…' : ''; };
   setProg();
   for (let i = s; i < e; i++) {
     if (pgJobId !== my) return;
     if (bookZh(i) || (state.cache[i] && state.cache[i].translation)) continue;
-    try { state.cache[i] = { translation: await translateText(state.sentences[i]) }; }
-    catch (err) { state.cache[i] = { failed: true, err: err.message }; }
+    try { state.cache[i] = { translation: await translateText(state.sentences[i]) }; fails = 0; }
+    catch (err) { state.cache[i] = { failed: true, err: err.message }; fails++; lastErr = err.message; }
     if (pgJobId !== my) return;
     saveState(); done++; setProg();
     const z = document.getElementById('pgz-' + i); if (z) z.innerHTML = pgTransHtml(i);
+    if (fails >= 3) {                                            // 连续失败 3 句：多半是网络或翻译服务的问题，别一句句傻等超时
+      pgRunning = false;
+      const b = document.getElementById('pgTransBtn'); if (b) b.textContent = '🌐 重试翻译';
+      const p = document.getElementById('pgProgress'); if (p) p.textContent = '翻译服务暂时连不上（' + lastErr + '），已停止。稍后点“重试翻译”。';
+      return;
+    }
   }
   pgRunning = false;
   if (pgJobId === my) { const b = document.getElementById('pgTransBtn'); if (b) b.remove(); const p = document.getElementById('pgProgress'); if (p) p.textContent = '整页翻译完成。'; }
@@ -2482,7 +2502,7 @@ function render() {
     return;
   }
   const lvl = levelInfo(), pct = Math.round(state.idx / state.sentences.length * 100);
-  const p = currentProg(), c = state.cache[String(state.idx)];
+  const c = state.cache[String(state.idx)];
 
   const bz = bookZh(state.idx), hasBz = !!(state.zh && state.zh[state.idx]);
   let trans;
@@ -2505,9 +2525,9 @@ function render() {
     ? '<div class="note" style="margin-top:10px">我的录音（最近 3 次，先听原音再听自己的，对比发音）：</div>' +
       recView.urls.map((u, i) => '<div class="recitem"><span>' + (i === 0 ? '最新' : '第 ' + (i + 1) + ' 条') + '</span><audio controls preload="metadata" src="' + u.url + '"></audio></div>').join('') +
       '<button class="link" onclick="deleteRecs()">删除这句的录音</button>'
-    : '<div class="note" style="margin-top:10px">点"跟读录音"录下自己的声音，读完点停止。每录一次计 1 遍朗读，录音保存在本机。</div>';
+    : '<div class="note" style="margin-top:10px">点"跟读录音"录下自己的声音，读完点停止，录音保存在本机。</div>';
 
-  const practiceHtml = '<div class="section"><h3>更多练习（不影响解锁下一句进度）</h3><div class="row">' +
+  const practiceHtml = '<div class="section"><h3>更多练习</h3><div class="row">' +
     '<button class="ghost sm" onclick="openDictation()">✍️ 听写</button>' +
     '<button class="ghost sm" onclick="openJumble()">🔀 句子重组</button>' +
     '<button class="ghost sm" onclick="openSpeechScore()">🎯 跟读打分' + (speechRecoSupported() ? '' : '（需Chrome/Edge）') + '</button>' +
@@ -2519,10 +2539,6 @@ function render() {
   app.innerHTML = header +
     '<div class="levelbar"><div><span class="badge">Lv.' + (lvl.idx + 1) + '</span> 对照美国 ' + lvl.label + ' 阶段</div><div>' + (tocLabel() ? esc(tocLabel()) + ' · ' : '') + '第 ' + (state.idx + 1) + ' / ' + state.sentences.length + ' 句</div></div>' +
     '<div class="progressline"><div class="progressfill" style="width:' + pct + '%"></div></div>' +
-    '<div class="navsticky"><div class="row">' +
-      '<button class="ghost" style="flex:1" onclick="prevSentence()" ' + (state.idx > 0 && !rec.on ? '' : 'disabled') + '>◀ 上一句</button>' +
-      '<button style="flex:2" onclick="nextSentence()" ' + (rec.on ? 'disabled' : '') + '>进入下一句 ▶</button>' +
-    '</div></div>' +
     '<div class="row" style="margin-bottom:12px"><button class="ghost sm" onclick="openJumpModal()">跳转句子</button><button class="ghost sm" onclick="openAppendModal()">追加内容</button><button class="ghost sm" onclick="resetBook()">换一本书</button></div>' +
     '<div class="card">' +
       (function () { const r = imageRangeFor(state.idx); return (r && r[0] === curImageStart) ? curImageUrls.map(u => '<img src="' + u + '" alt="书页插图" style="max-width:100%;max-height:60vh;object-fit:contain;border-radius:10px;margin:0 auto 14px;display:block">').join('') : ''; })() +
@@ -2531,9 +2547,10 @@ function render() {
         '<div class="zh">' + (getShowZh() ? (bz ? '<span class="src" style="margin:0 6px 0 0">书中译文' + (state.zhp && state.zhp[state.idx] ? '·整段' : '') + '</span>' : '') + trans + (hasBz ? ' <button class="link" onclick="toggleBookZh()">' + (bz ? '改看机器翻译' : '改看书中译文') + '</button>' : '') : '<span class="sub">中文翻译已隐藏</span>') + '</div>' +
         '<button class="iconbtn" style="flex-shrink:0" onclick="toggleZh()">' + (getShowZh() ? '隐藏中文' : '显示中文') + '</button>' +
       '</div>' +
-      '<div class="section"><div class="metrics">' +
-        '<div class="metric"><div class="num">' + cntLabel(p.listens, NEED_LISTENS) + '</div><div class="lab">听原音（建议3遍）</div></div>' +
-        '<div class="metric"><div class="num">' + cntLabel(p.reads, NEED_READS) + '</div><div class="lab">跟读（建议3遍）</div></div></div>' +
+      '<div class="section"><div class="row" style="flex-wrap:nowrap;margin-bottom:14px">' +
+        '<button class="ghost" style="flex:1" onclick="prevSentence()" ' + (state.idx > 0 && !rec.on ? '' : 'disabled') + '>◀ 上一句</button>' +
+        '<button style="flex:2" onclick="nextSentence()" ' + (rec.on ? 'disabled' : '') + '>进入下一句 ▶</button>' +
+      '</div>' +
         '<div class="row">' +
           '<button onclick="playListen()">' +
             (listenState.idx === state.idx && listenState.playing ? (listenState.paused ? '▶️ 继续' : (azLoading ? '⏳ 生成中…' : '⏸ 暂停')) : '🔊 听原音') + '</button>' +
