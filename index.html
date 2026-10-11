@@ -127,7 +127,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.09.28-35';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.11-36';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null }, simCache = { idx: -1, list: [] };
@@ -968,6 +968,7 @@ function playListenWords(idx) {
   render();
 }
 function playListen() {
+  if (rec.on) { toast('正在录音，先点停止再听原音', 2000); return; }
   const idx = state.idx;
   if (azLoading && listenState.idx === idx) { stopSpeech(); render(); return; }       // 正在生成自然语音时再点一下 = 取消
   if (listenState.idx === idx && listenState.playing && !listenState.paused) {
@@ -1397,35 +1398,49 @@ async function loadRecs() {
   recView = { key, urls: arr.map(r => ({ url: URL.createObjectURL(r.blob), t: r.t, dur: r.dur })) };
   render();
 }
+let recBusy = false;
 async function toggleRecord() {
   if (rec.on) { if (rec.mr && rec.mr.state === 'recording') rec.mr.stop(); return; }
+  if (recBusy) return;                                   // 正在等麦克风权限时，防止连点启动出两个录音
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
     alert('这个浏览器不支持录音。请用最新版 Chrome、Edge 或 Safari 打开。'); return;
   }
-  stopSpeech();
-  let stream;
-  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-  catch (e) { alert('没有拿到麦克风权限。请在浏览器地址栏左侧的权限设置里允许使用麦克风，然后再试。'); return; }
-  const chunks = [], mr = new MediaRecorder(stream);
-  const idxAtStart = state.idx, keyAtStart = recKey(), start = Date.now();
-  mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
-  mr.onstop = async () => {
-    stream.getTracks().forEach(t => t.stop());
-    clearInterval(rec.timer); rec.on = false;
-    const dur = (Date.now() - start) / 1000;
-    const blob = new Blob(chunks, { type: mr.mimeType || 'audio/webm' });
-    if (blob.size > 0 && dur >= 0.8) {
-      try {
-        const arr = (await idbGet('recs', keyAtStart)) || [];
-        arr.unshift({ blob, t: Date.now(), dur });
-        await idbPut('recs', arr.slice(0, 3), keyAtStart);
-      } catch (e) {}
-    }
-    if (state && state.idx === idxAtStart) loadRecs(); else render();
-  };
-  mr.start();
-  rec = { mr, on: true, start, timer: setInterval(() => { const el = document.getElementById('recTime'); if (el) el.textContent = ((Date.now() - start) / 1000).toFixed(1) + ' 秒'; }, 200) };
-  render();
+  recBusy = true;
+  try {
+    stopSpeech();
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch (e) { alert('没有拿到麦克风权限。请在浏览器地址栏左侧的权限设置里允许使用麦克风，然后再试。'); return; }
+    if (!state) { stream.getTracks().forEach(t => t.stop()); return; }
+    const chunks = [];
+    let mr;
+    try { mr = new MediaRecorder(stream); }
+    catch (e) { stream.getTracks().forEach(t => t.stop()); alert('这个浏览器无法开始录音：' + e.message); return; }
+    const idxAtStart = state.idx, keyAtStart = recKey(), start = Date.now();
+    mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    mr.onerror = () => { try { if (mr.state !== 'inactive') mr.stop(); } catch (e) {} };
+    mr.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      clearInterval(rec.timer); rec.on = false;
+      const dur = (Date.now() - start) / 1000;
+      const blob = new Blob(chunks, { type: mr.mimeType || chunks[0]?.type || 'audio/webm' });
+      let msg = '';
+      if (blob.size > 0 && dur >= 0.8) {
+        try {
+          const arr = (await idbGet('recs', keyAtStart)) || [];
+          arr.unshift({ blob, t: Date.now(), dur });
+          await idbPut('recs', arr.slice(0, 3), keyAtStart);
+        } catch (e) { msg = '录音保存失败（浏览器存储不可用或空间已满）。'; }
+      } else if (blob.size === 0) { msg = '没有录到声音，请检查麦克风后再试。'; }
+      else { msg = '录音太短（不到 1 秒），没有保存。'; }
+      if (state && state.idx === idxAtStart) await loadRecs(); else render();
+      if (msg) toast(msg, 3000);
+    };
+    try { mr.start(); }
+    catch (e) { stream.getTracks().forEach(t => t.stop()); alert('开始录音失败：' + e.message); return; }
+    rec = { mr, on: true, start, timer: setInterval(() => { const el = document.getElementById('recTime'); if (el) el.textContent = ((Date.now() - start) / 1000).toFixed(1) + ' 秒'; }, 200) };
+    render();
+  } finally { recBusy = false; }
 }
 async function deleteRecs() {
   if (!confirm('删除这一句的所有录音？')) return;
