@@ -156,7 +156,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.14-45';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.14-46';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null }, simCache = { idx: -1, list: [] };
@@ -289,14 +289,17 @@ async function fetchViaProxy(q) {
     return data.translation;
   } finally { clearTimeout(timer); }
 }
-async function translateText(text) {
+// 整页批量翻译算“付费功能”：未解锁时只用免费接口，不占自建翻译服务的额度。解锁机制（激活码）之后接入。
+function isPro() { try { return localStorage.getItem('sr_pro') === '1'; } catch (e) { return false; } }
+async function translateText(text, opts) {
   const q = text.slice(0, 480);
   await throttleGap();
   // 首选：自己的中转（稳定、国内可用）；失败再退回下面的免费源
-  if (Date.now() > proxyBadUntil) {
+  if (Date.now() > proxyBadUntil && (!(opts && opts.bulk) || isPro())) {
     try { return await fetchViaProxy(q); }
     catch (e) {
-      if (e.code === 'quota') proxyBadUntil = Date.now() + 6 * 3600 * 1000;       // 本月额度用完，先不再请求
+      if (e.code === 'quota') proxyBadUntil = Date.now() + 6 * 3600 * 1000;
+      else if (e.code === 'daily') proxyBadUntil = Date.now() + 3600 * 1000;      // 今天自己的份额用完       // 本月额度用完，先不再请求
       else if (e.code !== 'rate-limited') proxyBadUntil = Date.now() + 2 * 60 * 1000; // 其他失败，2 分钟后再试
     }
   }
@@ -2461,7 +2464,7 @@ async function pgStartTranslate(auto) {
   for (let i = s; i < e; i++) {
     if (pgJobId !== my) return;
     if (bookZh(i) || (state.cache[i] && state.cache[i].translation)) continue;
-    try { state.cache[i] = { translation: await translateText(state.sentences[i]) }; fails = 0; }
+    try { state.cache[i] = { translation: await translateText(state.sentences[i], { bulk: true }) }; fails = 0; }
     catch (err) { state.cache[i] = { failed: true, err: err.message }; fails++; lastErr = err.message; }
     if (pgJobId !== my) return;
     saveState(); done++; setProg();

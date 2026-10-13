@@ -13,6 +13,9 @@ const ALLOW = (process.env.ALLOW_ORIGINS || '').split(',').map(s => s.trim()).fi
 const MONTH_LIMIT = +process.env.MONTH_LIMIT || 1800000;      // 每月字符硬上限，低于免费的 200 万
 const MAX_TEXT = +process.env.MAX_TEXT || 500;                // 单次最长字符
 const RATE_PER_MIN = +process.env.RATE_PER_MIN || 120;         // 每个 IP 每分钟次数
+const DAILY_PER_IP = +process.env.DAILY_PER_IP || 20000;      // 每个 IP 每天最多多少字符（只算真正请求火山的，缓存命中不算）
+const CACHE_FILE = process.env.CACHE_FILE || path.join(__dirname, 'cache.json');
+const CACHE_MAX = +process.env.CACHE_MAX || 30000;
 const USAGE_FILE = process.env.USAGE_FILE || path.join(__dirname, 'usage.json');
 const HOST = process.env.VOLC_HOST || 'translate.volcengineapi.com';
 const PROTO = process.env.VOLC_PROTO || 'https';
@@ -72,6 +75,19 @@ function addUsage(n) {
   try { fs.writeFileSync(USAGE_FILE, JSON.stringify(usage)); } catch (e) {}
 }
 
+// ---- 翻译缓存：同一句只请求一次火山，别的用户直接用 ----
+let cache = new Map(), cacheDirty = false;
+try { cache = new Map(JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'))); } catch (e) {}
+function cacheGet(k) { return cache.get(k); }
+function cacheSet(k, v) { if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value); cache.set(k, v); cacheDirty = true; }
+setInterval(() => { if (!cacheDirty) return; cacheDirty = false; try { fs.writeFileSync(CACHE_FILE, JSON.stringify([...cache])); } catch (e) {} }, 60000).unref();
+
+// ---- 每个 IP 每天用量 ----
+const daily = new Map();
+const dayKey = () => new Date().toISOString().slice(0, 10);
+function dailyUsed(ip) { const d = daily.get(ip); return d && d.day === dayKey() ? d.chars : 0; }
+function dailyAdd(ip, n) { daily.set(ip, { day: dayKey(), chars: dailyUsed(ip) + n }); if (daily.size > 20000) for (const [k, v] of daily) if (v.day !== dayKey()) daily.delete(k); }
+
 // ---- 简单限速 ----
 const hits = new Map();
 function limited(ip) {
@@ -108,11 +124,15 @@ const server = http.createServer(async (req, res) => {
     let text; try { text = JSON.parse(raw).text; } catch (e) {}
     if (typeof text !== 'string' || !text.trim()) return send(res, 400, { error: 'bad-request' }, okOrigin);
     text = text.slice(0, MAX_TEXT);
+    const key = text.trim();
+    const hit = cacheGet(key);
+    if (hit) return send(res, 200, { translation: hit, cached: true }, okOrigin);   // 缓存命中：不占火山额度
     if (usage.month !== monthKey()) usage = { month: monthKey(), chars: 0 };
     if (usage.chars + text.length > MONTH_LIMIT) return send(res, 429, { error: 'quota' }, okOrigin);
+    if (dailyUsed(ip) + text.length > DAILY_PER_IP) return send(res, 429, { error: 'daily' }, okOrigin);
     try {
       const t = await volcTranslate(text);
-      addUsage(text.length);
+      addUsage(text.length); dailyAdd(ip, text.length); cacheSet(key, t);
       send(res, 200, { translation: t }, okOrigin);
     } catch (e) {
       console.error(new Date().toISOString(), e.message);
