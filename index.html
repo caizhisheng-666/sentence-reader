@@ -168,7 +168,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.14-71';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.14-72';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1433,11 +1433,6 @@ async function installStory(zip, fallbackName) {
   await importBook(text);
   return 'story';
 }
-async function importStoryFile(ev) {
-  const file = ev.target.files[0]; ev.target.value = ''; if (!file) return;
-  try { setScStatus('正在读取…'); await installStory(await JSZip.loadAsync(await readAsArrayBuffer(file)), file.name.replace(/\.[^.]+$/, '')); }
-  catch (e) { setScStatus('导入失败：' + (e && e.message ? e.message : '未知错误')); }
-}
 async function getStory(id) {
   const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it || !it.file) return;
   try {
@@ -1629,7 +1624,6 @@ function renderStoryCity(err) {
   }).join('');
   if (!items.length) h += '<div class="note">暂时还没有故事上架。</div>';
   h += (azReady() ? '<div class="row" style="margin-top:6px"><button class="sm" onclick="devNewStoryPop()">＋ 上架新故事（开发者）</button></div>' : '') +
-    (azReady() ? '<div class="row" style="margin-top:6px"><div class="filebtn"><button class="ghost sm" type="button" tabindex="-1">导入故事包/语音包文件（调试用）</button><input type="file" accept=".srbook,.zip" onchange="importStoryFile(event)"></div></div>' : '') +
     '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>';
   showPop(h);
 }
