@@ -159,7 +159,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.14-50';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.14-51';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null }, simCache = { idx: -1, list: [] };
@@ -1655,6 +1655,8 @@ async function wordClick(i, el) {
   const clean = raw.replace(/[’‘]/g, "'").replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, '');
   if (!clean) return;
   curWord = clean; curWordZh = ''; lastWordIdx = i; lastWordEl = el;
+  if (pgPlaying) pgPlayStop();
+  speakText(clean);                               // 点读：点哪个词就直接念哪个词（必须在点击的这一下里同步发起），同时照常弹出词典
   lastWordSentIdx = (el && el.dataset && el.dataset.s) ? parseInt(el.dataset.s, 10) : -1;
   const rect = el.getBoundingClientRect();
   const head = '<div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div class="dhead">' + esc(clean) + '</div><button class="iconbtn" onclick="speakWord()">🔊</button></div>';
