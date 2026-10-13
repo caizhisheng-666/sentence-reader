@@ -170,7 +170,7 @@ let _db = null;
 function idb() {
   if (_db) return _db;
   _db = new Promise((res, rej) => {
-    const r = indexedDB.open('sentence-reader', 4);
+    const r = indexedDB.open('sentence-reader', 5);
     r.onupgradeneeded = () => {
       const d = r.result;
       if (!d.objectStoreNames.contains('dict')) d.createObjectStore('dict', { keyPath: 'w' });
@@ -179,6 +179,7 @@ function idb() {
       if (!d.objectStoreNames.contains('vocab')) d.createObjectStore('vocab', { keyPath: 'word' });
       if (!d.objectStoreNames.contains('images')) d.createObjectStore('images');
       if (!d.objectStoreNames.contains('tts')) d.createObjectStore('tts');
+      if (!d.objectStoreNames.contains('vpack')) d.createObjectStore('vpack');
     };
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
@@ -219,6 +220,7 @@ async function boot() {
     delete state.wordCache;
   }
   try { dictInfo = (await idbGet('meta', 'dictInfo')) || null; } catch (e) {}
+  vpInit();
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
   if (state) loadCurrent(); else render();
   loadVoices().then(refreshVoiceSelect).catch(() => {});      // 提前把声音列表加载好，第一次点“听原音”才有声音
@@ -1043,6 +1045,7 @@ function playListen() {
     render(); return;
   }
   if (getWordMode()) { playListenWords(idx); return; }
+  if (vpCount > 0 && !azSkipOnce) { playListenNatural(idx); return; }      // 导入过语音包：先找包里有没有这一句
   if (azReady() && !azSkipOnce) { playListenNatural(idx); return; }
   azSkipOnce = false;
   markStopped();
@@ -1260,8 +1263,13 @@ function playListenNatural(idx) {
   listenState = { idx, playing: true, paused: false };
   azActive = true; azLoading = true;
   render();
-  azLoad(text, c.voice)
-    .then(r => { if (!job._stopped) azStart(r.blob, text, idx, job); })
+  (async () => {
+    const pk = vpCount > 0 ? await vpGet(text) : null;
+    if (pk) return pk;
+    if (!azReady()) return null;                 // 包里没有这一句，也没有开发者的自然语音：退回系统朗读
+    return (await azLoad(text, c.voice)).blob;
+  })()
+    .then(blob => { if (job._stopped) return; if (blob) azStart(blob, text, idx, job); else azFallbackSystem(idx); })
     .catch(err => { if (job._stopped) return; azFail(err); azFallbackSystem(idx); });
 }
 function azSpeakShort(text) {                     // 单词等短内容
@@ -1276,6 +1284,60 @@ function azSpeakShort(text) {                     // 单词等短内容
     azFail(err);
     try { const u = new SpeechSynthesisUtterance(text); applyVoiceSync(u); u.rate = getRate(); speakNow(u); } catch (e) {}
   });
+}
+/* ---------- 语音包：买来的“一句一个音频”文件包，导入后每句优先播放包里的声音 ---------- */
+// 包是 zip：manifest.json + clips/<哈希>.mp3，哈希 = SHA-256('vp1\n' + 英文句子)。按句子内容找，不靠序号，切句规则以后改了也不会错位。
+let vpCount = 0;
+async function vpKey(text) { return azHash('vp1\n' + String(text).trim()); }
+async function vpGet(text) { try { const v = await idbGet('vpack', await vpKey(text)); return v && v.b ? v.b : null; } catch (e) { return null; } }
+async function vpList() { try { return (await idbGet('meta', 'vpacks')) || []; } catch (e) { return []; } }
+async function vpInit() { const l = await vpList(); vpCount = l.reduce((m, p) => m + (p.count || 0), 0); }
+function setVpStatus(m) { const el = document.getElementById('vpStatus'); if (el) el.textContent = m; }
+async function openVoicePacks() {
+  const list = await vpList();
+  showPop('<h3 style="margin:0 0 6px">🎧 语音包</h3>' +
+    '<div class="note" style="font-size:14px;color:var(--ink)">语音包里是提前录好的自然语音，导入后，点“听原音”会优先播放包里的声音；包里没有的句子，仍然用系统朗读。语音包只存在这台设备里。</div>' +
+    (list.length ? '<div class="note" style="margin-top:10px">已导入：</div>' + list.map(p => '<div class="note" style="color:var(--ink)">· ' + esc(p.title || '语音包') + '（' + p.count + ' 句）</div>').join('') : '<div class="note" style="margin-top:10px">还没有导入语音包。</div>') +
+    '<div class="row" style="margin-top:12px"><div class="filebtn"><button class="ghost" type="button" tabindex="-1">导入语音包</button><input type="file" accept=".zip,.srvp" onchange="importVoicePack(event)"></div>' +
+    (list.length ? '<button class="ghost" onclick="clearVoicePacks()">删除全部语音包</button>' : '') + '</div>' +
+    (state ? '<div class="row" style="margin-top:8px"><button class="ghost sm" onclick="exportSentenceList()">导出这本书的句子清单（做语音包用）</button></div>' : '') +
+    '<div id="vpStatus" class="note" style="margin-top:10px;min-height:20px"></div>');
+}
+async function importVoicePack(ev) {
+  const file = ev.target.files[0]; ev.target.value = ''; if (!file) return;
+  try {
+    setVpStatus('正在读取…');
+    const zip = await JSZip.loadAsync(await readAsArrayBuffer(file));
+    const mf = zip.file('manifest.json'); if (!mf) throw new Error('这不是语音包文件');
+    const man = JSON.parse(await mf.async('string'));
+    if (!man || man.format !== 'sr-voicepack') throw new Error('这不是语音包文件');
+    const names = Object.keys(zip.files).filter(n => /^clips\/[0-9a-f]{16,64}\.mp3$/.test(n));
+    if (!names.length) throw new Error('语音包里没有音频');
+    const d = await idb();
+    let done = 0;
+    for (let i = 0; i < names.length; i += 40) {
+      const part = await Promise.all(names.slice(i, i + 40).map(async n => ({ k: n.slice(6, -4), b: new Blob([await zip.file(n).async('arraybuffer')], { type: 'audio/mpeg' }) })));
+      await new Promise((res, rej) => { const t = d.transaction('vpack', 'readwrite'); const st = t.objectStore('vpack'); part.forEach(p => st.put({ b: p.b }, p.k)); t.oncomplete = res; t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); });
+      done += part.length; setVpStatus('正在导入 ' + done + ' / ' + names.length + ' 句…');
+    }
+    const list = (await vpList()).filter(p => p.id !== man.id);
+    list.push({ id: man.id || ('p' + Date.now()), title: man.title || file.name, count: names.length, buyer: man.buyer || '' });
+    await idbPut('meta', list, 'vpacks'); await vpInit();
+    setVpStatus('导入完成：' + names.length + ' 句。回到阅读页，点“听原音”试试。');
+    setTimeout(openVoicePacks, 1200);
+  } catch (e) { setVpStatus('导入失败：' + (e && e.message ? e.message : '未知错误')); }
+}
+function exportSentenceList() {
+  if (!state) return;
+  const blob = new Blob([JSON.stringify({ app: 'sentence-reader', sentences: state.sentences })], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '句子清单-' + progDate(Date.now()).replace(/-/g, '') + '.json';
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 20000);
+  setVpStatus('已生成“' + a.download + '”，交给做语音包的脚本用。');
+}
+async function clearVoicePacks() {
+  if (!confirm('要删除所有已导入的语音包吗？删除后可以重新导入。')) return;
+  try { await idbClear('vpack'); await idbPut('meta', [], 'vpacks'); } catch (e) {}
+  vpCount = 0; openVoicePacks();
 }
 /* ---------- 开发者验证：Key 用口令加密后才保存；只有输入正确口令的设备，才能使用你的 Azure 额度 ---------- */
 const u8b64 = u => { let b = ''; for (let i = 0; i < u.length; i++) b += String.fromCharCode(u[i]); return btoa(b); };
@@ -1948,6 +2010,7 @@ function openMoreMenu() {
   showPop('<div class="menulist">' +
     (state ? it('openPageView()', '整页翻译', '') : '') +
     it('openProgressSave()', '保存学习进度', '') +
+    it('openVoicePacks()', '语音包', '') +
     it('openDictSettings()', '词典', '') +
     it('openGrammarDict()', '语法字典', '') +
     it('openHelp()', '帮助与反馈', '') + '</div>');
