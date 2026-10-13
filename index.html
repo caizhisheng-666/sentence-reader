@@ -168,7 +168,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.14-72';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.14-73';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1663,17 +1663,6 @@ async function vpPurge(gone, keepIds) {             // 删书后，把只属于�
   } catch (e) {}
 }
 async function vpInit() { try { const d = await idb(); vpCount = await new Promise((res, rej) => { const q = d.transaction('vpack').objectStore('vpack').count(); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); } catch (e) { const l = await vpList(); vpCount = l.reduce((m, p) => m + (p.count || 0), 0); } }
-function setVpStatus(m) { const el = document.getElementById('vpStatus'); if (el) el.textContent = m; }
-async function openVoicePacks() {
-  const list = await vpList();
-  showPop('<h3 style="margin:0 0 6px">🎧 语音包</h3>' +
-    '<div class="note" style="font-size:14px;color:var(--ink)">语音包里是提前录好的自然语音，导入后，点“听原音”会优先播放包里的声音；包里没有的句子，仍然用系统朗读。语音包只存在这台设备里。</div>' +
-    (list.length ? '<div class="note" style="margin-top:10px">已导入：</div>' + list.map(p => '<div class="note" style="color:var(--ink)">· ' + esc(p.title || '语音包') + '（' + p.count + ' 句）</div>').join('') : '<div class="note" style="margin-top:10px">还没有导入语音包。</div>') +
-    '<div class="row" style="margin-top:12px"><div class="filebtn"><button class="ghost" type="button" tabindex="-1">导入语音包</button><input type="file" accept=".zip,.srvp" onchange="importVoicePack(event)"></div>' +
-    (list.length ? '<button class="ghost" onclick="clearVoicePacks()">删除全部语音包</button>' : '') + '</div>' +
-    (state ? '<div class="row" style="margin-top:8px"><button class="ghost sm" onclick="exportSentenceList()">导出这本书的句子清单（做语音包用）</button></div>' : '') +
-    '<div id="vpStatus" class="note" style="margin-top:10px;min-height:20px"></div>');
-}
 async function vpImportClips(zip, names, man, fallbackTitle, setStatus) {
   const d = await idb();
   let done = 0;
@@ -1685,33 +1674,6 @@ async function vpImportClips(zip, names, man, fallbackTitle, setStatus) {
   const list = (await vpList()).filter(p => p.id !== man.id);
   list.push({ id: man.id || ('p' + Date.now()), title: man.title || fallbackTitle, count: names.length, buyer: man.buyer || '' });
   await idbPut('meta', list, 'vpacks'); await vpInit();
-}
-async function importVoicePack(ev) {
-  const file = ev.target.files[0]; ev.target.value = ''; if (!file) return;
-  try {
-    setVpStatus('正在读取…');
-    const zip = await JSZip.loadAsync(await readAsArrayBuffer(file));
-    const mf = zip.file('manifest.json'); if (!mf) throw new Error('这不是语音包文件');
-    const man = JSON.parse(await mf.async('string'));
-    if (!man || man.format !== 'sr-voicepack') throw new Error('这不是语音包文件');
-    const names = Object.keys(zip.files).filter(n => /^clips\/[0-9a-f]{16,64}\.mp3$/.test(n));
-    if (!names.length) throw new Error('语音包里没有音频');
-    await vpImportClips(zip, names, man, file.name, setVpStatus);
-    setVpStatus('导入完成：' + names.length + ' 句。回到阅读页，点“听原音”试试。');
-    setTimeout(openVoicePacks, 1200);
-  } catch (e) { setVpStatus('导入失败：' + (e && e.message ? e.message : '未知错误')); }
-}
-function exportSentenceList() {
-  if (!state) return;
-  const blob = new Blob([JSON.stringify({ app: 'sentence-reader', sentences: state.sentences })], { type: 'application/json' });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '句子清单-' + progDate(Date.now()).replace(/-/g, '') + '.json';
-  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 20000);
-  setVpStatus('已生成“' + a.download + '”，交给做语音包的脚本用。');
-}
-async function clearVoicePacks() {
-  if (!confirm('要删除所有已导入的语音包吗？删除后可以重新导入。')) return;
-  try { await idbClear('vpack'); await idbPut('meta', [], 'vpacks'); } catch (e) {}
-  vpCount = 0; openVoicePacks();
 }
 /* ---------- 开发者验证：Key 用口令加密后才保存；只有输入正确口令的设备，才能使用你的 Azure 额度 ---------- */
 const u8b64 = u => { let b = ''; for (let i = 0; i < u.length; i++) b += String.fromCharCode(u[i]); return btoa(b); };
@@ -2334,7 +2296,6 @@ function fsOpen() { return document.getElementById('fsModal').classList.contains
 function openMoreMenu() {
   const it = (fn, label, hint) => '<button onclick="closePop();' + fn + '">' + label + (hint ? '<span>' + hint + '</span>' : '') + '</button>';
   showPop('<div class="menulist">' +
-    (azCfg().dev ? it('openVoicePacks()', '语音包（开发者）', '') : '') +
     it('openDictSettings()', '词典', '') +
     it('openGrammarDict()', '语法字典', '') +
     it('openHelp()', '帮助与反馈', '') + '</div>');
