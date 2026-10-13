@@ -155,7 +155,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.14-55';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.14-56';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1971,7 +1971,7 @@ function openHelp() {
     sec('快速上手',
       li('点句子里的<b>单词</b>查词，点哪个词就读哪个词，同时弹出解释。') + li('点 <b>听原音</b>，念到哪个词哪个词会亮；旁边的下拉菜单可以换美音、英音。') +
       li('<b>🎙️ 跟读录音</b>会保存在本机，可以回放对比。') + li('<b>点“语速”没变化？</b>有些手机或声音不支持调速，软件会自动检测并提示。这时可以换一个声音，或点 <b>🐢 逐词读</b>：一个词一个词地念，词间有停顿，一定能慢下来。') +
-      li('顶部 <b>目录</b> 可以跳到任意页；右上角 <b>···</b> 里有整页翻译、保存学习进度、词典、语法字典和帮助。') +
+      li('顶部 <b>整页翻译</b> 把一页的句子连同中文一起列出来，点句子就读；<b>目录</b> 可以跳到任意页；右上角 <b>···</b> 里有保存学习进度、语音包、词典、语法字典和帮助。') +
       li('装到手机桌面：iPhone 用 Safari，点分享 → 添加到主屏幕；安卓用 Chrome，点 ⋮ → 安装应用。<b>装好后请在桌面图标里导入书</b>，浏览器和桌面图标的数据是分开的。'), true) +
     sec('隐私与数据',
       li('你导入的书、读书进度、录音、下载的词典，都<b>只存在这台设备的浏览器里</b>，不会上传。换设备或清除浏览器数据会丢失，可以点右上角“···”里的“保存学习进度”把它们保存成文件。') +
@@ -2014,7 +2014,6 @@ function fsOpen() { return document.getElementById('fsModal').classList.contains
 function openMoreMenu() {
   const it = (fn, label, hint) => '<button onclick="closePop();' + fn + '">' + label + (hint ? '<span>' + hint + '</span>' : '') + '</button>';
   showPop('<div class="menulist">' +
-    (state ? it('openPageView()', '整页翻译', '') : '') +
     it('openProgressSave()', '保存学习进度', '') +
     it('openVoicePacks()', '语音包', '') +
     it('openDictSettings()', '词典', '') +
@@ -2477,7 +2476,7 @@ function render() {
   closeWordPop();
   const app = document.getElementById('app');
   const header = '<div class="topbar"><div class="tbin"><div><h1>一句一句读</h1></div>' +
-    '<div class="tools">' + (state ? '<button class="iconbtn" aria-label="目录" onclick="openToc()">目录</button>' : '') + '<button class="iconbtn" aria-label="更多" onclick="openMoreMenu()" style="font-size:22px;letter-spacing:1px;padding-bottom:6px">···</button></div></div></div>';
+    '<div class="tools">' + (state ? '<button class="iconbtn" aria-label="整页翻译" onclick="openPageView()">整页翻译</button><button class="iconbtn" aria-label="目录" onclick="openToc()">目录</button>' : '') + '<button class="iconbtn" aria-label="更多" onclick="openMoreMenu()" style="font-size:22px;letter-spacing:1px;padding-bottom:6px">···</button></div></div></div>';
 
   if (!state) {
     app.innerHTML = header +
