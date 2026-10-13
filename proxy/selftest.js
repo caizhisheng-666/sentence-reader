@@ -27,11 +27,18 @@ function call(label, { sk, ct, region = 'cn-north-1', service = 'translate' }) {
     req.on('error', e => { console.log(label, '网络错误', e.message); resolve(); }); req.end(body);
   });
 }
+const call0 = (g, i) => call('6 只用第' + (i + 1) + '段', { sk: g, ct: 'application/json' });
 (async () => {
-  console.log('AK长度', AK.length, 'SK长度', SK0.length, 'SK结尾是否==', /=$/.test(SK0));
+  const eqPos = []; for (let i = 0; i < SK0.length; i++) if (SK0[i] === '=') eqPos.push(i + 1);
+  const half = SK0.length / 2, dup = Number.isInteger(half) && SK0.slice(0, half) === SK0.slice(half);
+  console.log('AK长度', AK.length, 'SK长度', SK0.length, '= 号所在位置', JSON.stringify(eqPos), '前后两半相同?', dup);
+  const segs = SK0.split(/(?<==)(?=[^=])/).filter(Boolean);
+  console.log('按 = 切分后各段长度', JSON.stringify(segs.map(x => x.length)));
   let dec = null; try { dec = Buffer.from(SK0, 'base64'); } catch (e) {}
   await call('1 原始SK + json', { sk: SK0, ct: 'application/json' });
   await call('2 原始SK + json;charset', { sk: SK0, ct: 'application/json; charset=utf-8' });
   if (dec) await call('3 SK先base64解码 + json', { sk: dec, ct: 'application/json' });
+  if (dup) await call('5 取前一半(重复粘贴)', { sk: SK0.slice(0, half), ct: 'application/json' });
+  segs.forEach((g, i) => { if (segs.length > 1) call0(g, i); });
   await call('4 原始SK + region cn-beijing', { sk: SK0, ct: 'application/json', region: 'cn-beijing' });
 })();
