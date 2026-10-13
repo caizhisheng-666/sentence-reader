@@ -66,6 +66,9 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .sentence .w:hover{background:var(--pop)}
 .pgsent .w{cursor:pointer;border-bottom:1.5px dotted var(--accent);padding:0 1px;border-radius:3px}
 .pgsent .w:hover{background:var(--pop)}
+.pgon{background:var(--pop)!important;border-radius:10px;box-shadow:inset 3px 0 0 var(--accent)}
+.pgsent,.pgsent .zh{cursor:pointer}
+@media (min-width:700px){#pop{max-width:860px!important}.pgsent{font-size:20px!important}.pgplay{width:44px;height:44px}}
 .pgplay{flex-shrink:0;width:38px;height:38px;padding:0;border-radius:50%;font-size:15px;line-height:1;display:inline-flex;align-items:center;justify-content:center;margin-top:2px}
 .pgsent{font-family:var(--serif);font-size:18px;line-height:1.65}
 .simrow{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:.5px solid var(--line)}
@@ -156,7 +159,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.14-49';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.14-50';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null }, simCache = { idx: -1, list: [] };
@@ -2022,6 +2025,7 @@ function showPop(html) {
   document.getElementById('overlay').classList.add('show');
 }
 function closePop() {
+  if (pgPlaying || pgPlayJob) { try { pgPlayStop(); } catch (e) {} }
   document.getElementById('overlay').classList.remove('show');
   try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); window.scrollTo(0, 0); } catch (e) {}
 }
@@ -2366,13 +2370,64 @@ function pgRowHtml(idx) {
   return '<div id="pgs-' + idx + '" style="display:flex;gap:10px;align-items:flex-start;padding:10px ' + (cur ? '8px' : '0') + ';border-bottom:1px solid var(--line);' + (cur ? 'background:var(--pop);border-radius:10px' : '') + '">' +
     '<button class="pgplay" onclick="pgSpeak(' + idx + ')" aria-label="朗读这一句" title="朗读这一句">▶</button>' +
     '<div style="flex:1;min-width:0">' +
-      '<div class="pgsent" style="font-size:17px;line-height:1.6">' + pgWordsHtml(idx) + '</div>' +
-      (getShowZh() ? '<div class="zh" id="pgz-' + idx + '" style="margin-top:4px;font-size:14px">' + pgTransHtml(idx) + '</div>' : '') +
+      '<div class="pgsent" style="font-size:17px;line-height:1.6" onclick="pgSentTap(event,' + idx + ')">' + pgWordsHtml(idx) + '</div>' +
+      (getShowZh() ? '<div class="zh" id="pgz-' + idx + '" style="margin-top:4px;font-size:14px" onclick="pgSpeak(' + idx + ')">' + pgTransHtml(idx) + '</div>' : '') +
     '</div>' +
     '<button class="link" style="flex-shrink:0;margin-top:6px" onclick="pgGo(' + idx + ')">精读</button>' +
     '</div>';
 }
-function pgSpeak(idx) { closeWordPop(); speakText(state.sentences[idx]); }
+/* 点读：点一句就读这一句（优先用语音包里的自然语音）；“连播”从当前句开始一句接一句读 */
+let pgPlayJob = 0, pgPlaying = false;
+function pgMark(idx) {
+  document.querySelectorAll('.pgon').forEach(e => e.classList.remove('pgon'));
+  const r = idx >= 0 ? document.getElementById('pgs-' + idx) : null;
+  if (r) { r.classList.add('pgon'); try { r.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) {} }
+}
+async function pgGetBlob(text) {
+  const pk = vpCount > 0 ? await vpGet(text) : null;
+  if (pk) return pk;
+  if (azReady()) return (await azLoad(text, azCfg().voice)).blob;
+  return null;
+}
+function pgPlayOne(idx, job) {
+  return new Promise(async res => {
+    const text = state.sentences[idx]; let blob = null;
+    try { blob = await pgGetBlob(text); } catch (e) {}
+    if (job !== pgPlayJob) return res(false);
+    if (blob) {
+      const a = azSetSrc(blob); a.onended = () => res(true); a.onerror = () => res(true);
+      a.play().catch(() => res(true));
+    } else {
+      try { const u = new SpeechSynthesisUtterance(text); applyVoiceSync(u); u.rate = getRate(); u.onend = u.onerror = () => res(true); speechSynthesis.cancel(); speechSynthesis.speak(u); }
+      catch (e) { res(true); }
+    }
+  });
+}
+function pgSetAllBtn() { const b = document.getElementById('pgAllBtn'); if (b) b.textContent = pgPlaying ? '⏹ 停止连播' : '▶ 连播'; }
+function pgPlayStop() {
+  pgPlayJob++; pgPlaying = false;
+  try { markStopped(); speechSynthesis.cancel(); } catch (e) {}
+  pgMark(-1); pgSetAllBtn();
+}
+function pgSpeak(idx) {
+  closeWordPop(); pgPlayStop(); azUnlock();                // 必须在点击的这一下里同步执行（iPhone/iPad 的要求）
+  const job = ++pgPlayJob; pgMark(idx);
+  pgPlayOne(idx, job).then(() => { if (job === pgPlayJob) pgMark(-1); });
+}
+function pgSentTap(ev, idx) { if (ev.target.closest && ev.target.closest('.w')) return; pgSpeak(idx); }
+async function pgPlayAll() {
+  if (pgPlaying) { pgPlayStop(); return; }
+  closeWordPop(); azUnlock();
+  const job = ++pgPlayJob; pgPlaying = true; pgSetAllBtn();
+  for (let i = (state.idx >= pgS && state.idx < pgE ? state.idx : pgS); i < pgE; i++) {
+    if (job !== pgPlayJob) return;
+    pgMark(i);
+    const ok = await pgPlayOne(i, job);
+    if (!ok || job !== pgPlayJob) return;
+    await new Promise(r => setTimeout(r, 300));
+  }
+  if (job === pgPlayJob) { pgPlaying = false; pgMark(-1); pgSetAllBtn(); }
+}
 function pgCancel() { pgJobId++; pgRunning = false; }
 function pgGo(idx) { pgCancel(); stopSpeech(); state.idx = idx; saveState(); closePop(); loadCurrent(); }
 function pgNeedsTranslate(s, e) {
@@ -2387,14 +2442,15 @@ function openPageView(ci) {
   if (ci < 0) ci = 0;
   ci = Math.max(0, Math.min(ci, toc.items.length - 1));
   const [s, e] = tocRange(ci);
-  pgCancel();                                    // 换页时先停掉上一页还没翻完的任务
+  pgCancel(); pgPlayStop();                      // 换页时先停掉上一页还没翻完的任务和正在播放的声音
   pgCi = ci; pgS = s; pgE = e;
   const it = toc.items[ci];
   let html = '<h3 style="margin:0 0 4px">📄 整页翻译</h3>';
-  html += '<div class="note" style="margin-bottom:8px">' + esc(pgItemLabel(it, toc)) + (e > s ? '（共 ' + (e - s) + ' 句）' : '') + '。点 ▶ 朗读这一句，点单词查词，点“精读”回到主界面读这一句。</div>';
+  html += '<div class="note" style="margin-bottom:8px">' + esc(pgItemLabel(it, toc)) + (e > s ? '（共 ' + (e - s) + ' 句）' : '') + '。点句子或 ▶ 朗读这一句，点单词查词，点“连播”从当前句开始连续朗读，点“精读”回到主界面读这一句。</div>';
   html += '<div class="row" style="margin-bottom:6px">' +
     '<button class="ghost sm" ' + (ci > 0 ? 'onclick="openPageView(' + (ci - 1) + ')"' : 'disabled') + '>◀ 上一页</button>' +
     '<button class="ghost sm" ' + (ci < toc.items.length - 1 ? 'onclick="openPageView(' + (ci + 1) + ')"' : 'disabled') + '>下一页 ▶</button>' +
+    '<button class="ghost sm" id="pgAllBtn" onclick="pgPlayAll()">▶ 连播</button>' +
     (pgNeedsTranslate(s, e) ? '<button id="pgTransBtn" onclick="pgStartTranslate()">🌐 翻译整页</button>' : '') +
     '</div>';
   html += '<div id="pgProgress" class="note" style="min-height:18px"></div>';
