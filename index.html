@@ -156,7 +156,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.13-41';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.13-42';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null }, simCache = { idx: -1, list: [] };
@@ -1970,13 +1970,12 @@ function openHelp() {
     '<div class="note">遇到问题（没声音、录不了音、书导入不对等），先点“复制诊断信息”，粘贴发给发你链接的人。诊断信息只有设备和软件状态，没有书的内容和你的录音。</div>' +
     sec('快速上手',
       li('点句子里的<b>单词</b>查词，可以加入生词本；“书中相似句子”也一样，最左边的播放键朗读整句，点单词看解释和读音。') + li('点 <b>听原音</b>，念到哪个词哪个词会亮；旁边的下拉菜单可以换美音、英音。') +
-      li('<b>🎙️ 跟读录音</b>会保存在本机，可以回放对比。') + li('“更多练习”里有听写、句子重组、跟读打分。') + li('<b>点“语速”没变化？</b>有些手机或声音不支持调速，软件会自动检测并提示。这时可以换一个声音，或点 <b>🐢 逐词读</b>：一个词一个词地念，词间有停顿，一定能慢下来。') +
+      li('<b>🎙️ 跟读录音</b>会保存在本机，可以回放对比。') + li('<b>点“语速”没变化？</b>有些手机或声音不支持调速，软件会自动检测并提示。这时可以换一个声音，或点 <b>🐢 逐词读</b>：一个词一个词地念，词间有停顿，一定能慢下来。') +
       li('顶部 <b>目录</b> 可以跳到任意页；<b>生词本</b>里复习查过的词。右上角 <b>···</b> 里有整页翻译、保存学习进度、词典、语法字典和帮助。') +
       li('装到手机桌面：iPhone 用 Safari，点分享 → 添加到主屏幕；安卓用 Chrome，点 ⋮ → 安装应用。<b>装好后请在桌面图标里导入书</b>，浏览器和桌面图标的数据是分开的。'), true) +
     sec('隐私与数据',
       li('你导入的书、读书进度、生词本、录音、下载的词典，都<b>只存在这台设备的浏览器里</b>，软件没有服务器，不会上传。换设备或清除浏览器数据会丢失，可以点右上角“···”里的“保存学习进度”把它们保存成文件。') +
       li('<b>整句翻译</b>：当前这一句英文会发送给第三方翻译服务；查词时本地词典没有的词也会发过去。书里自带中文译文的句子不会发送。') +
-      li('<b>跟读打分</b>用的是浏览器自带的语音识别，在 Chrome、Edge 上你的声音会被发送到浏览器厂商的服务器处理。') +
       li('<b>识别图片里的文字</b>：第一次会从公共网络下载识别组件和英文语言数据，识别在你本机完成，图片不会上传。') +
       li('<b>自然语音（仅开发者可用）</b>：需要开发者口令解锁。启用后，当前要朗读的那一句英文会发到开发者自己的微软 Azure 账号生成语音。Key 用口令加密后只保存在开发者的设备里，软件代码里没有任何 Key。') +
       li('软件本身不收集任何使用数据。')) +
@@ -2706,11 +2705,8 @@ function render() {
       '<button class="link" onclick="deleteRecs()">删除这句的录音</button>'
     : '<div class="note" style="margin-top:10px">点"跟读录音"录下自己的声音，读完点停止，录音保存在本机。</div>';
 
-  const practiceHtml = '<div class="section"><h3>更多练习</h3><div class="row">' +
-    '<button class="ghost sm" onclick="openDictation()">听写</button>' +
-    '<button class="ghost sm" onclick="openJumble()">句子重组</button>' +
-    '<button class="ghost sm" onclick="openSpeechScore()">跟读打分' + (speechRecoSupported() ? '' : '（需Chrome/Edge）') + '</button>' +
-    '</div></div>';
+  // “更多练习”（听写 / 句子重组 / 跟读打分）已从界面撤下；功能代码还在，想恢复时把下面这行改回按钮即可
+  const practiceHtml = '';
 
   const sim = getSimilar();
   const simHtml = '<div class="section"><h3>书中相似句子</h3>' + (sim.length ? sim.map(i => '<div class="simrow"><button class="pgplay" onclick="pgSpeak(' + i + ')" aria-label="朗读这一句" title="朗读这一句"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg></button><div class="pgsent">' + pgWordsHtml(i) + '</div></div>').join('') + '<div class="note" style="margin-top:6px">点左边的播放键朗读整句，点句子里的单词查看解释和读音。</div>' :'<div class="note">书中暂时没有用词相近的句子。</div>') + '</div>';
