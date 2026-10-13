@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>一句一句读</title>
 <link rel="manifest" href="./manifest.json">
 <link rel="icon" href="./icon-192.png">
@@ -30,6 +30,7 @@ html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--ink);font-family:Georgia,'Songti SC','Noto Serif SC',serif;-webkit-font-smoothing:antialiased;}
 #app{max-width:680px;margin:0 auto;padding:20px 16px 60px;}
 h1{font-size:20px;letter-spacing:1px;margin:0 0 4px;font-weight:600}
+input,select,textarea{font-size:16px !important}
 .sub{color:var(--sub);font-size:13px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:16px}
 textarea{width:100%;min-height:160px;border:1px solid var(--line);border-radius:10px;padding:12px;font-size:15px;background:var(--pop);color:var(--ink);font-family:inherit}
@@ -1253,7 +1254,7 @@ function devTap() {                               // 在“帮助”里连点版
   devTaps++; clearTimeout(devTapTimer); devTapTimer = setTimeout(() => { devTaps = 0; }, 3000);
   if (devTaps >= 5) { devTaps = 0; closePop(); if (azCfg().dev) openNaturalSettings(); else openDevSetup(); }
 }
-const AZ_FLD = 'width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;padding:9px;background:var(--pop);color:var(--ink);font-family:inherit;font-size:14px;margin:4px 0 10px';
+const AZ_FLD = 'width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;padding:9px;background:var(--pop);color:var(--ink);font-family:inherit;font-size:16px;margin:4px 0 10px';
 function openDevSetup() {
   const c0 = azCfg(), ropt = azRegionOptions(c0.cloud, c0.region);
   showPop(
@@ -1938,7 +1939,10 @@ function showPop(html) {
   document.getElementById('pop').innerHTML = html + '<div class="row" style="margin-top:16px"><button class="ghost sm" onclick="closePop()">关闭</button></div>';
   document.getElementById('overlay').classList.add('show');
 }
-function closePop() { document.getElementById('overlay').classList.remove('show'); }
+function closePop() {
+  document.getElementById('overlay').classList.remove('show');
+  try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); window.scrollTo(0, 0); } catch (e) {}
+}
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (fsOpen()) closeFullscreen(); else { closePop(); closeWordPop(); } } });
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function fmt(s) { return esc(s).replace(/\n/g, '<br>'); }
@@ -2498,7 +2502,7 @@ function render() {
   closeWordPop();
   const app = document.getElementById('app');
   const header = '<div class="topbar"><div><h1>一句一句读</h1><div class="sub">一次只读一句，一句一句读完整本书</div></div>' +
-    '<div class="tools">' + (state ? '<button class="iconbtn" onclick="openToc()">📑 目录</button><button class="iconbtn" onclick="openPageView()">📄 整页翻译</button>' : '') + '<button class="iconbtn" onclick="openVocabHome()">⭐ 生词本<span id="vocabBadge">' + (vocabDueCache > 0 ? ' (' + vocabDueCache + ')' : '') + '</span></button>' + (azCfg().dev ? '<button class="iconbtn" onclick="openNaturalSettings()">' + (azKeyMem ? '🎧' : '🔒') + ' 自然语音</button>' : '') + '<button class="iconbtn" onclick="openDictSettings()">📚 词典</button><button class="iconbtn" onclick="openGrammarDict()">📘 语法字典</button><button class="iconbtn" onclick="openHelp()">❓ 帮助</button></div></div>';
+    '<div class="tools">' + (state ? '<button class="iconbtn" onclick="openToc()">📑 目录</button><button class="iconbtn" onclick="openPageView()">📄 整页翻译</button>' : '') + '<button class="iconbtn" onclick="openVocabHome()">⭐ 生词本<span id="vocabBadge">' + (vocabDueCache > 0 ? ' (' + vocabDueCache + ')' : '') + '</span></button>' + '<button class="iconbtn" onclick="openDictSettings()">📚 词典</button><button class="iconbtn" onclick="openGrammarDict()">📘 语法字典</button><button class="iconbtn" onclick="openHelp()">❓ 帮助</button></div></div>';
   refreshVocabBadge();
 
   if (!state) {
