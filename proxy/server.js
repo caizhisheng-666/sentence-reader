@@ -12,7 +12,7 @@ const PORT = +process.env.PORT || 8787;
 const ALLOW = (process.env.ALLOW_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
 const MONTH_LIMIT = +process.env.MONTH_LIMIT || 1800000;      // 每月字符硬上限，低于免费的 200 万
 const MAX_TEXT = +process.env.MAX_TEXT || 500;                // 单次最长字符
-const RATE_PER_MIN = +process.env.RATE_PER_MIN || 30;         // 每个 IP 每分钟次数
+const RATE_PER_MIN = +process.env.RATE_PER_MIN || 120;         // 每个 IP 每分钟次数
 const USAGE_FILE = process.env.USAGE_FILE || path.join(__dirname, 'usage.json');
 const HOST = process.env.VOLC_HOST || 'translate.volcengineapi.com';
 const PROTO = process.env.VOLC_PROTO || 'https';
