@@ -55,7 +55,7 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .iconbtn:hover{background:var(--soft);opacity:1}
 .levelbar{display:flex;justify-content:space-between;align-items:center;background:transparent;border:none;padding:0 2px;font-size:13px;color:var(--sub)}
 .badge{background:var(--soft);color:var(--accent);border-radius:999px;padding:2px 10px;font-weight:600;font-size:12px}
-.sentence .w.speaking{background:var(--accent);color:#fff;border-radius:5px;box-shadow:0 0 0 3px var(--accent)}
+.sentence .w.speaking,.pgsent .w.speaking{background:var(--accent);color:#fff;border-radius:5px;box-shadow:0 0 0 3px var(--accent)}
 .voicesel{max-width:150px;border:1px solid var(--line);border-radius:10px;padding:9px 6px;font-size:13px;background:var(--pop);color:var(--ink);font-family:inherit}
 .navsticky{position:sticky;top:env(safe-area-inset-top,0px);z-index:15;background:var(--bg);padding:8px 0;margin-bottom:8px;border-bottom:1px solid var(--line)}
 .navsticky .row{flex-wrap:nowrap}
@@ -81,7 +81,6 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .bk .bs{font-size:12px;color:var(--sub);margin-top:2px}
 .selbar{position:fixed;left:0;right:0;bottom:0;z-index:35;display:flex;gap:12px;align-items:center;justify-content:space-between;padding:12px 20px calc(12px + env(safe-area-inset-bottom,0px));background:var(--bar);-webkit-backdrop-filter:blur(24px) saturate(160%);backdrop-filter:blur(24px) saturate(160%);border-top:1px solid var(--line)}
 .pgon{background:var(--pop)!important;border-radius:10px;box-shadow:inset 3px 0 0 var(--accent)}
-.pgsent,.pgsent .zh{cursor:pointer}
 @media (min-width:700px){#pop{max-width:860px!important}.pgsent{font-size:20px!important}.pgplay{width:44px;height:44px}}
 .pgplay{flex-shrink:0;width:38px;height:38px;padding:0;border-radius:50%;font-size:15px;line-height:1;display:inline-flex;align-items:center;justify-content:center;margin-top:2px}
 .pgsent{font-family:var(--serif);font-size:18px;line-height:1.65}
@@ -169,7 +168,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.14-63';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.14-64';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1321,8 +1320,9 @@ function azFallbackSystem(idx) {                  // 自然语音失败：退回
   if (!state || state.idx !== idx) return;
   azSkipOnce = true; playListen();
 }
-function azStarts(text) {                         // 估算每个词在整句音频里的起点（0~1）：按字母数，句号逗号后留出停顿
-  const w = curTokenPos.map(p => {
+function azStarts(text) { return tokStarts(text, curTokenPos); }
+function tokStarts(text, pos) {                   // 估算每个词在整句音频里的起点（0~1）：按字母数，句号逗号后留出停顿
+  const w = pos.map(p => {
     const tok = text.slice(p.start, p.end);
     return { l: Math.max(2, tok.replace(/[^A-Za-z0-9]/g, '').length), pause: /[.!?]["'”’)]*$/.test(tok) ? 6 : /[,;:]["'”’)]*$/.test(tok) ? 3 : 0 };
   });
@@ -1830,7 +1830,7 @@ async function wordClick(i, el) {
   const clean = raw.replace(/[’‘]/g, "'").replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, '');
   if (!clean) return;
   curWord = clean; curWordZh = ''; lastWordIdx = i; lastWordEl = el;
-  pgPlayJob++;                                    // 如果整页视图里正在读一句，先作废它
+  pgPlayJob++; pgHlStop(); pgMark(-1);            // 如果整页视图里正在读一句，先作废它
   speakText(clean);                               // 点读：点哪个词就直接念哪个词（必须在点击的这一下里同步发起），同时照常弹出词典
   lastWordSentIdx = (el && el.dataset && el.dataset.s) ? parseInt(el.dataset.s, 10) : -1;
   const rect = el.getBoundingClientRect();
@@ -2473,10 +2473,11 @@ function pgTransHtml(idx) {
 }
 // 整页里的一句：每个单词可点（查词）；句首的 ▶ 朗读这一句；右边的“精读”回到主界面读这一句
 function pgWordsHtml(idx) {
+  let k = 0;
   return String(state.sentences[idx]).split(/(\s+)/).map(tok => {
     if (!tok || /^\s+$/.test(tok)) return tok;
     if (!/[A-Za-z]/.test(tok)) return esc(tok);
-    return '<span class="w" data-t="' + esc(tok) + '" data-s="' + idx + '" tabindex="0" role="button" onclick="wordClick(0,this)" onkeydown="if(event.key===\'Enter\')wordClick(0,this)">' + esc(tok) + '</span>';
+    return '<span class="w" data-k="' + (k++) + '" data-t="' + esc(tok) + '" data-s="' + idx + '" tabindex="0" role="button" onclick="wordClick(0,this)" onkeydown="if(event.key===\'Enter\')wordClick(0,this)">' + esc(tok) + '</span>';
   }).join('');
 }
 function pgRowHtml(idx) {
@@ -2484,16 +2485,32 @@ function pgRowHtml(idx) {
   return '<div id="pgs-' + idx + '" style="display:flex;gap:10px;align-items:flex-start;padding:10px ' + (cur ? '8px' : '0') + ';border-bottom:1px solid var(--line);' + (cur ? 'background:var(--pop);border-radius:10px' : '') + '">' +
     '<button class="pgplay" onclick="pgSpeak(' + idx + ')" aria-label="朗读这一句" title="朗读这一句">▶</button>' +
     '<div style="flex:1;min-width:0">' +
-      '<div class="pgsent" style="font-size:17px;line-height:1.6" onclick="pgSentTap(event,' + idx + ')">' + pgWordsHtml(idx) + '</div>' +
-      (getShowZh() ? '<div class="zh" id="pgz-' + idx + '" style="margin-top:4px;font-size:14px" onclick="pgSpeak(' + idx + ')">' + pgTransHtml(idx) + '</div>' : '') +
+      '<div class="pgsent" style="font-size:17px;line-height:1.6">' + pgWordsHtml(idx) + '</div>' +
+      (getShowZh() ? '<div class="zh" id="pgz-' + idx + '" style="margin-top:4px;font-size:14px">' + pgTransHtml(idx) + '</div>' : '') +
     '</div>' +
     '<button class="link" style="flex-shrink:0;margin-top:6px" onclick="pgGo(' + idx + ')">精读</button>' +
     '</div>';
 }
 /* 点读：点一句就读这一句（优先用语音包里的自然语音） */
-let pgPlayJob = 0;
+let pgPlayJob = 0, pgCurIdx = -1, pgHlTimer = null, pgHlK = -1;
+/* 整页里读一句时，念到哪个词，哪个词就亮起来（和主界面一样） */
+function pgTokPos(text) {
+  const out = []; let pos = 0;
+  String(text).split(/(\s+)/).forEach(tok => { const st = pos; pos += tok.length; if (!tok || /^\s+$/.test(tok) || !/[A-Za-z]/.test(tok)) return; out.push({ start: st, end: st + tok.length }); });
+  return out;
+}
+function pgHlSet(idx, k) {
+  if (k === pgHlK) return; pgHlK = k;
+  document.querySelectorAll('.pgsent .w.speaking').forEach(e => e.classList.remove('speaking'));
+  if (k < 0) return;
+  const el = document.querySelector('#pgs-' + idx + ' .w[data-k="' + k + '"]'); if (el) el.classList.add('speaking');
+}
+function pgHlStop() { if (pgHlTimer) { clearInterval(pgHlTimer); pgHlTimer = null; } pgHlSet(0, -1); }
 function pgMark(idx) {
   document.querySelectorAll('.pgon').forEach(e => e.classList.remove('pgon'));
+  document.querySelectorAll('.pgplay').forEach(e => { e.textContent = '▶'; });
+  pgCurIdx = idx;
+  if (idx >= 0) { const pb = document.querySelector('#pgs-' + idx + ' .pgplay'); if (pb) pb.textContent = '■'; }
   const r = idx >= 0 ? document.getElementById('pgs-' + idx) : null;
   if (r) { r.classList.add('pgon'); try { r.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) {} }
 }
@@ -2505,29 +2522,62 @@ async function pgGetBlob(text) {
 }
 function pgPlayOne(idx, job) {
   return new Promise(async res => {
-    const text = state.sentences[idx]; let blob = null;
+    const text = state.sentences[idx], pos = pgTokPos(text); let blob = null;
     try { blob = await pgGetBlob(text); } catch (e) {}
     if (job !== pgPlayJob) return res(false);
+    pgHlStop();
     if (blob) {
-      const a = azSetSrc(blob); a.onended = () => res(true); a.onerror = () => res(true);
-      a.play().catch(() => res(true));
+      const a = azSetSrc(blob); const starts = tokStarts(text, pos);
+      a.onended = () => { pgHlStop(); res(true); }; a.onerror = () => { pgHlStop(); res(true); };
+      a.play().then(() => {
+        if (job !== pgPlayJob) return;
+        pgHlTimer = setInterval(() => {
+          if (job !== pgPlayJob) { pgHlStop(); return; }
+          if (a.paused || !a.duration) return;
+          const f = a.currentTime / a.duration; let k = -1;
+          for (let i = 0; i < starts.length; i++) { if (starts[i] <= f) k = i; else break; }
+          if (k >= 0) pgHlSet(idx, k);
+        }, 60);
+      }).catch(() => res(true));
     } else {
-      try { const u = new SpeechSynthesisUtterance(text); applyVoiceSync(u); u.rate = getRate(); u.onend = u.onerror = () => res(true); speechSynthesis.cancel(); speechSynthesis.speak(u); }
-      catch (e) { res(true); }
+      try {
+        const u = new SpeechSynthesisUtterance(text); applyVoiceSync(u); u.rate = getRate();
+        const rate = u.rate || 1, cps = 15 * rate;
+        const st = pos.map(p => { const before = text.slice(0, p.start); return before.length / cps + ((before.match(/[,;:]/g) || []).length * 0.22 + (before.match(/[.!?]/g) || []).length * 0.45) / Math.max(0.5, rate); });
+        let got = false, t0 = 0;
+        u.onstart = () => {
+          t0 = performance.now();
+          pgHlTimer = setInterval(() => {
+            if (job !== pgPlayJob) { pgHlStop(); return; }
+            if (got) return;
+            const el = (performance.now() - t0) / 1000; if (el < 0.7) return;     // 先看这个声音会不会报告“念到哪个词”
+            let k = -1; for (let i = 0; i < st.length; i++) { if (st[i] <= el) k = i; else break; }
+            if (k >= 0) pgHlSet(idx, k);
+          }, 80);
+        };
+        u.onboundary = ev => {
+          if (job !== pgPlayJob || (ev.name && ev.name !== 'word')) return;
+          got = true;
+          let k = pos.findIndex(p => ev.charIndex >= p.start && ev.charIndex < p.end); if (k < 0) k = pos.findIndex(p => p.start >= ev.charIndex);
+          if (k >= 0) pgHlSet(idx, k);
+        };
+        u.onend = u.onerror = () => { pgHlStop(); res(true); };
+        speechSynthesis.cancel(); speechSynthesis.speak(u);
+      } catch (e) { res(true); }
     }
   });
 }
 function pgPlayStop() {
-  pgPlayJob++;
+  pgPlayJob++; pgHlStop();
   try { markStopped(); speechSynthesis.cancel(); } catch (e) {}
   pgMark(-1);
 }
 function pgSpeak(idx) {
+  if (pgCurIdx === idx) { closeWordPop(); pgPlayStop(); return; }          // 正在读这一句时再点 ▶ = 停止
   closeWordPop(); pgPlayStop(); azUnlock();                // 必须在点击的这一下里同步执行（iPhone/iPad 的要求）
   const job = ++pgPlayJob; pgMark(idx);
   pgPlayOne(idx, job).then(() => { if (job === pgPlayJob) pgMark(-1); });
 }
-function pgSentTap(ev, idx) { if (ev.target.closest && ev.target.closest('.w')) return; pgSpeak(idx); }
 function pgCancel() { pgJobId++; pgRunning = false; }
 function pgGo(idx) { pgCancel(); stopSpeech(); state.idx = idx; saveState(); closePop(); loadCurrent(); }
 function pgNeedsTranslate(s, e) {
@@ -2546,7 +2596,7 @@ function openPageView(ci) {
   pgCi = ci; pgS = s; pgE = e;
   const it = toc.items[ci];
   let html = '<h3 style="margin:0 0 4px">📄 整页翻译</h3>';
-  html += '<div class="note" style="margin-bottom:8px">' + esc(pgItemLabel(it, toc)) + (e > s ? '（共 ' + (e - s) + ' 句）' : '') + '。点句子或 ▶ 朗读这一句，点单词查词，点“精读”回到主界面读这一句。</div>';
+  html += '<div class="note" style="margin-bottom:8px">' + esc(pgItemLabel(it, toc)) + (e > s ? '（共 ' + (e - s) + ' 句）' : '') + '。点句首的 ▶ 朗读整句，点单词直接发音并查词，点“精读”回到主界面读这一句。</div>';
   html += '<div class="row" style="margin-bottom:6px">' +
     '<button class="ghost sm" ' + (ci > 0 ? 'onclick="openPageView(' + (ci - 1) + ')"' : 'disabled') + '>◀ 上一页</button>' +
     '<button class="ghost sm" ' + (ci < toc.items.length - 1 ? 'onclick="openPageView(' + (ci + 1) + ')"' : 'disabled') + '>下一页 ▶</button>' +
