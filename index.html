@@ -168,7 +168,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.14-70';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.14-71';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -314,14 +314,18 @@ async function deleteSelectedBooks() {
   const ids = [...shelfSel], l = shelfGet();
   const names = ids.map(id => (l.find(x => x.id === id) || {}).title || '').filter(Boolean).slice(0, 3).join('、');
   if (!confirm('要删除 ' + ids.length + ' 本书吗？\n' + names + (ids.length > 3 ? ' 等' : '') + '\n\n读书进度、翻译缓存和跟读录音会一起删除，不能恢复。')) return;
+  let gone = new Set();                                         // 这些书的语音（按句子内容存的），稍后清掉没有被其他书用到的
+  for (const id of ids) { try { const bk = await idbGet('books', id); if (bk && bk.sentences) for (const t of bk.sentences) gone.add(await vpKey(t)); } catch (e) {} }
   for (const id of ids) {
     try { await idbDel('books', id); } catch (e) {}
     try { await idbDelPrefix('images', id + ':'); } catch (e) {}
     try { await idbDelPrefix('recs', id + ':'); } catch (e) {}
   }
-  shelfSet(l.filter(x => !shelfSel.has(x.id)));
+  const left = l.filter(x => !shelfSel.has(x.id));
+  shelfSet(left);
   shelfSel = null; render();
   toast('已删除 ' + ids.length + ' 本书', 2500);
+  vpPurge(gone, left.map(x => x.id));
 }
 function coverColor(id) {
   let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
@@ -1652,7 +1656,19 @@ let vpCount = 0;
 async function vpKey(text) { return azHash('vp1\n' + String(text).trim()); }
 async function vpGet(text) { try { const v = await idbGet('vpack', await vpKey(text)); return v && v.b ? v.b : null; } catch (e) { return null; } }
 async function vpList() { try { return (await idbGet('meta', 'vpacks')) || []; } catch (e) { return []; } }
-async function vpInit() { const l = await vpList(); vpCount = l.reduce((m, p) => m + (p.count || 0), 0); }
+async function vpPurge(gone, keepIds) {             // 删书后，把只属于这些书的语音清掉（其他书也用到的句子语音保留）
+  try {
+    if (!gone.size) return;
+    for (const id of keepIds) { const bk = await idbGet('books', id); if (bk && bk.sentences) for (const t of bk.sentences) gone.delete(await vpKey(t)); }
+    if (gone.size) {
+      const d = await idb(), keys = [...gone];
+      for (let i = 0; i < keys.length; i += 500) await new Promise((res, rej) => { const t = d.transaction('vpack', 'readwrite'), st = t.objectStore('vpack'); keys.slice(i, i + 500).forEach(k => st.delete(k)); t.oncomplete = res; t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); });
+    }
+    await vpInit();
+    if (vpCount === 0) await idbPut('meta', [], 'vpacks');
+  } catch (e) {}
+}
+async function vpInit() { try { const d = await idb(); vpCount = await new Promise((res, rej) => { const q = d.transaction('vpack').objectStore('vpack').count(); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); } catch (e) { const l = await vpList(); vpCount = l.reduce((m, p) => m + (p.count || 0), 0); } }
 function setVpStatus(m) { const el = document.getElementById('vpStatus'); if (el) el.textContent = m; }
 async function openVoicePacks() {
   const list = await vpList();
