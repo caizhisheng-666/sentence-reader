@@ -66,6 +66,20 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .sentence .w:hover{background:var(--pop)}
 .pgsent .w{cursor:pointer;border-bottom:1.5px dotted var(--accent);padding:0 1px;border-radius:3px}
 .pgsent .w:hover{background:var(--pop)}
+.shelfbar{display:flex;align-items:center;justify-content:space-between;margin:6px 2px 16px}
+.shelfbar h2{margin:0;font-size:26px}
+.shelf{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:20px 14px;padding:0 2px 90px}
+@media (min-width:700px){.shelf{grid-template-columns:repeat(auto-fill,minmax(136px,1fr))}}
+.bk{cursor:pointer;-webkit-tap-highlight-color:transparent}
+.bk .cover{position:relative;aspect-ratio:3/4;border-radius:5px 10px 10px 5px;display:flex;align-items:center;justify-content:center;padding:12px 10px;color:#fff;box-shadow:0 3px 10px rgba(0,0,0,.2),inset 3px 0 0 rgba(0,0,0,.14);overflow:hidden}
+.bk .cover span{font-weight:600;font-size:14px;line-height:1.4;text-align:center;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+.bk .done{position:absolute;top:0;right:0;background:#e8a33d;color:#fff;font-style:normal;font-size:11px;padding:2px 8px;border-radius:0 10px 0 8px}
+.bk .chk{position:absolute;right:6px;bottom:6px;width:24px;height:24px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.28);color:#fff;font-style:normal;display:flex;align-items:center;justify-content:center;font-size:15px}
+.bk.on .chk{background:var(--accent);border-color:var(--accent)}
+.bk.on .cover{outline:3px solid var(--accent);outline-offset:1px}
+.bk .bt{margin-top:8px;font-size:13px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--ink)}
+.bk .bs{font-size:12px;color:var(--sub);margin-top:2px}
+.selbar{position:fixed;left:0;right:0;bottom:0;z-index:35;display:flex;gap:12px;align-items:center;justify-content:space-between;padding:12px 20px calc(12px + env(safe-area-inset-bottom,0px));background:var(--bar);-webkit-backdrop-filter:blur(24px) saturate(160%);backdrop-filter:blur(24px) saturate(160%);border-top:1px solid var(--line)}
 .pgon{background:var(--pop)!important;border-radius:10px;box-shadow:inset 3px 0 0 var(--accent)}
 .pgsent,.pgsent .zh{cursor:pointer}
 @media (min-width:700px){#pop{max-width:860px!important}.pgsent{font-size:20px!important}.pgplay{width:44px;height:44px}}
@@ -155,7 +169,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.14-59';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.14-60';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -169,7 +183,7 @@ let _db = null;
 function idb() {
   if (_db) return _db;
   _db = new Promise((res, rej) => {
-    const r = indexedDB.open('sentence-reader', 5);
+    const r = indexedDB.open('sentence-reader', 6);
     r.onupgradeneeded = () => {
       const d = r.result;
       if (!d.objectStoreNames.contains('dict')) d.createObjectStore('dict', { keyPath: 'w' });
@@ -179,6 +193,7 @@ function idb() {
       if (!d.objectStoreNames.contains('images')) d.createObjectStore('images');
       if (!d.objectStoreNames.contains('tts')) d.createObjectStore('tts');
       if (!d.objectStoreNames.contains('vpack')) d.createObjectStore('vpack');
+      if (!d.objectStoreNames.contains('books')) d.createObjectStore('books');
     };
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
@@ -205,39 +220,145 @@ async function idbClear(store) {
   const d = await idb();
   return new Promise((res, rej) => { const t = d.transaction(store, 'readwrite'); t.objectStore(store).clear(); t.oncomplete = res; t.onerror = () => rej(t.error); });
 }
+async function idbDelPrefix(store, prefix) {          // 删除所有以 prefix 开头的 key（按书删除插图、录音）
+  const d = await idb();
+  return new Promise((res, rej) => { const t = d.transaction(store, 'readwrite'); t.objectStore(store).delete(IDBKeyRange.bound(prefix, prefix + '\uffff')); t.oncomplete = res; t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); });
+}
 async function idbDel(store, key) {
   const d = await idb();
   return new Promise((res, rej) => { const t = d.transaction(store, 'readwrite'); t.objectStore(store).delete(key); t.oncomplete = res; t.onerror = () => rej(t.error); });
 }
 
 /* ---------- 启动与保存 ---------- */
+function bookShortTitle(sentences) { const t = String((sentences && sentences[0]) || '').replace(/\s+/g, ' ').trim(); return t.length > 26 ? t.slice(0, 26) + '…' : (t || '未命名的书'); }
 async function boot() {
-  try { const raw = localStorage.getItem('sr_state'); if (raw) state = JSON.parse(raw); } catch (e) {}
-  if (state) {
-    if (!state.bookId) state.bookId = 'b' + (state.startDate || Date.now());
-    state.prog = state.prog || {}; state.cache = state.cache || {};
-    delete state.wordCache;
-  }
+  // 旧版本只存一本书（localStorage 里的 sr_state）：第一次打开新版本时，自动搬进书架
+  try {
+    const raw = localStorage.getItem('sr_state');
+    if (raw) {
+      const old = JSON.parse(raw);
+      if (old && Array.isArray(old.sentences) && old.sentences.length) {
+        if (!old.bookId) old.bookId = 'b' + (old.startDate || Date.now());
+        old.prog = old.prog || {}; old.cache = old.cache || {}; delete old.wordCache;
+        old.title = old.title || bookShortTitle(old.sentences);
+        await idbPut('books', old, old.bookId);
+        const l = shelfGet();
+        if (!l.some(x => x.id === old.bookId)) { l.unshift({ id: old.bookId, title: old.title, addedAt: old.startDate || Date.now(), lastAt: Date.now(), total: old.sentences.length, idx: old.idx || 0 }); shelfSet(l); }
+      }
+      localStorage.removeItem('sr_state');
+    }
+  } catch (e) {}
   try { dictInfo = (await idbGet('meta', 'dictInfo')) || null; } catch (e) {}
   vpInit();
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
-  if (state) loadCurrent(); else render();
+  render();                                                    // 打开软件先进入书架
   loadVoices().then(refreshVoiceSelect).catch(() => {});      // 提前把声音列表加载好，第一次点“听原音”才有声音
   if (!dictInfo || !dictInfo.count) autoImportDict();
 }
 window.addEventListener('online', () => { if (state) loadCurrent(); });
 window.addEventListener('offline', () => render());
+window.addEventListener('pagehide', () => { flushState(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushState(); });
 boot();
 
+/* ---------- 书架：每本书存在 IndexedDB 里，书架目录（书名、进度）存在 localStorage ---------- */
+function shelfGet() { try { return JSON.parse(localStorage.getItem('sr_shelf') || '[]') || []; } catch (e) { return []; } }
+function shelfSet(l) { try { localStorage.setItem('sr_shelf', JSON.stringify(l)); } catch (e) {} }
+let saveTimer = null;
 function saveState() {
-  if (!state) { localStorage.removeItem('sr_state'); return; }
-  try { localStorage.setItem('sr_state', JSON.stringify(state)); }
+  if (!state) return;
+  const l = shelfGet(), e = l.find(x => x.id === state.bookId);
+  if (e) { e.idx = state.idx; e.lastAt = Date.now(); e.total = state.sentences.length; shelfSet(l); }
+  clearTimeout(saveTimer); saveTimer = setTimeout(flushState, 500);       // 整本书的数据比较大，隔一会儿再写一次
+}
+async function flushState() {
+  clearTimeout(saveTimer); saveTimer = null;
+  const st = state; if (!st) return;
+  try { await idbPut('books', st, st.bookId); }
   catch (e) {
-    const k = String(state.idx), keep = {};
-    if (state.cache[k]) keep[k] = state.cache[k];
-    state.cache = keep;
-    try { localStorage.setItem('sr_state', JSON.stringify(state)); } catch (e2) {}
+    const k = String(st.idx), keep = {};
+    if (st.cache && st.cache[k]) keep[k] = st.cache[k];
+    st.cache = keep;
+    try { await idbPut('books', st, st.bookId); } catch (e2) {}
   }
+}
+async function openBook(id) {
+  let b = null;
+  try { b = await idbGet('books', id); } catch (e) {}
+  if (!b || !Array.isArray(b.sentences)) {
+    shelfSet(shelfGet().filter(x => x.id !== id));
+    toast('这本书的数据没有找到，已从书架移除', 4000); render(); return;
+  }
+  if (!b.bookId) b.bookId = id;
+  b.prog = b.prog || {}; b.cache = b.cache || {}; delete b.wordCache;
+  const e = shelfGet().find(x => x.id === id);
+  if (e && typeof e.idx === 'number') b.idx = Math.min(e.idx, b.sentences.length);
+  state = b; clearCurImages(); stopSpeech();
+  saveState();
+  loadCurrent();
+}
+function closeBook() {
+  if (rec.on) { toast('正在录音，先点停止再回书架', 2000); return; }
+  stopSpeech(); try { pgPlayStop(); pgCancel(); } catch (e) {} clearCurImages();
+  flushState();
+  state = null; render();
+}
+let shelfSel = null;                     // 选择模式下，已勾选的书的 id 集合；null 表示不在选择模式
+function toggleShelfSel() { shelfSel = shelfSel ? null : new Set(); render(); }
+function shelfTap(id) {
+  if (!shelfSel) { openBook(id); return; }
+  if (shelfSel.has(id)) shelfSel.delete(id); else shelfSel.add(id);
+  render();
+}
+async function deleteSelectedBooks() {
+  if (!shelfSel || !shelfSel.size) return;
+  const ids = [...shelfSel], l = shelfGet();
+  const names = ids.map(id => (l.find(x => x.id === id) || {}).title || '').filter(Boolean).slice(0, 3).join('、');
+  if (!confirm('要删除 ' + ids.length + ' 本书吗？\n' + names + (ids.length > 3 ? ' 等' : '') + '\n\n读书进度、翻译缓存和跟读录音会一起删除，不能恢复。')) return;
+  for (const id of ids) {
+    try { await idbDel('books', id); } catch (e) {}
+    try { await idbDelPrefix('images', id + ':'); } catch (e) {}
+    try { await idbDelPrefix('recs', id + ':'); } catch (e) {}
+  }
+  shelfSet(l.filter(x => !shelfSel.has(x.id)));
+  shelfSel = null; render();
+  toast('已删除 ' + ids.length + ' 本书', 2500);
+}
+function coverColor(id) {
+  let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return ['#8a6d3b', '#4f7a63', '#5b6f95', '#9a5b5b', '#6b5b95', '#3f7f88', '#8b6f47', '#7a7f45'][h % 8];
+}
+function shelfHtml() {
+  const l = shelfGet().slice().sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0));
+  const sel = shelfSel;
+  let html = '<div class="shelfbar"><h2>书架</h2><div class="row" style="gap:8px">' +
+    '<button class="ghost sm" onclick="openImportPop()">＋ 导入</button>' +
+    (l.length ? '<button class="ghost sm" onclick="toggleShelfSel()">' + (sel ? '取消' : '选择') + '</button>' : '') + '</div></div>';
+  if (!l.length) {
+    html += '<div class="card" style="text-align:center;padding:36px 20px"><div style="font-size:38px">📚</div><div style="margin:10px 0 4px;font-size:17px;color:var(--ink)">书架是空的</div><div class="note">点“＋ 导入”，添加英文电子书、PDF、文本，或粘贴一段英文。</div><div class="row" style="justify-content:center;margin-top:14px"><button onclick="openImportPop()">导入第一本书</button></div></div>';
+    return html;
+  }
+  html += '<div class="shelf">' + l.map(b => {
+    const pct = b.total ? Math.min(100, Math.round((b.idx || 0) / b.total * 100)) : 0;
+    const status = !b.total ? '' : (b.idx >= b.total ? '读完' : ((b.idx || 0) > 0 ? pct + '%' : '未读'));
+    const on = sel && sel.has(b.id);
+    return '<div class="bk' + (on ? ' on' : '') + '" onclick="shelfTap(\'' + b.id + '\')">' +
+      '<div class="cover" style="background:' + coverColor(b.id) + '"><span>' + esc(b.title || '') + '</span>' +
+      (b.total && b.idx >= b.total ? '<i class="done">读完</i>' : '') +
+      (sel ? '<i class="chk">' + (on ? '✓' : '') + '</i>' : '') + '</div>' +
+      '<div class="bt">' + esc(b.title || '') + '</div><div class="bs">' + (status && !(b.idx >= b.total) ? status : '&nbsp;') + '</div></div>';
+  }).join('') + '</div>';
+  if (sel) html += '<div class="selbar"><span class="note">已选 ' + sel.size + ' 本</span><button ' + (sel.size ? '' : 'disabled ') + 'style="background:#b94a48" onclick="deleteSelectedBooks()">删除</button></div>';
+  return html;
+}
+function openImportPop() {
+  showPop('<h3 style="margin:0 0 8px">导入书</h3>' +
+    '<div class="filebtn" style="margin-bottom:10px"><button type="button" tabindex="-1">选择电子书或文档</button><input type="file" accept=".txt,.md,.markdown,.epub,.pdf,.docx,.doc,.mobi,.azw3,.azw" onchange="importFromFile(event)"></div>' +
+    '<div class="note" style="margin-bottom:6px">支持 .epub、.pdf、.txt、.docx、.md、.mobi。或者粘贴一段英文：</div>' +
+    '<textarea id="pasteBox" placeholder="在这里粘贴英文文本…" style="min-height:100px"></textarea>' +
+    '<div class="row" style="margin-top:10px"><button class="ghost" onclick="importFromBox()">用粘贴的文本导入</button></div>' +
+    '<div id="importStatus" class="note" style="margin-top:8px;min-height:20px"></div>' +
+    '<div class="note" style="margin-top:6px">图画书/漫画会保留每页插图。英文如果画在图里（扫描版），软件读不出文字，这样的页会显示成灰色。</div>');
 }
 
 /* ---------- 整句翻译（需联网，失败不影响学习） ---------- */
@@ -483,20 +604,23 @@ function stripGutenberg(text) {
   if (em) text = text.slice(0, em.index);
   return text;
 }
-function finalizeImport(sentences, imageRanges, bookId, extraToast, toc, bil) {
+let importTitle = '';
+async function finalizeImport(sentences, imageRanges, bookId, extraToast, toc, bil) {
   if (!sentences.length) { alert('没有识别到英文句子，请检查导入的内容。扫描版或英文画在图里的书，软件暂不支持识别图片里的文字。'); return; }
-  idbClear('recs').catch(() => {});
   const startIdx = detectStart(sentences);
   state = { bookId: bookId || ('b' + Date.now()), sentences, idx: startIdx, prog: {}, cache: {}, startDate: Date.now(), totalCompleted: 0, imageRanges: imageRanges || [], toc: toc || buildTextToc(sentences, startIdx), zh: (bil && bil.zh) || {}, zhp: (bil && bil.para) || {}, zhOff: {} };
-  saveState();
-  loadCurrent();
+  state.title = (importTitle || '').trim() || bookShortTitle(sentences);
+  importTitle = '';
+  const entry = { id: state.bookId, title: state.title, addedAt: Date.now(), lastAt: Date.now(), total: sentences.length, idx: startIdx };
+  await flushState();
+  const l = shelfGet().filter(x => x.id !== entry.id); l.unshift(entry); shelfSet(l);
+  state = null; closePop(); render();                           // 导入后回到书架，点封面开始读
   const msgs = [];
-  if (startIdx > 0) msgs.push('已跳过开头 ' + startIdx + ' 句目录/版权信息，从正文开始。可点顶部“目录”调整');
+  if (startIdx > 0) msgs.push('已跳过开头 ' + startIdx + ' 句目录/版权信息，从正文开始，打开后可点顶部“目录”调整');
   if (extraToast) msgs.push(extraToast);
-  if (msgs.length) toast(msgs.join('；'), 6000);
+  toast('《' + entry.title + '》已加入书架。' + msgs.join('；'), 7000);
 }
 function importBook(text) {
-  idbClear('images').catch(() => {});
   const gutenberg = /project gutenberg/i.test(text.slice(0, 3000));
   if (gutenberg) text = stripGutenberg(text);
   const hadCjk = /[\u3400-\u9fff]/.test(text);
@@ -519,7 +643,6 @@ async function importBookBlocks(blocks) {
   const allSegs = [];       // 全书按顺序排列的英文段/中文段，用来把书中译文配对
   let pendingImages = [], totalImages = 0, hasPage = false, pagesWithText = 0, hadCjk = false, bi = 0;
   const saves = [];
-  try { await idbClear('images'); } catch (e) {}
   for (const block of blocks) {
     bi++;
     const n = block.page || bi;
@@ -555,7 +678,7 @@ async function importBookBlocks(blocks) {
   parts.push(saveFailed ? '插图保存失败（可能是存储空间不足），只导入了文字'
     : totalImages ? '已提取 ' + totalImages + ' 张插图'
     : '没有找到可提取的插图');
-  finalizeImport(sentences, saveFailed ? [] : imageRanges, bookId, parts.join('；'), { kind: hasPage ? 'page' : 'section', items: tocItems }, al);
+  await finalizeImport(sentences, saveFailed ? [] : imageRanges, bookId, parts.join('；'), { kind: hasPage ? 'page' : 'section', items: tocItems }, al);
 }
 
 /* ---------- 自动识别正文起点：跳过书名页、版权页、献词、目录等 ---------- */
@@ -823,10 +946,12 @@ async function loadCurrent() {
   const c = state.cache[key];
   if (c && !c.failed) return;
   if (!navigator.onLine) return;
-  try { state.cache[key] = { translation: await translateText(state.sentences[idx]) }; }
-  catch (e) { state.cache[key] = { failed: true, err: e.message }; }
+  const st = state;                              // 翻译回来之前，可能已经回了书架或换了别的书：只写回原来那本
+  try { const t = await translateText(st.sentences[idx]); st.cache[key] = { translation: t }; }
+  catch (e) { st.cache[key] = { failed: true, err: e.message }; }
+  if (state !== st) return;
   saveState();
-  if (state && state.idx === idx) render();
+  if (state.idx === idx) render();
 }
 let curImageUrls = [], curImageStart = -1;
 function imageRangeFor(idx) {
@@ -837,13 +962,13 @@ function imageRangeFor(idx) {
 }
 function clearCurImages() { curImageUrls.forEach(u => URL.revokeObjectURL(u)); curImageUrls = []; curImageStart = -1; }
 async function loadCurrentImage() {
-  const idx = state.idx, range = imageRangeFor(idx);
+  const idx = state.idx, bid = state.bookId, range = imageRangeFor(idx);
   if (!range) { if (curImageStart !== -1) clearCurImages(); render(); return; }
   if (range[0] === curImageStart && curImageUrls.length) { render(); return; } // 同一页，图已经加载好了
   clearCurImages();
   try {
     let data = await idbGet('images', state.bookId + ':' + range[0]);
-    if (!state || state.idx !== idx) return;
+    if (!state || state.idx !== idx || state.bookId !== bid) return;
     if (data && !Array.isArray(data)) data = [data];
     if (data && data.length) { curImageUrls = data.map(b => URL.createObjectURL(b)); curImageStart = range[0]; }
   } catch (e) {}
@@ -1572,13 +1697,6 @@ function prevSentence() {
   state.idx--; saveState(); loadCurrent();
 }
 function retryTranslate() { delete state.cache[String(state.idx)]; loadCurrent(); }
-function resetBook() {
-  if (!confirm('换一本书会清除当前进度和录音，确定吗？')) return;
-  stopSpeech();
-  clearCurImages();
-  state = null; saveState(); idbClear('recs').catch(() => {}); idbClear('images').catch(() => {}); render();
-}
-
 /* ---------- 查词：离线大词典 → 内置词典 → （联网时）在线翻译 ---------- */
 async function dictLookup(w) {
   if (!dictInfo || !dictInfo.count) return null;
@@ -1878,27 +1996,29 @@ function openGrammarDict(key) {
 }
 
 /* ---------- 保存 / 恢复学习进度（存成文件；清理浏览器数据或换设备后可以恢复） ---------- */
-const PROG_KEYS = ['sr_state', 'sr_rate', 'sr_show_zh'];      // 只保存学习相关内容，不含任何 Key 或口令
+const PROG_KEYS = ['sr_rate', 'sr_show_zh'];      // 只保存学习相关内容，不含任何 Key 或口令
 function progLastSaved() { try { return +localStorage.getItem('sr_last_saved') || 0; } catch (e) { return 0; } }
 function progDate(t) { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 async function openProgressSave() {
   const last = progLastSaved();
   showPop(
     '<h3 style="margin:0 0 6px">💾 学习进度</h3>' +
-    '<div class="note" style="font-size:14px;color:var(--ink)">你的书、读到哪一句都只存在这台设备的浏览器里。清理手机缓存、清理浏览器数据，或者换手机，这些都会消失。把学习进度保存成文件，就能随时恢复。</div>' +
-    '<div class="note" style="margin-top:10px">当前：' + (state ? '这本书读到第 ' + (Math.min(state.idx, state.sentences.length) + 1) + ' / ' + state.sentences.length + ' 句' : '还没有导入书') + '。<br>' +
+    '<div class="note" style="font-size:14px;color:var(--ink)">你的书架、读到哪一句都只存在这台设备的浏览器里。清理手机缓存、清理浏览器数据，或者换手机，这些都会消失。把学习进度保存成文件，就能随时恢复。</div>' +
+    '<div class="note" style="margin-top:10px">当前：书架里有 ' + shelfGet().length + ' 本书。<br>' +
     (last ? '上次保存：' + progDate(last) : '还没有保存过。') + '</div>' +
     '<div class="row" style="margin-top:12px"><button onclick="saveProgressFile()">保存学习进度到文件</button>' +
     '<div class="filebtn"><button class="ghost" type="button" tabindex="-1">从文件恢复学习进度</button><input type="file" accept=".json,application/json" onchange="restoreProgressFile(event)"></div></div>' +
     '<div id="progStatus" class="note" style="margin-top:10px;min-height:20px"></div>' +
-    '<div class="note" style="margin-top:6px">文件里有：这本书的文字和读到的位置、语速等设置。<b>没有</b>：跟读录音、书里的插图（恢复后插图需要重新导入这本书才有）。建议每周保存一次，并把文件发到微信“文件传输助手”或网盘里放好。</div>'
+    '<div class="note" style="margin-top:6px">文件里有：书架上所有书的文字、读到的位置和翻译，以及语速等设置。<b>没有</b>：跟读录音、书里的插图（恢复后插图需要重新导入这本书才有）。建议每周保存一次，并把文件发到微信“文件传输助手”或网盘里放好。</div>'
   );
 }
 function setProgStatus(m) { const el = document.getElementById('progStatus'); if (el) el.textContent = m; }
 async function saveProgressFile() {
   try {
     const ls = {}; PROG_KEYS.forEach(k => { const v = localStorage.getItem(k); if (v != null) ls[k] = v; });
-    const data = { app: 'sentence-reader', v: 1, savedAt: Date.now(), ls };
+    await flushState();
+    let books = []; try { books = await idbGetAll('books'); } catch (e) {}
+    const data = { app: 'sentence-reader', v: 2, savedAt: Date.now(), ls, shelf: shelfGet(), books };
     const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = '一句一读-学习进度-' + progDate(Date.now()).replace(/-/g, '') + '.json';
@@ -1913,11 +2033,22 @@ async function restoreProgressFile(ev) {
   try {
     const data = JSON.parse(await readAsText(file));
     if (!data || data.app !== 'sentence-reader' || !data.ls) throw new Error('这不是“一句一读”保存的学习进度文件');
-    const hasBook = !!data.ls.sr_state;
-    if (!confirm('要恢复 ' + progDate(data.savedAt || Date.now()) + ' 保存的学习进度吗？\n\n' + (hasBook ? '· 当前的书和进度会被文件里的替换\n' : '') + '· 语速等设置也会一起恢复')) return;
+    let books = Array.isArray(data.books) ? data.books.filter(b => b && Array.isArray(b.sentences) && b.sentences.length) : [];
+    if (!books.length && data.ls.sr_state) { let ob = null; try { ob = JSON.parse(data.ls.sr_state); } catch (e) {} if (ob && Array.isArray(ob.sentences)) books = [ob]; }   // 旧版本的进度文件：只有一本书，放在 ls.sr_state 里
+    if (!confirm('要恢复 ' + progDate(data.savedAt || Date.now()) + ' 保存的学习进度吗？\n\n' + (books.length ? '· ' + books.length + ' 本书会加入书架（书架上同一本书的进度会被文件里的替换）\n' : '') + '· 语速等设置也会一起恢复')) return;
     stopSpeech();
     PROG_KEYS.forEach(k => { if (data.ls[k] != null) localStorage.setItem(k, data.ls[k]); });
-    if (hasBook) { try { await idbClear('images'); } catch (e) {} }
+    const shelf = shelfGet(), byId = new Map((Array.isArray(data.shelf) ? data.shelf : []).map(x => [x.id, x]));
+    for (const b of books) {
+      if (!b.bookId) b.bookId = 'b' + (b.startDate || Date.now());
+      const old = byId.get(b.bookId) || {};
+      b.title = b.title || old.title || bookShortTitle(b.sentences);
+      b.prog = b.prog || {}; b.cache = b.cache || {};
+      await idbPut('books', b, b.bookId);
+      const e = { id: b.bookId, title: b.title, addedAt: old.addedAt || b.startDate || Date.now(), lastAt: old.lastAt || Date.now(), total: b.sentences.length, idx: b.idx || 0 };
+      const k = shelf.findIndex(x => x.id === e.id); if (k >= 0) shelf[k] = e; else shelf.push(e);
+    }
+    shelfSet(shelf);
     location.reload();
   } catch (e) { setProgStatus('恢复失败：' + (e && e.message ? e.message : '未知错误')); }
 }
@@ -1960,9 +2091,9 @@ function openHelp() {
       li('点句子里的<b>单词</b>查词，点哪个词就读哪个词，同时弹出解释。') + li('点 <b>听原音</b>，念到哪个词哪个词会亮；旁边的下拉菜单可以换美音、英音。') +
       li('<b>🎙️ 跟读录音</b>会保存在本机，可以回放对比。') + li('<b>点“语速”没变化？</b>有些手机或声音不支持调速，软件会自动检测并提示。这时可以换一个声音试试。') +
       li('顶部 <b>整页翻译</b> 把一页的句子连同中文一起列出来，点句子就读；<b>目录</b> 可以跳到任意页；右上角 <b>···</b> 里有保存学习进度、语音包、词典、语法字典和帮助。') +
-      li('装到手机桌面：iPhone 用 Safari，点分享 → 添加到主屏幕；安卓用 Chrome，点 ⋮ → 安装应用。<b>装好后请在桌面图标里导入书</b>，浏览器和桌面图标的数据是分开的。'), true) +
+      li('装到手机桌面：iPhone 用 Safari，点分享 → 添加到主屏幕；安卓用 Chrome，点 ⋮ → 安装应用。<b>装好后请在桌面图标里导入书（打开软件先是书架，点“＋ 导入”）</b>，浏览器和桌面图标的数据是分开的。'), true) +
     sec('隐私与数据',
-      li('你导入的书、读书进度、录音、下载的词典，都<b>只存在这台设备的浏览器里</b>，不会上传。换设备或清除浏览器数据会丢失，可以点右上角“···”里的“保存学习进度”把它们保存成文件。') +
+      li('你导入的书（书架上所有的书）、读书进度、录音、下载的词典，都<b>只存在这台设备的浏览器里</b>，不会上传。换设备或清除浏览器数据会丢失，可以点右上角“···”里的“保存学习进度”把它们保存成文件。') +
       li('<b>整句翻译</b>：当前这一句英文会发到开发者的翻译中转服务，再转给火山引擎机器翻译，中转服务不保存内容；中转不可用时改发 Google 或 MyMemory 的免费接口。查词时本地词典没有的词会发给第三方词典服务。书里自带中文译文的句子不会发送。') +
       li('<b>自然语音（仅开发者可用）</b>：需要开发者口令解锁。启用后，当前要朗读的那一句英文会发到开发者自己的微软 Azure 账号生成语音。Key 用口令加密后只保存在开发者的设备里，软件代码里没有任何 Key。') +
       li('软件本身不收集任何使用数据。')) +
@@ -2185,6 +2316,7 @@ async function parsePdf(buf) {
 async function importFromFile(ev) {
   const file = ev.target.files[0]; if (!file) return;
   const name = file.name.toLowerCase();
+  importTitle = file.name.replace(/\.[^.]+$/, '');
   setImportStatus('正在读取 ' + esc(file.name) + ' …');
   try {
     if (name.endsWith('.txt')) importBook(await readAsText(file));
@@ -2201,6 +2333,7 @@ async function importFromFile(ev) {
 function importFromBox() {
   const t = document.getElementById('pasteBox').value.trim();
   if (t.length < 5) { alert('请先粘贴一些英文文本。'); return; }
+  importTitle = '';
   importBook(t);
 }
 let jumpPageStart = 0, jumpQuery = '';
@@ -2463,22 +2596,17 @@ async function pgStartTranslate(auto) {
 function render() {
   closeWordPop();
   const app = document.getElementById('app');
-  const header = '<div class="topbar"><div class="tbin"><div><h1>一句一句读</h1></div>' +
+  const header = '<div class="topbar"><div class="tbin"><div>' + (state ? '<button class="iconbtn" aria-label="回书架" onclick="closeBook()" style="font-size:15px;margin-left:-8px">‹ 书架</button>' : '<h1>一句一句读</h1>') + '</div>' +
     '<div class="tools">' + (state ? '<button class="iconbtn" aria-label="整页翻译" onclick="openPageView()">整页翻译</button><button class="iconbtn" aria-label="目录" onclick="openToc()">目录</button>' : '') + '<button class="iconbtn" aria-label="更多" onclick="openMoreMenu()" style="font-size:22px;letter-spacing:1px;padding-bottom:6px">···</button></div></div></div>';
 
   if (!state) {
-    app.innerHTML = header +
-      '<div class="card"><textarea id="pasteBox" placeholder="在这里粘贴英文文本…"></textarea>' +
-      '<div class="row" style="margin-top:12px"><button onclick="importFromBox()">用粘贴的文本开始</button>' +
-      '<div class="filebtn"><button class="ghost" type="button" tabindex="-1">上传电子书或文档</button><input type="file" accept=".txt,.md,.markdown,.epub,.pdf,.docx,.doc,.mobi,.azw3,.azw" onchange="importFromFile(event)"></div></div>' +
-      '<div id="importStatus" class="note"></div>' +
-      '<div class="note" style="margin-top:8px">图画书/漫画：会保留每页插图。英文如果是画在图里的（扫描版），软件读不出文字，这样的页会显示成灰色。</div>' +
-      '<div class="note" style="margin-top:6px">点单词查词、语法讲解、跟读录音都可以离线使用。整句翻译需要联网。' +
-      (dictInfo && dictInfo.count ? '离线大词典已就绪（' + dictInfo.count.toLocaleString() + ' 词条）。' : '离线大词典会在联网时自动后台下载，也可在右上角“···”菜单的“词典”里查看进度或手动导入。') + '</div></div>';
+    app.innerHTML = header + shelfHtml() +
+      '<div class="note" style="margin:16px 4px 0">点单词查词、语法讲解、跟读录音都可以离线使用。整句翻译需要联网。' +
+      (dictInfo && dictInfo.count ? '离线大词典已就绪（' + dictInfo.count.toLocaleString() + ' 词条）。' : '离线大词典会在联网时自动后台下载，也可在右上角“···”菜单里查看进度。') + '</div>';
     return;
   }
   if (state.idx >= state.sentences.length) {
-    app.innerHTML = header + '<div class="card finish"><div style="font-size:40px">🎉</div><h2>整本书读完了！</h2><div class="sub">共 ' + state.sentences.length + ' 句。</div><button style="margin-top:16px" onclick="resetBook()">导入下一本书</button></div>';
+    app.innerHTML = header + '<div class="card finish"><div style="font-size:40px">🎉</div><h2>整本书读完了！</h2><div class="sub">共 ' + state.sentences.length + ' 句。</div><button style="margin-top:16px" onclick="closeBook()">回书架</button></div>';
     return;
   }
   const lvl = levelInfo(), pct = Math.round(state.idx / state.sentences.length * 100);
@@ -2513,7 +2641,7 @@ function render() {
 
   app.innerHTML = header +
     '<div class="levelbar"><div><span class="badge">Lv.' + (lvl.idx + 1) + '</span> 对照美国 ' + lvl.label + ' 阶段</div><div>' + (tocLabel() ? esc(tocLabel()) : '') + '</div></div>' +
-    '<div class="row" style="margin:12px 0 4px"><button class="ghost sm" onclick="openJumpModal()">跳转句子</button><button class="ghost sm" onclick="resetBook()">换一本书</button></div>' +
+    '<div class="row" style="margin:12px 0 4px"><button class="ghost sm" onclick="openJumpModal()">跳转句子</button></div>' +
     '<div class="card">' +
       (function () { const r = imageRangeFor(state.idx); return (r && r[0] === curImageStart) ? curImageUrls.map(u => '<img src="' + u + '" alt="书页插图" style="max-width:100%;max-height:60vh;object-fit:contain;border-radius:10px;margin:0 auto 14px;display:block">').join('') : ''; })() +
       '<div class="sentence">' + renderSentenceHTML(state.sentences[state.idx]) + '</div>' +
