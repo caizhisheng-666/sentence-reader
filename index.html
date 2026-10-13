@@ -71,10 +71,6 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 @media (min-width:700px){#pop{max-width:860px!important}.pgsent{font-size:20px!important}.pgplay{width:44px;height:44px}}
 .pgplay{flex-shrink:0;width:38px;height:38px;padding:0;border-radius:50%;font-size:15px;line-height:1;display:inline-flex;align-items:center;justify-content:center;margin-top:2px}
 .pgsent{font-family:var(--serif);font-size:18px;line-height:1.65}
-.simrow{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:.5px solid var(--line)}
-.simrow:last-of-type{border-bottom:none}
-.simrow .pgplay{background:var(--soft);color:var(--accent)}
-.simrow .pgsent{flex:1;min-width:0}
 .zh{color:var(--sub);font-size:17px;line-height:1.75;font-family:'Songti SC','Noto Serif SC',var(--serif)}
 .section{margin-top:22px;padding-top:16px;border-top:.5px solid var(--line)}
 /* 底部栏：上一句 / 进度 / 下一句，固定在屏幕底部 */
@@ -159,10 +155,10 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.14-53';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.14-54';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
-let analysisCache = { idx: -1, res: null }, simCache = { idx: -1, list: [] };
+let analysisCache = { idx: -1, res: null };
 let rec = { mr: null, on: false, start: 0, timer: null };
 let recView = { key: '', urls: [] };
 if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = window.__pdfLocal ? './lib/pdf.worker.min.js' : 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -809,18 +805,6 @@ function startSpeechScore() {
   try { rec.start(); } catch (e) { if (el) el.innerHTML = '<div class="note">无法启动：' + esc(e.message) + '</div>'; }
 }
 function keyWords(s) { return (s.match(/[a-zA-Z']+/g) || []).map(w => w.toLowerCase()).filter(w => w.length > 3 && !STOP.has(w)); }
-function getSimilar() {
-  if (simCache.idx === state.idx) return simCache.list;
-  const cur = state.sentences[state.idx], kws = new Set(keyWords(cur)), scored = [];
-  if (kws.size) state.sentences.forEach((s, i) => {
-    if (i === state.idx) return;
-    let score = 0; keyWords(s).forEach(w => { if (kws.has(w)) score++; });
-    if (score > 0) scored.push({ s, i, score, d: Math.abs(s.length - cur.length) });
-  });
-  scored.sort((a, b) => b.score - a.score || a.d - b.d);
-  simCache = { idx: state.idx, list: scored.slice(0, 3).map(x => x.i) };      // 存的是句子序号（点词、朗读要用）
-  return simCache.list;
-}
 function getAnalysis() {
   if (analysisCache.idx === state.idx) return analysisCache.res;
   let res = null;
@@ -1985,7 +1969,7 @@ function openHelp() {
     '<div class="row" style="margin:12px 0 4px"><button onclick="copyDiag()">复制诊断信息</button>' + (FEEDBACK_URL ? '<button class="ghost" onclick="openFeedback()">打开反馈问卷</button>' : '') + '</div>' +
     '<div class="note">遇到问题（没声音、录不了音、书导入不对等），先点“复制诊断信息”，粘贴发给发你链接的人。诊断信息只有设备和软件状态，没有书的内容和你的录音。</div>' +
     sec('快速上手',
-      li('点句子里的<b>单词</b>查词；“书中相似句子”也一样，最左边的播放键朗读整句，点单词看解释和读音。') + li('点 <b>听原音</b>，念到哪个词哪个词会亮；旁边的下拉菜单可以换美音、英音。') +
+      li('点句子里的<b>单词</b>查词，点哪个词就读哪个词，同时弹出解释。') + li('点 <b>听原音</b>，念到哪个词哪个词会亮；旁边的下拉菜单可以换美音、英音。') +
       li('<b>🎙️ 跟读录音</b>会保存在本机，可以回放对比。') + li('<b>点“语速”没变化？</b>有些手机或声音不支持调速，软件会自动检测并提示。这时可以换一个声音，或点 <b>🐢 逐词读</b>：一个词一个词地念，词间有停顿，一定能慢下来。') +
       li('顶部 <b>目录</b> 可以跳到任意页；右上角 <b>···</b> 里有整页翻译、保存学习进度、词典、语法字典和帮助。') +
       li('装到手机桌面：iPhone 用 Safari，点分享 → 添加到主屏幕；安卓用 Chrome，点 ⋮ → 安装应用。<b>装好后请在桌面图标里导入书</b>，浏览器和桌面图标的数据是分开的。'), true) +
@@ -2278,7 +2262,7 @@ function doAppend() {
   const t = document.getElementById('appendBox').value.trim();
   if (t.length < 3) { alert('请先粘贴内容。'); return; }
   state.sentences = state.sentences.concat(splitSentences(t));
-  simCache.idx = -1; saveState(); closePop(); render();
+  saveState(); closePop(); render();
 }
 
 function getShowZh() { return localStorage.getItem('sr_show_zh') !== 'no'; }
@@ -2549,8 +2533,6 @@ function render() {
   // “更多练习”（听写 / 句子重组 / 跟读打分）已从界面撤下；功能代码还在，想恢复时把下面这行改回按钮即可
   const practiceHtml = '';
 
-  const sim = getSimilar();
-  const simHtml = '<div class="section"><h3>书中相似句子</h3>' + (sim.length ? sim.map(i => '<div class="simrow"><button class="pgplay" onclick="pgSpeak(' + i + ')" aria-label="朗读这一句" title="朗读这一句"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg></button><div class="pgsent">' + pgWordsHtml(i) + '</div></div>').join('') + '<div class="note" style="margin-top:6px">点左边的播放键朗读整句，点句子里的单词查看解释和读音。</div>' :'<div class="note">书中暂时没有用词相近的句子。</div>') + '</div>';
 
   app.innerHTML = header +
     '<div class="levelbar"><div><span class="badge">Lv.' + (lvl.idx + 1) + '</span> 对照美国 ' + lvl.label + ' 阶段</div><div>' + (tocLabel() ? esc(tocLabel()) : '') + '</div></div>' +
@@ -2572,7 +2554,7 @@ function render() {
           '<button class="recbtn ' + (rec.on ? 'on' : '') + '" onclick="toggleRecord()">' + (rec.on ? '停止录音 <span id="recTime">0.0 秒</span>' : '跟读录音') + '</button>' +
         '</div>' + recs + '</div>' +
       practiceHtml +
-      gHtml + simHtml +
+      gHtml +
     '</div>' +
     '<div class="bottombar"><div class="bbin">' +
       '<button class="ghost" onclick="prevSentence()" ' + (state.idx > 0 && !rec.on ? '' : 'disabled') + '>上一句</button>' +
