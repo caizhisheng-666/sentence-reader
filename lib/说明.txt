@@ -1,0 +1,17 @@
+这个文件夹放网页用到的第三方组件，让国内用户不用访问外网也能打开。
+
+已经放好：
+  jszip.min.js        （读 epub、docx 用，版本 3.10.1）
+
+还需要你手动放进来（用来读 PDF，版本必须是 3.11.174）：
+  pdf.min.js
+  pdf.worker.min.js
+
+下载地址（任选一个能打开的，右键另存为，文件名保持不变）：
+  https://registry.npmmirror.com/pdfjs-dist/3.11.174/files/build/pdf.min.js
+  https://registry.npmmirror.com/pdfjs-dist/3.11.174/files/build/pdf.worker.min.js
+  或
+  https://cdn.bootcdn.net/ajax/libs/pdf.js/3.11.174/pdf.min.js
+  https://cdn.bootcdn.net/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js
+
+没放这两个文件也不要紧：网页会自动改用外网 CDN，只是国内可能慢或失败。

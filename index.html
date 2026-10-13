@@ -121,20 +121,23 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
   <div class="fs-topbar"><button class="iconbtn" onclick="closeFullscreen()">← 返回</button><span id="fsTitle"></span></div>
   <div id="fsBody" class="fs-body"></div>
 </div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- 组件优先用本站自带的（lib 文件夹，国内也能秒开）；缺文件或加载失败时，再退回外网 CDN -->
+<script src="./lib/jszip.min.js"></script>
+<script>window.JSZip || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\/script>');</script>
+<script src="./lib/pdf.min.js"></script>
+<script>window.__pdfLocal = !!window.pdfjsLib; window.pdfjsLib || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"><\/script>');</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="./dict-basic.js"></script>
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.13-37';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.13-39';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null }, simCache = { idx: -1, list: [] };
 let rec = { mr: null, on: false, start: 0, timer: null };
 let recView = { key: '', urls: [] };
-if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = window.__pdfLocal ? './lib/pdf.worker.min.js' : 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
 
 /* ---------- IndexedDB：离线大词典 + 录音 + 生词本 ---------- */
@@ -1552,6 +1555,7 @@ async function openVocabHome() {
   const due = all.filter(v => v.dueAt <= now);
   let html = '<h3 style="margin:0 0 8px">⭐ 生词本</h3>';
   html += '<div class="note" style="font-size:14px;color:var(--ink)">共 ' + all.length + ' 个词，其中 <b>' + due.length + '</b> 个到复习时间了。</div>';
+  if (all.length && Date.now() - progLastSaved() > 14 * 86400000) html += '<div class="note" style="margin-top:8px;color:var(--accent)">⚠️ 生词本只存在这台设备里，' + (progLastSaved() ? '已经超过 14 天没有保存学习进度了。' : '你还没有保存过学习进度。') + '<button class="link" onclick="openProgressSave()">现在保存</button></div>';
   html += '<div class="row" style="margin-top:12px">' + (due.length ? '<button onclick="startReview()">开始复习（' + due.length + '）</button>' : '<button disabled>暂无需要复习的词</button>') + '</div>';
   if (all.length) {
     html += '<div class="note" style="margin:14px 0 6px;font-weight:600;color:var(--ink)">全部生词</div>';
@@ -1857,6 +1861,54 @@ function openGrammarDict(key) {
   showPop(html);
 }
 
+/* ---------- 保存 / 恢复学习进度（存成文件；清理浏览器数据或换设备后可以恢复） ---------- */
+const PROG_KEYS = ['sr_state', 'sr_rate', 'sr_wordmode', 'sr_show_zh'];      // 只保存学习相关内容，不含任何 Key 或口令
+function progLastSaved() { try { return +localStorage.getItem('sr_last_saved') || 0; } catch (e) { return 0; } }
+function progDate(t) { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+async function openProgressSave() {
+  const last = progLastSaved();
+  let vn = 0; try { vn = (await idbGetAll('vocab')).length; } catch (e) {}
+  showPop(
+    '<h3 style="margin:0 0 6px">💾 学习进度</h3>' +
+    '<div class="note" style="font-size:14px;color:var(--ink)">你的书、读到哪一句、生词本都只存在这台设备的浏览器里。清理手机缓存、清理浏览器数据，或者换手机，这些都会消失。把学习进度保存成文件，就能随时恢复。</div>' +
+    '<div class="note" style="margin-top:10px">当前：' + (state ? '这本书读到第 ' + (Math.min(state.idx, state.sentences.length) + 1) + ' / ' + state.sentences.length + ' 句' : '还没有导入书') + '，生词本 ' + vn + ' 个词。<br>' +
+    (last ? '上次保存：' + progDate(last) : '还没有保存过。') + '</div>' +
+    '<div class="row" style="margin-top:12px"><button onclick="saveProgressFile()">保存学习进度到文件</button>' +
+    '<div class="filebtn"><button class="ghost" type="button" tabindex="-1">从文件恢复学习进度</button><input type="file" accept=".json,application/json" onchange="restoreProgressFile(event)"></div></div>' +
+    '<div id="progStatus" class="note" style="margin-top:10px;min-height:20px"></div>' +
+    '<div class="note" style="margin-top:6px">文件里有：这本书的文字和读到的位置、生词本、语速等设置。<b>没有</b>：跟读录音、书里的插图（恢复后插图需要重新导入这本书才有）。建议每周保存一次，并把文件发到微信“文件传输助手”或网盘里放好。</div>'
+  );
+}
+function setProgStatus(m) { const el = document.getElementById('progStatus'); if (el) el.textContent = m; }
+async function saveProgressFile() {
+  try {
+    const ls = {}; PROG_KEYS.forEach(k => { const v = localStorage.getItem(k); if (v != null) ls[k] = v; });
+    let vocab = []; try { vocab = await idbGetAll('vocab'); } catch (e) {}
+    const data = { app: 'sentence-reader', v: 1, savedAt: Date.now(), ls, vocab };
+    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = '一句一读-学习进度-' + progDate(Date.now()).replace(/-/g, '') + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 20000);
+    try { localStorage.setItem('sr_last_saved', String(Date.now())); } catch (e) {}
+    setProgStatus('已生成文件“' + a.download + '”。请在下载或分享菜单里把它存好。');
+  } catch (e) { setProgStatus('保存失败：' + (e && e.message ? e.message : '未知错误')); }
+}
+async function restoreProgressFile(ev) {
+  const file = ev.target.files[0]; ev.target.value = ''; if (!file) return;
+  try {
+    const data = JSON.parse(await readAsText(file));
+    if (!data || data.app !== 'sentence-reader' || !data.ls) throw new Error('这不是“一句一读”保存的学习进度文件');
+    const hasBook = !!data.ls.sr_state, vn = (data.vocab || []).length;
+    if (!confirm('要恢复 ' + progDate(data.savedAt || Date.now()) + ' 保存的学习进度吗？\n\n' + (hasBook ? '· 当前的书和进度会被文件里的替换\n' : '') + '· 生词本（' + vn + ' 个词）会合并进来，同名的词以文件为准')) return;
+    stopSpeech();
+    PROG_KEYS.forEach(k => { if (data.ls[k] != null) localStorage.setItem(k, data.ls[k]); });
+    if (hasBook) { try { await idbClear('images'); } catch (e) {} }
+    if (vn) await idbPutMany('vocab', data.vocab);
+    location.reload();
+  } catch (e) { setProgStatus('恢复失败：' + (e && e.message ? e.message : '未知错误')); }
+}
+
 /* ---------- 帮助与反馈（试用阶段：收集问题、说明隐私和开源许可） ---------- */
 async function copyDiag() {
   const nav = navigator;
@@ -1897,7 +1949,7 @@ function openHelp() {
       li('顶部 <b>📑 目录</b> 可以跳到任意页；<b>⭐ 生词本</b>里复习查过的词。') +
       li('装到手机桌面：iPhone 用 Safari，点分享 → 添加到主屏幕；安卓用 Chrome，点 ⋮ → 安装应用。<b>装好后请在桌面图标里导入书</b>，浏览器和桌面图标的数据是分开的。'), true) +
     sec('隐私与数据',
-      li('你导入的书、读书进度、生词本、录音、下载的词典，都<b>只存在这台设备的浏览器里</b>，软件没有服务器，不会上传。换设备或清除浏览器数据会丢失。') +
+      li('你导入的书、读书进度、生词本、录音、下载的词典，都<b>只存在这台设备的浏览器里</b>，软件没有服务器，不会上传。换设备或清除浏览器数据会丢失，可以点顶部“💾 学习进度”把它们保存成文件。') +
       li('<b>整句翻译</b>：当前这一句英文会发送给第三方翻译服务；查词时本地词典没有的词也会发过去。书里自带中文译文的句子不会发送。') +
       li('<b>跟读打分</b>用的是浏览器自带的语音识别，在 Chrome、Edge 上你的声音会被发送到浏览器厂商的服务器处理。') +
       li('<b>识别图片里的文字</b>：第一次会从公共网络下载识别组件和英文语言数据，识别在你本机完成，图片不会上传。') +
@@ -2575,7 +2627,7 @@ function render() {
   closeWordPop();
   const app = document.getElementById('app');
   const header = '<div class="topbar"><div><h1>一句一句读</h1><div class="sub">一次只读一句，一句一句读完整本书</div></div>' +
-    '<div class="tools">' + (state ? '<button class="iconbtn" onclick="openToc()">📑 目录</button><button class="iconbtn" onclick="openPageView()">📄 整页翻译</button>' : '') + '<button class="iconbtn" onclick="openVocabHome()">⭐ 生词本<span id="vocabBadge">' + (vocabDueCache > 0 ? ' (' + vocabDueCache + ')' : '') + '</span></button>' + '<button class="iconbtn" onclick="openDictSettings()">📚 词典</button><button class="iconbtn" onclick="openGrammarDict()">📘 语法字典</button><button class="iconbtn" onclick="openHelp()">❓ 帮助</button></div></div>';
+    '<div class="tools">' + (state ? '<button class="iconbtn" onclick="openToc()">📑 目录</button><button class="iconbtn" onclick="openPageView()">📄 整页翻译</button>' : '') + '<button class="iconbtn" onclick="openVocabHome()">⭐ 生词本<span id="vocabBadge">' + (vocabDueCache > 0 ? ' (' + vocabDueCache + ')' : '') + '</span></button><button class="iconbtn" onclick="openProgressSave()">💾 学习进度</button>' + '<button class="iconbtn" onclick="openDictSettings()">📚 词典</button><button class="iconbtn" onclick="openGrammarDict()">📘 语法字典</button><button class="iconbtn" onclick="openHelp()">❓ 帮助</button></div></div>';
   refreshVocabBadge();
 
   if (!state) {
