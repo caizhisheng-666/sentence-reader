@@ -169,7 +169,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.14-61';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.14-62';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1995,63 +1995,7 @@ function openGrammarDict(key) {
   showPop(html);
 }
 
-/* ---------- 保存 / 恢复学习进度（存成文件；清理浏览器数据或换设备后可以恢复） ---------- */
-const PROG_KEYS = ['sr_rate', 'sr_show_zh'];      // 只保存学习相关内容，不含任何 Key 或口令
-function progLastSaved() { try { return +localStorage.getItem('sr_last_saved') || 0; } catch (e) { return 0; } }
 function progDate(t) { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
-async function openProgressSave() {
-  const last = progLastSaved();
-  showPop(
-    '<h3 style="margin:0 0 6px">💾 学习进度</h3>' +
-    '<div class="note" style="font-size:14px;color:var(--ink)">你的书架、读到哪一句都只存在这台设备的浏览器里。清理手机缓存、清理浏览器数据，或者换手机，这些都会消失。把学习进度保存成文件，就能随时恢复。</div>' +
-    '<div class="note" style="margin-top:10px">当前：书架里有 ' + shelfGet().length + ' 本书。<br>' +
-    (last ? '上次保存：' + progDate(last) : '还没有保存过。') + '</div>' +
-    '<div class="row" style="margin-top:12px"><button onclick="saveProgressFile()">保存学习进度到文件</button>' +
-    '<div class="filebtn"><button class="ghost" type="button" tabindex="-1">从文件恢复学习进度</button><input type="file" accept=".json,application/json" onchange="restoreProgressFile(event)"></div></div>' +
-    '<div id="progStatus" class="note" style="margin-top:10px;min-height:20px"></div>' +
-    '<div class="note" style="margin-top:6px">文件里有：书架上所有书的文字、读到的位置和翻译，以及语速等设置。<b>没有</b>：跟读录音、书里的插图（恢复后插图需要重新导入这本书才有）。建议每周保存一次，并把文件发到微信“文件传输助手”或网盘里放好。</div>'
-  );
-}
-function setProgStatus(m) { const el = document.getElementById('progStatus'); if (el) el.textContent = m; }
-async function saveProgressFile() {
-  try {
-    const ls = {}; PROG_KEYS.forEach(k => { const v = localStorage.getItem(k); if (v != null) ls[k] = v; });
-    await flushState();
-    let books = []; try { books = await idbGetAll('books'); } catch (e) {}
-    const data = { app: 'sentence-reader', v: 2, savedAt: Date.now(), ls, shelf: shelfGet(), books };
-    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = '一句一读-学习进度-' + progDate(Date.now()).replace(/-/g, '') + '.json';
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 20000);
-    try { localStorage.setItem('sr_last_saved', String(Date.now())); } catch (e) {}
-    setProgStatus('已生成文件“' + a.download + '”。请在下载或分享菜单里把它存好。');
-  } catch (e) { setProgStatus('保存失败：' + (e && e.message ? e.message : '未知错误')); }
-}
-async function restoreProgressFile(ev) {
-  const file = ev.target.files[0]; ev.target.value = ''; if (!file) return;
-  try {
-    const data = JSON.parse(await readAsText(file));
-    if (!data || data.app !== 'sentence-reader' || !data.ls) throw new Error('这不是“一句一读”保存的学习进度文件');
-    let books = Array.isArray(data.books) ? data.books.filter(b => b && Array.isArray(b.sentences) && b.sentences.length) : [];
-    if (!books.length && data.ls.sr_state) { let ob = null; try { ob = JSON.parse(data.ls.sr_state); } catch (e) {} if (ob && Array.isArray(ob.sentences)) books = [ob]; }   // 旧版本的进度文件：只有一本书，放在 ls.sr_state 里
-    if (!confirm('要恢复 ' + progDate(data.savedAt || Date.now()) + ' 保存的学习进度吗？\n\n' + (books.length ? '· ' + books.length + ' 本书会加入书架（书架上同一本书的进度会被文件里的替换）\n' : '') + '· 语速等设置也会一起恢复')) return;
-    stopSpeech();
-    PROG_KEYS.forEach(k => { if (data.ls[k] != null) localStorage.setItem(k, data.ls[k]); });
-    const shelf = shelfGet(), byId = new Map((Array.isArray(data.shelf) ? data.shelf : []).map(x => [x.id, x]));
-    for (const b of books) {
-      if (!b.bookId) b.bookId = 'b' + (b.startDate || Date.now());
-      const old = byId.get(b.bookId) || {};
-      b.title = b.title || old.title || bookShortTitle(b.sentences);
-      b.prog = b.prog || {}; b.cache = b.cache || {};
-      await idbPut('books', b, b.bookId);
-      const e = { id: b.bookId, title: b.title, addedAt: old.addedAt || b.startDate || Date.now(), lastAt: old.lastAt || Date.now(), total: b.sentences.length, idx: b.idx || 0 };
-      const k = shelf.findIndex(x => x.id === e.id); if (k >= 0) shelf[k] = e; else shelf.push(e);
-    }
-    shelfSet(shelf);
-    location.reload();
-  } catch (e) { setProgStatus('恢复失败：' + (e && e.message ? e.message : '未知错误')); }
-}
 
 /* ---------- 帮助与反馈（试用阶段：收集问题、说明隐私和开源许可） ---------- */
 async function copyDiag() {
@@ -2090,10 +2034,10 @@ function openHelp() {
     sec('快速上手',
       li('点句子里的<b>单词</b>查词，点哪个词就读哪个词，同时弹出解释。') + li('点 <b>听原音</b>，念到哪个词哪个词会亮；旁边的下拉菜单可以换美音、英音。') +
       li('<b>🎙️ 跟读录音</b>会保存在本机，可以回放对比。') + li('<b>点“语速”没变化？</b>有些手机或声音不支持调速，软件会自动检测并提示。这时可以换一个声音试试。') +
-      li('顶部 <b>整页翻译</b> 把一页的句子连同中文一起列出来，点句子就读；<b>目录</b> 可以跳到任意页；右上角 <b>···</b> 里有保存学习进度、语音包、词典、语法字典和帮助。') +
+      li('顶部 <b>整页翻译</b> 把一页的句子连同中文一起列出来，点句子就读；<b>目录</b> 可以跳到任意页；右上角 <b>···</b> 里有语音包、词典、语法字典和帮助。') +
       li('装到手机桌面：iPhone 用 Safari，点分享 → 添加到主屏幕；安卓用 Chrome，点 ⋮ → 安装应用。<b>装好后请在桌面图标里导入书（打开软件先是书架，点“＋ 导入”）</b>，浏览器和桌面图标的数据是分开的。'), true) +
     sec('隐私与数据',
-      li('你导入的书（书架上所有的书）、读书进度、录音、下载的词典，都<b>只存在这台设备的浏览器里</b>，不会上传。换设备或清除浏览器数据会丢失，可以点右上角“···”里的“保存学习进度”把它们保存成文件。') +
+      li('你导入的书（书架上所有的书）、读书进度、录音、下载的词典，都<b>只存在这台设备的浏览器里</b>，不会上传。换设备或清除浏览器数据会丢失，请注意。') +
       li('<b>整句翻译</b>：当前这一句英文会发到开发者的翻译中转服务，再转给火山引擎机器翻译，中转服务不保存内容；中转不可用时改发 Google 或 MyMemory 的免费接口。查词时本地词典没有的词会发给第三方词典服务。书里自带中文译文的句子不会发送。') +
       li('<b>自然语音（仅开发者可用）</b>：需要开发者口令解锁。启用后，当前要朗读的那一句英文会发到开发者自己的微软 Azure 账号生成语音。Key 用口令加密后只保存在开发者的设备里，软件代码里没有任何 Key。') +
       li('软件本身不收集任何使用数据。')) +
@@ -2133,7 +2077,6 @@ function fsOpen() { return document.getElementById('fsModal').classList.contains
 function openMoreMenu() {
   const it = (fn, label, hint) => '<button onclick="closePop();' + fn + '">' + label + (hint ? '<span>' + hint + '</span>' : '') + '</button>';
   showPop('<div class="menulist">' +
-    it('openProgressSave()', '保存学习进度', '') +
     it('openVoicePacks()', '语音包', '') +
     it('openDictSettings()', '词典', '') +
     it('openGrammarDict()', '语法字典', '') +
