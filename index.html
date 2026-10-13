@@ -169,7 +169,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.14-60';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.14-61';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2336,35 +2336,13 @@ function importFromBox() {
   importTitle = '';
   importBook(t);
 }
-let jumpPageStart = 0, jumpQuery = '';
+let tocQuery = '';
 function jumpRowHtml(s, i, cur) {
   return '<div style="padding:6px 0;border-bottom:1px solid var(--line);font-size:13px;cursor:pointer" onclick="jumpTo(' + i + ')"><b>' + (i + 1) + (i === cur ? '　⬅ 当前' : '') + '.</b> ' + esc(s.slice(0, 90)) + (s.length > 90 ? '…' : '') + '</div>';
 }
-function openJumpModal(startAt, query) {
-  const cur = state.idx, total = state.sentences.length, PAGE = 30;
-  jumpQuery = typeof query === 'string' ? query : jumpQuery;
-  if (typeof startAt === 'number') jumpPageStart = startAt; else if (typeof query !== 'string') { jumpPageStart = Math.max(0, Math.floor(cur / PAGE) * PAGE); jumpQuery = ''; }
-  const inputStyle = 'border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--pop);color:var(--ink);font-family:inherit';
-  let html = '<h3 style="margin:0 0 6px">跳转句子</h3><div class="note" style="margin-bottom:10px">开头自动跳过不准时，可以搜索故事开头的几个词（比如 Chapter 1），或翻页找到正文真正开始的那一句，点一下就跳过去。</div>';
-  html += '<div class="row" style="margin-bottom:8px"><input type="text" id="jumpSearch" placeholder="搜索句子里的英文…" value="' + esc(jumpQuery) + '" style="flex:1;min-width:0;' + inputStyle + '" onkeydown="if(event.key===\'Enter\')doJumpSearch()"><button class="sm" onclick="doJumpSearch()">搜索</button></div>';
-  html += '<div class="row" style="margin-bottom:10px"><input type="number" id="jumpNum" min="1" max="' + total + '" value="' + (cur + 1) + '" style="width:90px;' + inputStyle + '"><button class="ghost sm" onclick="doJump()">跳到第几句</button></div>';
-  if (jumpQuery) {
-    const q = jumpQuery.toLowerCase(), hits = [];
-    for (let i = 0; i < total && hits.length < 40; i++) if (state.sentences[i].toLowerCase().includes(q)) hits.push(i);
-    html += '<div class="note">搜索“' + esc(jumpQuery) + '”：' + (hits.length ? '找到 ' + hits.length + (hits.length >= 40 ? '+' : '') + ' 句（点击跳转）' : '没有找到') + ' <button class="link" onclick="openJumpModal(' + jumpPageStart + ',\'\')">清除搜索</button></div>';
-    hits.forEach(i => { html += jumpRowHtml(state.sentences[i], i, cur); });
-  } else {
-    const end = Math.min(total, jumpPageStart + PAGE);
-    html += '<div class="row" style="justify-content:space-between;margin-bottom:4px"><div class="note">第 ' + (jumpPageStart + 1) + '–' + end + ' 句 / 共 ' + total + ' 句</div><div class="row">' +
-      '<button class="iconbtn" ' + (jumpPageStart <= 0 ? 'disabled' : '') + ' onclick="openJumpModal(' + Math.max(0, jumpPageStart - PAGE) + ')">上一页</button>' +
-      '<button class="iconbtn" ' + (end >= total ? 'disabled' : '') + ' onclick="openJumpModal(' + end + ')">下一页</button></div></div>';
-    for (let i = jumpPageStart; i < end; i++) html += jumpRowHtml(state.sentences[i], i, cur);
-  }
-  showPop(html);
-}
 function doJumpSearch() {
-  const q = (document.getElementById('jumpSearch').value || '').trim();
-  openJumpModal(jumpPageStart, q);
+  const q = ((document.getElementById('jumpSearch') || {}).value || '').trim();
+  openToc(q);
 }
 function doJump() {
   const n = parseInt(document.getElementById('jumpNum').value, 10);
@@ -2411,12 +2389,24 @@ function tocLabel() {
   if (toc.kind === 'chapter' || toc.kind === 'section') return (it.t || '').slice(0, 14);
   return '';
 }
-function openToc() {
-  const toc = getToc(), items = toc.items, cur = tocIndexFor(state.idx);
-  const inputStyle = 'width:110px;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--pop);color:var(--ink);font-family:inherit';
+function openToc(query) {
+  const toc = getToc(), items = toc.items, cur = tocIndexFor(state.idx), total = state.sentences.length;
+  tocQuery = typeof query === 'string' ? query : '';
+  const inputStyle = 'border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--pop);color:var(--ink);font-family:inherit';
   let html = '<h3 style="margin:0 0 6px">📑 目录</h3>';
-  html += '<div class="note" style="margin-bottom:8px">点任意一项，直接跳到那里开始学习。' + (toc.kind === 'page' ? '灰色的页是没读到英文的（可能只有图片或中文）。' : toc.kind === 'segment' ? '这本书没有识别到章节标题，按每 50 句分段。' : '') + '</div>';
-  if (toc.kind === 'page') html += '<div class="row" style="margin-bottom:10px"><input type="number" id="tocPage" min="1" placeholder="页码" style="' + inputStyle + '" onkeydown="if(event.key===\'Enter\')tocGoPage()"><button class="sm" onclick="tocGoPage()">跳到这一页</button></div>';
+  html += '<div class="row" style="margin-bottom:8px"><input type="text" id="jumpSearch" placeholder="搜索句子里的英文…" value="' + esc(tocQuery) + '" style="flex:1;min-width:0;' + inputStyle + '" onkeydown="if(event.key===\'Enter\')doJumpSearch()"><button class="sm" onclick="doJumpSearch()">搜索</button></div>';
+  html += '<div class="row" style="margin-bottom:10px;flex-wrap:wrap">' +
+    (toc.kind === 'page' ? '<input type="number" id="tocPage" min="1" placeholder="页码" style="width:84px;' + inputStyle + '" onkeydown="if(event.key===\'Enter\')tocGoPage()"><button class="ghost sm" onclick="tocGoPage()">跳到这一页</button>' : '') +
+    '<input type="number" id="jumpNum" min="1" max="' + total + '" value="' + (state.idx + 1) + '" style="width:84px;' + inputStyle + '" onkeydown="if(event.key===\'Enter\')doJump()"><button class="ghost sm" onclick="doJump()">跳到第几句</button></div>';
+  if (tocQuery) {
+    const q = tocQuery.toLowerCase(), hits = [];
+    for (let i = 0; i < total && hits.length < 40; i++) if (state.sentences[i].toLowerCase().includes(q)) hits.push(i);
+    html += '<div class="note" style="margin-bottom:4px">搜索“' + esc(tocQuery) + '”：' + (hits.length ? '找到 ' + hits.length + (hits.length >= 40 ? '+' : '') + ' 句（点击跳转）' : '没有找到') + ' <button class="link" onclick="openToc()">清除搜索，回到目录</button></div>';
+    hits.forEach(i => { html += jumpRowHtml(state.sentences[i], i, state.idx); });
+    showPop(html);
+    return;
+  }
+  html += '<div class="note" style="margin-bottom:8px">点任意一项，直接跳到那里开始学习。开头自动跳过不准时，可以搜索故事开头的几个词（比如 Chapter 1）。' + (toc.kind === 'page' ? '灰色的页是没读到英文的（可能只有图片或中文）。' : toc.kind === 'segment' ? '这本书没有识别到章节标题，按每 50 句分段。' : '') + '</div>';
   items.forEach((it, i) => {
     const empty = !it.e, sent = it.e ? state.sentences[it.s] : '';
     const label = toc.kind === 'page' ? '第 ' + it.n + ' 页' : (it.t || '第 ' + it.n + ' 节');
@@ -2641,7 +2631,6 @@ function render() {
 
   app.innerHTML = header +
     '<div class="levelbar"><div><span class="badge">Lv.' + (lvl.idx + 1) + '</span> 对照美国 ' + lvl.label + ' 阶段</div><div>' + (tocLabel() ? esc(tocLabel()) : '') + '</div></div>' +
-    '<div class="row" style="margin:12px 0 4px"><button class="ghost sm" onclick="openJumpModal()">跳转句子</button></div>' +
     '<div class="card">' +
       (function () { const r = imageRangeFor(state.idx); return (r && r[0] === curImageStart) ? curImageUrls.map(u => '<img src="' + u + '" alt="书页插图" style="max-width:100%;max-height:60vh;object-fit:contain;border-radius:10px;margin:0 auto 14px;display:block">').join('') : ''; })() +
       '<div class="sentence">' + renderSentenceHTML(state.sentences[state.idx]) + '</div>' +
