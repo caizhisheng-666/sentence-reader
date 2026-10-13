@@ -17,6 +17,10 @@ const DAILY_PER_IP = +process.env.DAILY_PER_IP || 20000;      // 每个 IP 每�
 const CACHE_FILE = process.env.CACHE_FILE || path.join(__dirname, 'cache.json');
 const CACHE_MAX = +process.env.CACHE_MAX || 30000;
 const USAGE_FILE = process.env.USAGE_FILE || path.join(__dirname, 'usage.json');
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';              // 故事城后台口令（至少 20 位）。没设置就不开放上架功能
+const SHOP_DIR = process.env.SHOP_DIR || path.join(path.dirname(USAGE_FILE), 'shop');
+const SHOP_FILE = path.join(SHOP_DIR, 'catalog.json'), SHOP_FILES = path.join(SHOP_DIR, 'files'), SHOP_PRIV = path.join(SHOP_DIR, 'private');   // files 公开下载；private 是收费商品，只有付款后才发给买家
+const MAX_UPLOAD = +process.env.MAX_UPLOAD || 300 * 1048576;
 const HOST = process.env.VOLC_HOST || 'translate.volcengineapi.com';
 const PROTO = process.env.VOLC_PROTO || 'https';
 const REGION = 'cn-north-1', SERVICE = 'translate';
@@ -103,12 +107,90 @@ function send(res, code, obj, origin) {
   res.writeHead(code, h); res.end(JSON.stringify(obj));
 }
 
+// ---- 故事城商品目录：软件里“生成语音”后直接上架，不用再推送网站 ----
+function shopRead() { try { const j = JSON.parse(fs.readFileSync(SHOP_FILE, 'utf8')); return Array.isArray(j.items) ? j : { items: [], removed: [] }; } catch (e) { return { items: [], removed: [] }; } }
+function shopWrite(j) { fs.mkdirSync(SHOP_DIR, { recursive: true }); const t = SHOP_FILE + '.tmp'; fs.writeFileSync(t, JSON.stringify(j)); fs.renameSync(t, SHOP_FILE); }
+function adminOk(req) {
+  if (ADMIN_TOKEN.length < 20) return false;
+  const m = /^Bearer (.+)$/.exec(req.headers.authorization || ''); if (!m) return false;
+  const a = crypto.createHash('sha256').update(m[1]).digest(), b = crypto.createHash('sha256').update(ADMIN_TOKEN).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+const badTries = new Map();
+function adminLimited(ip, fail) {
+  const now = Date.now(), arr = (badTries.get(ip) || []).filter(t => now - t < 600000);
+  if (fail) { arr.push(now); badTries.set(ip, arr); }
+  return arr.length >= 8;
+}
+const pubHead = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-cache' };
+function cleanItem(b) {
+  if (!b || typeof b !== 'object') return null;
+  const kind = b.kind === 'voice' ? 'voice' : 'story';
+  const id = String(b.id || ''), title = String(b.title || '').slice(0, 120);
+  if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(id) || !title) return null;
+  const o = { id, kind, title };
+  for (const k of ['titleZh', 'level', 'desc', 'forId']) if (typeof b[k] === 'string' && b[k]) o[k] = b[k].slice(0, 400);
+  if (Number.isFinite(+b.count) && +b.count > 0) o.count = Math.round(+b.count);
+  if (Number.isFinite(+b.price) && +b.price > 0 && +b.price < 100000) o.price = Math.round(+b.price * 100) / 100;
+  if (b.voice === true) o.voice = true;
+  if (typeof b.file === 'string' && /^(api:files\/[A-Za-z0-9._-]{1,90}|stories\/[A-Za-z0-9._-]{1,90})$/.test(b.file)) o.file = b.file;
+  if (Array.isArray(b.preview)) o.preview = b.preview.slice(0, 5).map(p => ({ en: String((p && p.en) || '').slice(0, 300), zh: String((p && p.zh) || '').slice(0, 300) }));
+  return o;
+}
+function readBody(req, limit) {
+  return new Promise((ok, no) => { let raw = '', n = 0; req.on('data', c => { n += c.length; if (n <= limit) raw += c; }); req.on('end', () => n > limit ? no(new Error('too-big')) : ok(raw)); req.on('error', no); });
+}
+async function shopRoutes(req, res) {
+  const url = req.url.split('?')[0];
+  const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+  if (req.method === 'GET' && url === '/catalog') { res.writeHead(200, { ...pubHead, 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(shopRead())); return true; }
+  let m = /^\/files\/([A-Za-z0-9._-]{1,90})$/.exec(url);
+  if (req.method === 'GET' && m) {
+    const f = path.join(SHOP_FILES, m[1]);
+    if (!fs.existsSync(f)) { res.writeHead(404, pubHead); res.end(); return true; }
+    res.writeHead(200, { ...pubHead, 'Content-Type': 'application/zip', 'Content-Length': fs.statSync(f).size }); fs.createReadStream(f).pipe(res); return true;
+  }
+  if (!url.startsWith('/admin/')) return false;
+  const origin = req.headers.origin, okO = origin && ALLOW.includes(origin) ? origin : null;
+  const hd = { 'Content-Type': 'application/json; charset=utf-8' }; if (okO) { hd['Access-Control-Allow-Origin'] = okO; hd.Vary = 'Origin'; }
+  const out = (c, o) => { res.writeHead(c, hd); res.end(JSON.stringify(o)); return true; };
+  if (!okO) return out(403, { error: 'origin-not-allowed' });
+  if (adminLimited(ip, false)) return out(429, { error: 'too-many-failures' });
+  if (!adminOk(req)) { adminLimited(ip, true); return out(401, { error: 'unauthorized' }); }
+  try {
+    if (req.method === 'POST' && url === '/admin/item') {
+      const it = cleanItem(JSON.parse(await readBody(req, 20000))); if (!it) return out(400, { error: 'bad-item' });
+      const j = shopRead(); const k = j.items.findIndex(x => x.id === it.id); if (k >= 0) j.items[k] = it; else j.items.push(it);
+      j.removed = (j.removed || []).filter(x => x !== it.id); shopWrite(j); return out(200, { ok: true, count: j.items.length });
+    }
+    m = /^\/admin\/item\/([a-z0-9-]{1,60})$/.exec(url);
+    if (req.method === 'DELETE' && m) {
+      const j = shopRead(); j.items = j.items.filter(x => x.id !== m[1]); j.removed = [...new Set([...(j.removed || []), m[1]])]; shopWrite(j); return out(200, { ok: true });
+    }
+    m = /^\/admin\/file\/([A-Za-z0-9._-]{1,90}\.(?:zip|srbook))$/.exec(url);
+    if (req.method === 'PUT' && m) {
+      const priv = /[?&]private=1\b/.test(req.url), dir = priv ? SHOP_PRIV : SHOP_FILES;
+      fs.mkdirSync(dir, { recursive: true });
+      const tmp = path.join(dir, '.' + m[1] + '.tmp'); let n = 0, bad = false;
+      await new Promise((ok, no) => {
+        const w = fs.createWriteStream(tmp); w.on('error', no);
+        req.on('data', c => { if (bad) return; n += c.length; if (n > MAX_UPLOAD) { bad = true; w.destroy(); return; } w.write(c); });   // 超限就丢掉后面的数据，等对方发完再回 413
+        req.on('end', () => { if (bad) { try { fs.unlinkSync(tmp); } catch (e) {} ok(); } else w.end(ok); }); req.on('error', no);
+      });
+      if (bad) return out(413, { error: 'too-big' });
+      fs.renameSync(tmp, path.join(dir, m[1])); return out(200, { ok: true, bytes: n });
+    }
+  } catch (e) { return out(e.message === 'too-big' ? 413 : 400, { error: e.message === 'too-big' ? 'too-big' : 'bad-request' }); }
+  return out(404, { error: 'not-found' });
+}
+
 const server = http.createServer(async (req, res) => {
+  if (req.method !== 'OPTIONS' && await shopRoutes(req, res)) return;
   const origin = req.headers.origin;
   const okOrigin = origin && ALLOW.includes(origin) ? origin : null;
   if (req.method === 'OPTIONS') {
     if (!okOrigin) { res.writeHead(403); return res.end(); }
-    res.writeHead(204, { 'Access-Control-Allow-Origin': okOrigin, 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Max-Age': '86400', Vary: 'Origin' });
+    res.writeHead(204, { 'Access-Control-Allow-Origin': okOrigin, 'Access-Control-Allow-Methods': 'POST, PUT, DELETE, GET, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Access-Control-Max-Age': '86400', Vary: 'Origin' });
     return res.end();
   }
   if (req.method === 'GET' && req.url === '/health') return send(res, 200, { ok: true, month: usage.month, used: usage.chars, limit: MONTH_LIMIT }, null);
