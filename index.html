@@ -128,7 +128,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.11-36';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.13-37';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null }, simCache = { idx: -1, list: [] };
@@ -2009,6 +2009,76 @@ async function parseEpub(buf) {
   }
   return blocks;
 }
+
+/* ---------- 更多格式：Markdown / Word(.docx) / Kindle(.mobi .azw3 .azw) ---------- */
+function mdToText(s) {
+  return s.replace(/\r/g, '').replace(/^```.*$/gm, '').replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '').replace(/^\s{0,3}>\s?/gm, '').replace(/^\s*([-*+]|\d+\.)\s+/gm, '')
+    .replace(/^\s*([-*_]\s*){3,}$/gm, '').replace(/(\*\*|__)(.+?)\1/g, '$2').replace(/\*(.+?)\*/g, '$1')
+    .replace(/(^|\W)_(.+?)_(?=\W|$)/g, '$1$2').replace(/`([^`]+)`/g, '$1').replace(/<[^>]+>/g, '');
+}
+async function parseDocx(buf) {
+  const zip = await JSZip.loadAsync(buf);
+  const f = zip.file('word/document.xml');
+  if (!f) throw new Error('这不是有效的 .docx 文件（旧版 .doc 请先在 Word 里另存为 .docx）');
+  const doc = new DOMParser().parseFromString(await f.async('string'), 'application/xml');
+  const out = [];
+  for (const p of doc.getElementsByTagName('w:p')) {
+    let t = '';
+    for (const n of p.getElementsByTagName('*')) {
+      if (n.nodeName === 'w:t') t += n.textContent;
+      else if (n.nodeName === 'w:tab') t += ' ';
+      else if (n.nodeName === 'w:br' || n.nodeName === 'w:cr') t += '\n';
+    }
+    t = t.trim(); if (t) out.push(t);
+  }
+  return out.join('\n\n');
+}
+function palmDecompress(b) {
+  const out = []; let i = 0; const n = b.length;
+  while (i < n) {
+    const c = b[i++];
+    if (c === 0 || (c >= 9 && c <= 0x7f)) out.push(c);
+    else if (c >= 1 && c <= 8) { for (let k = 0; k < c && i < n; k++) out.push(b[i++]); }
+    else if (c >= 0xc0) { out.push(32, c ^ 0x80); }
+    else { const v = (((c << 8) | b[i++]) & 0x3fff), dist = v >> 3, len = (v & 7) + 3; for (let k = 0; k < len; k++) out.push(out[out.length - dist]); }
+  }
+  return Uint8Array.from(out);
+}
+function mobiTrailingSize(rec, flags) {
+  const entry = size => { let bitpos = 0, result = 0; if (size <= 0) return 0; for (;;) { const v = rec[size - 1]; result |= (v & 0x7f) << bitpos; bitpos += 7; size--; if ((v & 0x80) || bitpos >= 28 || size === 0) return result; } };
+  let num = 0, tf = flags >> 1;
+  while (tf) { if (tf & 1) num += entry(rec.length - num); tf >>= 1; }
+  if (flags & 1) num += (rec[rec.length - num - 1] & 3) + 1;
+  return num;
+}
+function parseMobi(buf) {
+  const u8 = new Uint8Array(buf), dv = new DataView(buf);
+  const nRec = dv.getUint16(76);
+  if (nRec < 2 || String.fromCharCode(...u8.slice(60, 68)) !== 'BOOKMOBI' && String.fromCharCode(...u8.slice(60, 68)) !== 'TEXtREAd') throw new Error('这不是有效的 mobi/azw3 文件');
+  const off = i => dv.getUint32(78 + i * 8);
+  const rec = i => u8.subarray(off(i), i + 1 < nRec ? off(i + 1) : u8.length);
+  const r0 = rec(0), d0 = new DataView(r0.buffer, r0.byteOffset, r0.byteLength);
+  const comp = d0.getUint16(0), count = d0.getUint16(8), crypt = d0.getUint16(12);
+  if (crypt !== 0) throw new Error('这本书有 DRM 加密，无法读取。请使用没有 DRM 的版本。');
+  if (comp !== 1 && comp !== 2) throw new Error('这本书使用了暂不支持的压缩方式，请用 Calibre 转成 epub 后再导入。');
+  const enc = r0.length > 32 ? d0.getUint32(28) : 1252;
+  const extra = (r0.length > 0xf4 && d0.getUint32(20) >= 228) ? d0.getUint16(0xf2) : 0;
+  const parts = [];
+  for (let i = 1; i <= count && i < nRec; i++) {
+    let r = rec(i);
+    if (extra) r = r.subarray(0, r.length - mobiTrailingSize(r, extra));
+    parts.push(comp === 2 ? palmDecompress(r) : r);
+  }
+  let total = 0; parts.forEach(a => total += a.length);
+  const all = new Uint8Array(total); let o = 0; parts.forEach(a => { all.set(a, o); o += a.length; });
+  const html = new TextDecoder(enc === 65001 ? 'utf-8' : 'windows-1252').decode(all);
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('p,div,h1,h2,h3,h4,h5,h6,li,br,tr').forEach(el => el.append(' \n'));
+  const text = (doc.body ? doc.body.textContent : html).replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (text.length < 20) throw new Error('没有从这个文件里读出文字');
+  return text;
+}
 /* ---------- OCR：识别图片里的英文（图画书 / 漫画），在浏览器本地运行，免费 ---------- */
 let ocrWorker = null, ocrCancel = false;
 const TESSERACT_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
@@ -2250,8 +2320,11 @@ async function importFromFile(ev) {
     if (name.endsWith('.txt')) importBook(await readAsText(file));
     else if (name.endsWith('.epub')) { const blocks = await parseEpub(await readAsArrayBuffer(file)); await importBookBlocks(await ocrBlocksIfNeeded(blocks)); }
     else if (name.endsWith('.pdf')) await importBookBlocks(await parsePdf(await readAsArrayBuffer(file)));
-    else if (name.endsWith('.mobi')) alert('暂不支持 .mobi。请先用免费软件 Calibre 转成 epub 或 txt。');
-    else alert('请选择 .txt、.epub 或 .pdf 文件。');
+    else if (name.endsWith('.md') || name.endsWith('.markdown')) importBook(mdToText(await readAsText(file)));
+    else if (name.endsWith('.docx')) importBook(await parseDocx(await readAsArrayBuffer(file)));
+    else if (name.endsWith('.mobi') || name.endsWith('.azw3') || name.endsWith('.azw')) importBook(parseMobi(await readAsArrayBuffer(file)));
+    else if (name.endsWith('.doc')) alert('暂不支持旧版 .doc。请先在 Word 里“另存为”.docx 再导入。');
+    else alert('请选择 .txt、.md、.epub、.pdf、.docx、.mobi 或 .azw3 文件。');
   } catch (err) { alert('文件读取失败：' + (err && err.message ? err.message : '未知错误')); }
   await stopOcrWorker();
   setImportStatus('');
@@ -2509,7 +2582,7 @@ function render() {
     app.innerHTML = header +
       '<div class="card"><textarea id="pasteBox" placeholder="在这里粘贴英文文本…"></textarea>' +
       '<div class="row" style="margin-top:12px"><button onclick="importFromBox()">用粘贴的文本开始</button>' +
-      '<div class="filebtn"><button class="ghost" type="button" tabindex="-1">上传 .txt / .epub / .pdf</button><input type="file" accept=".txt,.epub,.pdf,.mobi" onchange="importFromFile(event)"></div></div>' +
+      '<div class="filebtn"><button class="ghost" type="button" tabindex="-1">上传电子书或文档</button><input type="file" accept=".txt,.md,.markdown,.epub,.pdf,.docx,.doc,.mobi,.azw3,.azw" onchange="importFromFile(event)"></div></div>' +
       '<div id="importStatus" class="note"></div>' +
       '<div class="note" style="margin-top:8px">图画书/漫画也支持：会保留每页插图；如果英文是画在图里的，导入时会问你要不要用文字识别（OCR）把它读出来，然后一句一句读。</div>' +
       '<div class="note" style="margin-top:6px">点单词查词、语法讲解、跟读录音都可以离线使用。整句翻译需要联网。' +
