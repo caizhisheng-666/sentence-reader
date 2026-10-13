@@ -155,7 +155,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.14-57';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.14-58';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1053,11 +1053,40 @@ function previewVoice(uri) {
 function shortVoiceName(v) {
   return (v.name || '').replace(/^Microsoft\s+/i, '').replace(/^Google\s+/i, '').replace(/\s*-\s*English.*$/i, '').replace(/\s+/g, ' ').trim() || v.name;
 }
+// 音色只留“正常人说话”的：最多 4 个女声 + 4 个男声。系统自带的怪声音（机器人、唱诗、耳语、搞怪人物等）一律不显示。
+const VOICE_FEMALE = ['Samantha', 'Ava', 'Allison', 'Susan', 'Zoe', 'Karen', 'Moira', 'Tessa', 'Serena', 'Kate', 'Victoria', 'Jenny', 'Aria', 'Zira', 'Sonia', 'Libby', 'Hazel', 'Emma', 'Michelle', 'Catherine', 'Fiona', 'Google US English', 'Female'];
+const VOICE_MALE = ['Daniel', 'Alex', 'Aaron', 'Arthur', 'Evan', 'Nathan', 'Gordon', 'Oliver', 'Thomas', 'Rishi', 'Guy', 'Davis', 'Ryan', 'Mark', 'David', 'George', 'James', 'Male'];
+const VOICE_BAD = /Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Deranged|Fred\b|Good News|Hysterical|Junior|Kathy|Organ|Princess|Ralph|Trinoids|Whisper|Zarvox|Superstar|Jester|Wobble|Grandma|Grandpa|Eddy|Flo\b|Reed|Rocko|Sandy|Shelley|Novelty|eSpeak|Siri/i;
+function voiceAccent(v) { return /GB|UK/i.test(v.lang) ? '英' : /AU/i.test(v.lang) ? '澳' : /IE/i.test(v.lang) ? '爱尔兰' : /IN/i.test(v.lang) ? '印' : /ZA/i.test(v.lang) ? '南非' : '美'; }
+function curatedVoices(en) {
+  const ok = en.filter(v => !VOICE_BAD.test(v.name || '') && /^en[-_](US|GB|AU|IE|IN|ZA)/i.test(v.lang));
+  const pick = names => {
+    const out = [], seen = new Set();
+    for (const n of names) {
+      const cands = ok.filter(v => (v.name || '').toLowerCase().includes(n.toLowerCase()) && !out.includes(v));
+      cands.sort((x, y) => (/premium|enhanced/i.test(y.name) ? 1 : 0) - (/premium|enhanced/i.test(x.name) ? 1 : 0) || (y.localService ? 1 : 0) - (x.localService ? 1 : 0));
+      for (const v of cands) {
+        const base = shortVoiceName(v).replace(/\s*\(.*$/, '').toLowerCase();
+        if (seen.has(base)) continue;
+        seen.add(base); out.push(v); break;
+      }
+      if (out.length >= 4) break;
+    }
+    return out;
+  };
+  const f = pick(VOICE_FEMALE), m = pick(VOICE_MALE.filter(n => !f.some(v => (v.name || '').toLowerCase().includes(n.toLowerCase()))));
+  if (f.length + m.length) return { f, m, other: [] };
+  return { f: [], m: [], other: ok.filter(v => /^en[-_](US|GB)/i.test(v.lang)).slice(0, 8) };   // 系统声音没有常见名字（部分安卓机）：只留美/英音的前 8 个
+}
 function voiceSelectHtml() {
   const en = (voiceListCache || []).filter(v => /^en/i.test(v.lang)), cur = getSavedVoiceURI();
-  const grp = (label, list) => list.length ? '<optgroup label="' + label + '">' + list.map(v => '<option value="' + esc(v.voiceURI) + '"' + (v.voiceURI === cur ? ' selected' : '') + '>' + esc(shortVoiceName(v)) + (v.localService ? '' : '（在线）') + '</option>').join('') + '</optgroup>' : '';
-  const us = en.filter(v => /US/i.test(v.lang)), gb = en.filter(v => /GB|UK/i.test(v.lang)), other = en.filter(v => !us.includes(v) && !gb.includes(v));
-  return '<select id="voiceSel" class="voicesel" onchange="onVoiceChange(this.value)" aria-label="选择朗读音色"><option value=""' + (cur ? '' : ' selected') + '>默认音色</option>' + grp('🇺🇸 美音', us) + grp('🇬🇧 英音', gb) + grp('其他口音', other) + '</select>';
+  const cv = curatedVoices(en);
+  const opt = (v, tag) => '<option value="' + esc(v.voiceURI) + '"' + (v.voiceURI === cur ? ' selected' : '') + '>' + esc(shortVoiceName(v).replace(/\s*\(.*$/, '')) + '（' + (tag ? tag + '·' : '') + voiceAccent(v) + (v.localService ? '' : '·在线') + '）</option>';
+  const grp = (label, list, tag) => list.length ? '<optgroup label="' + label + '">' + list.map(v => opt(v, tag)).join('') + '</optgroup>' : '';
+  const shown = [...cv.f, ...cv.m, ...cv.other];
+  const saved = cur && !shown.some(v => v.voiceURI === cur) ? en.find(v => v.voiceURI === cur) : null;     // 以前选过、不在精选里的音色：继续保留，免得选项消失
+  return '<select id="voiceSel" class="voicesel" onchange="onVoiceChange(this.value)" aria-label="选择朗读音色"><option value=""' + (cur ? '' : ' selected') + '>默认音色</option>' +
+    (saved ? '<optgroup label="当前使用">' + opt(saved, '') + '</optgroup>' : '') + grp('女声', cv.f, '女') + grp('男声', cv.m, '男') + grp('更多', cv.other, '') + '</select>';
 }
 function refreshVoiceSelect() { const el = document.getElementById('voiceSel'); if (el) el.outerHTML = voiceSelectHtml(); }
 function onVoiceChange(uri) {
