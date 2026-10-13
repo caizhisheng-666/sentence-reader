@@ -159,7 +159,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.14-51';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.14-52';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null }, simCache = { idx: -1, list: [] };
@@ -1655,7 +1655,7 @@ async function wordClick(i, el) {
   const clean = raw.replace(/[’‘]/g, "'").replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, '');
   if (!clean) return;
   curWord = clean; curWordZh = ''; lastWordIdx = i; lastWordEl = el;
-  if (pgPlaying) pgPlayStop();
+  pgPlayJob++;                                    // 如果整页视图里正在读一句，先作废它
   speakText(clean);                               // 点读：点哪个词就直接念哪个词（必须在点击的这一下里同步发起），同时照常弹出词典
   lastWordSentIdx = (el && el.dataset && el.dataset.s) ? parseInt(el.dataset.s, 10) : -1;
   const rect = el.getBoundingClientRect();
@@ -2027,7 +2027,7 @@ function showPop(html) {
   document.getElementById('overlay').classList.add('show');
 }
 function closePop() {
-  if (pgPlaying || pgPlayJob) { try { pgPlayStop(); } catch (e) {} }
+  if (pgPlayJob) { try { pgPlayStop(); } catch (e) {} }
   document.getElementById('overlay').classList.remove('show');
   try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); window.scrollTo(0, 0); } catch (e) {}
 }
@@ -2378,8 +2378,8 @@ function pgRowHtml(idx) {
     '<button class="link" style="flex-shrink:0;margin-top:6px" onclick="pgGo(' + idx + ')">精读</button>' +
     '</div>';
 }
-/* 点读：点一句就读这一句（优先用语音包里的自然语音）；“连播”从当前句开始一句接一句读 */
-let pgPlayJob = 0, pgPlaying = false;
+/* 点读：点一句就读这一句（优先用语音包里的自然语音） */
+let pgPlayJob = 0;
 function pgMark(idx) {
   document.querySelectorAll('.pgon').forEach(e => e.classList.remove('pgon'));
   const r = idx >= 0 ? document.getElementById('pgs-' + idx) : null;
@@ -2405,11 +2405,10 @@ function pgPlayOne(idx, job) {
     }
   });
 }
-function pgSetAllBtn() { const b = document.getElementById('pgAllBtn'); if (b) b.textContent = pgPlaying ? '⏹ 停止连播' : '▶ 连播'; }
 function pgPlayStop() {
-  pgPlayJob++; pgPlaying = false;
+  pgPlayJob++;
   try { markStopped(); speechSynthesis.cancel(); } catch (e) {}
-  pgMark(-1); pgSetAllBtn();
+  pgMark(-1);
 }
 function pgSpeak(idx) {
   closeWordPop(); pgPlayStop(); azUnlock();                // 必须在点击的这一下里同步执行（iPhone/iPad 的要求）
@@ -2417,19 +2416,6 @@ function pgSpeak(idx) {
   pgPlayOne(idx, job).then(() => { if (job === pgPlayJob) pgMark(-1); });
 }
 function pgSentTap(ev, idx) { if (ev.target.closest && ev.target.closest('.w')) return; pgSpeak(idx); }
-async function pgPlayAll() {
-  if (pgPlaying) { pgPlayStop(); return; }
-  closeWordPop(); azUnlock();
-  const job = ++pgPlayJob; pgPlaying = true; pgSetAllBtn();
-  for (let i = (state.idx >= pgS && state.idx < pgE ? state.idx : pgS); i < pgE; i++) {
-    if (job !== pgPlayJob) return;
-    pgMark(i);
-    const ok = await pgPlayOne(i, job);
-    if (!ok || job !== pgPlayJob) return;
-    await new Promise(r => setTimeout(r, 300));
-  }
-  if (job === pgPlayJob) { pgPlaying = false; pgMark(-1); pgSetAllBtn(); }
-}
 function pgCancel() { pgJobId++; pgRunning = false; }
 function pgGo(idx) { pgCancel(); stopSpeech(); state.idx = idx; saveState(); closePop(); loadCurrent(); }
 function pgNeedsTranslate(s, e) {
@@ -2448,11 +2434,10 @@ function openPageView(ci) {
   pgCi = ci; pgS = s; pgE = e;
   const it = toc.items[ci];
   let html = '<h3 style="margin:0 0 4px">📄 整页翻译</h3>';
-  html += '<div class="note" style="margin-bottom:8px">' + esc(pgItemLabel(it, toc)) + (e > s ? '（共 ' + (e - s) + ' 句）' : '') + '。点句子或 ▶ 朗读这一句，点单词查词，点“连播”从当前句开始连续朗读，点“精读”回到主界面读这一句。</div>';
+  html += '<div class="note" style="margin-bottom:8px">' + esc(pgItemLabel(it, toc)) + (e > s ? '（共 ' + (e - s) + ' 句）' : '') + '。点句子或 ▶ 朗读这一句，点单词查词，点“精读”回到主界面读这一句。</div>';
   html += '<div class="row" style="margin-bottom:6px">' +
     '<button class="ghost sm" ' + (ci > 0 ? 'onclick="openPageView(' + (ci - 1) + ')"' : 'disabled') + '>◀ 上一页</button>' +
     '<button class="ghost sm" ' + (ci < toc.items.length - 1 ? 'onclick="openPageView(' + (ci + 1) + ')"' : 'disabled') + '>下一页 ▶</button>' +
-    '<button class="ghost sm" id="pgAllBtn" onclick="pgPlayAll()">▶ 连播</button>' +
     (pgNeedsTranslate(s, e) ? '<button id="pgTransBtn" onclick="pgStartTranslate()">🌐 翻译整页</button>' : '') +
     '</div>';
   html += '<div id="pgProgress" class="note" style="min-height:18px"></div>';
