@@ -155,7 +155,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.14-54';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.14-55';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2216,9 +2216,6 @@ function importFromBox() {
   if (t.length < 5) { alert('请先粘贴一些英文文本。'); return; }
   importBook(t);
 }
-function openAppendModal() {
-  showPop('<h3 style="margin:0 0 10px">追加内容到这本书</h3><textarea id="appendBox" style="min-height:140px" placeholder="粘贴后续的英文文本…"></textarea><div class="row" style="margin-top:12px"><button onclick="doAppend()">追加</button></div>');
-}
 let jumpPageStart = 0, jumpQuery = '';
 function jumpRowHtml(s, i, cur) {
   return '<div style="padding:6px 0;border-bottom:1px solid var(--line);font-size:13px;cursor:pointer" onclick="jumpTo(' + i + ')"><b>' + (i + 1) + (i === cur ? '　⬅ 当前' : '') + '.</b> ' + esc(s.slice(0, 90)) + (s.length > 90 ? '…' : '') + '</div>';
@@ -2258,13 +2255,6 @@ function jumpTo(i) {
   stopSpeech();
   state.idx = i; saveState(); closePop(); loadCurrent();
 }
-function doAppend() {
-  const t = document.getElementById('appendBox').value.trim();
-  if (t.length < 3) { alert('请先粘贴内容。'); return; }
-  state.sentences = state.sentences.concat(splitSentences(t));
-  saveState(); closePop(); render();
-}
-
 function getShowZh() { return localStorage.getItem('sr_show_zh') !== 'no'; }
 function toggleZh() { localStorage.setItem('sr_show_zh', getShowZh() ? 'no' : 'yes'); render(); }
 
@@ -2536,7 +2526,7 @@ function render() {
 
   app.innerHTML = header +
     '<div class="levelbar"><div><span class="badge">Lv.' + (lvl.idx + 1) + '</span> 对照美国 ' + lvl.label + ' 阶段</div><div>' + (tocLabel() ? esc(tocLabel()) : '') + '</div></div>' +
-    '<div class="row" style="margin:12px 0 4px"><button class="ghost sm" onclick="openJumpModal()">跳转句子</button><button class="ghost sm" onclick="openAppendModal()">追加内容</button><button class="ghost sm" onclick="resetBook()">换一本书</button></div>' +
+    '<div class="row" style="margin:12px 0 4px"><button class="ghost sm" onclick="openJumpModal()">跳转句子</button><button class="ghost sm" onclick="resetBook()">换一本书</button></div>' +
     '<div class="card">' +
       (function () { const r = imageRangeFor(state.idx); return (r && r[0] === curImageStart) ? curImageUrls.map(u => '<img src="' + u + '" alt="书页插图" style="max-width:100%;max-height:60vh;object-fit:contain;border-radius:10px;margin:0 auto 14px;display:block">').join('') : ''; })() +
       '<div class="sentence">' + renderSentenceHTML(state.sentences[state.idx]) + '</div>' +
