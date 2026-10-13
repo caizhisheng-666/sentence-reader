@@ -4,6 +4,9 @@
 //   set AZURE_SPEECH_KEY=你的Key        （PowerShell: $env:AZURE_SPEECH_KEY="..."）
 //   set AZURE_SPEECH_REGION=eastasia   （Key 所在区域）
 //   node make-voicepack.js 句子清单.json 输出.zip "书名" [买家编号]
+// 做故事包（中英对照故事 + 语音一起打包，给“故事城”用）：再设置
+//   STORY_TXT=故事.txt（英文段、中文段交替的文本）  STORY_ID=英文短名（如 lost-kitten）  STORY_LEVEL=A1
+//   句子清单传 -  表示只打包文字、不配语音（不需要 Azure Key）。输出文件建议用 .srbook 结尾。
 // 可选环境变量：AZURE_VOICE（默认 en-US-AvaMultilingualNeural）、AZURE_ENDPOINT（中国版等自定义终结点）、CLIP_DIR（缓存目录）。
 // 中断后再运行会接着做，已经合成的句子不会重复收费。Key 只从环境变量读取，不会写进任何文件。
 'use strict';
@@ -13,11 +16,14 @@ if (!listFile || !outFile) { console.error('用法: node make-voicepack.js 句�
 const KEY = process.env.AZURE_SPEECH_KEY, REGION = process.env.AZURE_SPEECH_REGION || 'eastasia';
 const VOICE = process.env.AZURE_VOICE || 'en-US-AvaMultilingualNeural';
 const ENDPOINT = process.env.AZURE_ENDPOINT || ('https://' + REGION + '.tts.speech.microsoft.com/cognitiveservices/v1');
-if (!KEY && !process.env.AZURE_ENDPOINT) { console.error('请先设置环境变量 AZURE_SPEECH_KEY'); process.exit(1); }
-const sentences = JSON.parse(fs.readFileSync(listFile, 'utf8')).sentences;
+const STORY = process.env.STORY_TXT || '';
+const NOVOICE = listFile === '-';
+if (!NOVOICE && !KEY && !process.env.AZURE_ENDPOINT) { console.error('请先设置环境变量 AZURE_SPEECH_KEY'); process.exit(1); }
+const sentences = NOVOICE ? [] : JSON.parse(fs.readFileSync(listFile, 'utf8')).sentences;
+if (NOVOICE && !STORY) { console.error('句子清单为 - 时必须设置 STORY_TXT'); process.exit(1); }
 const keyOf = t => crypto.createHash('sha256').update('vp1\n' + String(t).trim()).digest('hex');   // 必须和软件里 vpKey 一致
 const clipDir = process.env.CLIP_DIR || path.join(path.dirname(path.resolve(outFile)), '.clips-' + path.basename(outFile, '.zip'));
-fs.mkdirSync(clipDir, { recursive: true });
+if (!NOVOICE) fs.mkdirSync(clipDir, { recursive: true });
 const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 const uniq = [...new Map(sentences.map(t => [keyOf(t), String(t).trim()])).entries()];
 async function synth(text) {
@@ -58,7 +64,12 @@ function zip(files) {
   const worker = async () => { while (i < todo.length) { const [k, t] = todo[i++]; fs.writeFileSync(path.join(clipDir, k + '.mp3'), await synth(t)); done++; if (done % 20 === 0 || done === todo.length) process.stdout.write('\r已合成 ' + done + ' / ' + todo.length); } };
   await Promise.all([worker(), worker(), worker(), worker()]);
   console.log('');
-  const files = [{ name: 'manifest.json', data: Buffer.from(JSON.stringify({ format: 'sr-voicepack', v: 1, id: crypto.createHash('sha256').update(uniq.map(u => u[0]).join()).digest('hex').slice(0, 16), title: title || path.basename(outFile, '.zip'), voice: VOICE, buyer: buyer || '', count: uniq.length })) }];
+  const voiceId = crypto.createHash('sha256').update(uniq.map(u => u[0]).join()).digest('hex').slice(0, 16);
+  const man = STORY
+    ? { format: 'sr-story', v: 1, id: process.env.STORY_ID || path.basename(outFile).replace(/\.[^.]+$/, ''), title: title || path.basename(outFile, path.extname(outFile)), level: process.env.STORY_LEVEL || '', voice: NOVOICE ? '' : VOICE, buyer: buyer || '', count: uniq.length }
+    : { format: 'sr-voicepack', v: 1, id: voiceId, title: title || path.basename(outFile, '.zip'), voice: VOICE, buyer: buyer || '', count: uniq.length };
+  const files = [{ name: 'manifest.json', data: Buffer.from(JSON.stringify(man)) }];
+  if (STORY) files.push({ name: 'book.txt', data: fs.readFileSync(STORY) });
   for (const [k] of uniq) files.push({ name: 'clips/' + k + '.mp3', data: fs.readFileSync(path.join(clipDir, k + '.mp3')) });
   fs.writeFileSync(outFile, zip(files));
   console.log('完成：' + outFile + '（' + (fs.statSync(outFile).size / 1048576).toFixed(1) + ' MB，' + uniq.length + ' 句）');
