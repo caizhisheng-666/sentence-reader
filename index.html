@@ -168,7 +168,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.14-69';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.14-70';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2324,7 +2324,7 @@ function fsOpen() { return document.getElementById('fsModal').classList.contains
 function openMoreMenu() {
   const it = (fn, label, hint) => '<button onclick="closePop();' + fn + '">' + label + (hint ? '<span>' + hint + '</span>' : '') + '</button>';
   showPop('<div class="menulist">' +
-    it('openVoicePacks()', '语音包', '') +
+    (azCfg().dev ? it('openVoicePacks()', '语音包（开发者）', '') : '') +
     it('openDictSettings()', '词典', '') +
     it('openGrammarDict()', '语法字典', '') +
     it('openHelp()', '帮助与反馈', '') + '</div>');
