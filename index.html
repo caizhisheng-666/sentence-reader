@@ -168,7 +168,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.14-68';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.14-69';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1449,71 +1449,25 @@ let devGenBusy = false;
 const AZ_FREE = 500000;                            // 微软每月免费额度（约数，以你的 Azure 账号为准）
 function azUsed() { try { const o = JSON.parse(localStorage.getItem('sr_az_used') || '{}'); const m = new Date().toISOString().slice(0, 7); return o.m === m ? o.n || 0 : 0; } catch (e) { return 0; } }
 function azUsedAdd(n) { try { localStorage.setItem('sr_az_used', JSON.stringify({ m: new Date().toISOString().slice(0, 7), n: azUsed() + n })); } catch (e) {} }
-async function devGenVoice(id) {
-  if (!azReady()) { setScStatus('请先在“帮助”里解锁开发者模式'); return; }
-  if (devGenBusy) { setScStatus('正在生成中，请等它做完'); return; }
-  const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it || !it.file) return;
-  devGenBusy = true;
-  try {
-    setScStatus('正在读取《' + it.title + '》…');
-    const r = await fetch(shopUrl(it.file), { cache: 'no-cache' }); if (!r.ok) throw new Error('读取失败（HTTP ' + r.status + '）');
-    const zip = await JSZip.loadAsync(await r.arrayBuffer());
-    const man = JSON.parse(await zip.file('manifest.json').async('string'));
-    const text = await zip.file('book.txt').async('string');
-    const sents = parseBlockSegs(text).sentences;
-    const uniq = new Map(); for (const t of sents) { const k = await vpKey(t); if (!uniq.has(k)) uniq.set(k, String(t).trim()); }
-    const todo = [...uniq.entries()], chars = todo.reduce((m, [, t]) => m + t.length, 0), voice = azCfg().voice;
-    if (!confirm('《' + it.title + '》共 ' + sents.length + ' 句（去重后 ' + todo.length + ' 句），约 ' + chars + ' 个字符。\n音色：' + voice + '\n本月免费额度：这台设备上已记录用了约 ' + azUsed() + ' / ' + AZ_FREE + ' 字符，这本做完约 ' + (azUsed() + chars) + (azUsed() + chars > AZ_FREE ? '，已超出免费额度，超出部分会收费！' : '，在免费额度内。') + '\n\n会使用你的 Azure 额度合成语音（已经合成过的句子不会重复收费）。开始吗？')) { setScStatus(''); devGenBusy = false; return; }
-    const clips = new Map(); let i = 0, done = 0, failed = 0;
-    const worker = async () => {
-      while (i < todo.length && failed < 3) {
-        const [k, t] = todo[i++]; let ok = false;
-        for (let a = 0; a < 3 && !ok; a++) { try { const r2 = await azLoad(t, voice); clips.set(k, r2.blob); if (!r2.cached) azUsedAdd(t.length); ok = true; } catch (e) { await new Promise(z => setTimeout(z, 700 * (a + 1))); } }
-        if (!ok) failed++; else { done++; if (done % 5 === 0 || done === todo.length) setScStatus('正在合成语音 ' + done + ' / ' + todo.length + ' 句…（请保持屏幕亮着）'); }
-      }
-    };
-    await Promise.all([worker(), worker(), worker(), worker()]);
-    if (clips.size < todo.length) throw new Error('只合成了 ' + clips.size + ' / ' + todo.length + ' 句（Key、网络或额度有问题）。再点一次会接着做，已经合成的不会重复收费');
-    setScStatus('正在打包…');
-    const out = new JSZip();
-    const vid = (await azHash('vpack\n' + id + '\n' + voice)).slice(0, 16);
-    const vtitle = (man.title || it.title) + ' 自然语音包';
-    out.file('manifest.json', JSON.stringify({ format: 'sr-voicepack', v: 1, id: vid, title: vtitle, voice, buyer: '', count: todo.length }));
-    for (const [k, b] of clips) out.file('clips/' + k + '.mp3', b);
-    setScStatus('正在把语音配到这个故事上…');
-    await vpImportClips(out, [...clips.keys()].map(k => 'clips/' + k + '.mp3'), { id: vid, title: vtitle }, vtitle, null);   // 这台设备上马上就能听到
-    const blob = await out.generateAsync({ type: 'blob', compression: 'STORE' });
-    const fname = id + '-voice.zip';
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fname;
-    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-    const pr = prompt('语音商品的价格（元）。留空 = 免费：', '9.9');
-    const price = pr == null || pr.trim() === '' ? 0 : Math.max(0, parseFloat(pr) || 0);
-    const entry = { id: id + '-voice', kind: 'voice', forId: id, title: vtitle, level: it.level || '', count: sents.length, desc: '《' + (it.titleZh || it.title) + '》的自然人声朗读，导入后点“听原音”即可听到。' };
-    if (price) entry.price = price;
-    const json = JSON.stringify(price ? entry : Object.assign({}, entry, { file: 'stories/' + fname }), null, 2);
-    setScStatus('正在上架到故事城…');
-    const pub = await devPublish(entry, { name: price ? entry.id + '.zip' : fname, blob, priv: !!price });
-    if (pub === true) {
-      renderStoryCity('');
-      setScStatus('完成并已上架：这台设备上《' + it.title + '》已自动配好语音（点“听原音”试试）；语音商品“' + vtitle + '”' + (price ? '，定价 ¥' + price : '，免费') + '，已经出现在故事城里。' + (price ? '语音文件已存进服务器私有目录（不会公开），同时 ' + fname + ' 也下载到你的电脑留底。' : ''));
-    } else {
-      try { navigator.clipboard.writeText(json + ','); } catch (e) {}
-      setScStatus('语音已在这台设备上配好，语音文件 ' + fname + ' 已下载。自动上架没成功：' + pub + '。商品条目已复制，可以手动粘贴进 stories/catalog.json。');
-      const ta = document.createElement('textarea'); ta.readOnly = true; ta.value = json + ','; ta.style.cssText = 'width:100%;min-height:150px;margin-top:8px;font-size:12px'; ta.onclick = () => ta.select();
-      const st = document.getElementById('scStatus'); if (st) st.after(ta);
-    }
-  } catch (e) { setScStatus('生成失败：' + (e && e.message ? e.message : '未知错误')); }
-  devGenBusy = false;
+async function admTokLoad() {                       // 后台口令：用开发者口令加密后存在这台设备里，解锁开发者模式后自动取出，不用每次输入
+  if (adminTok) return adminTok;
+  if (!azCryptoKey) return '';
+  try { const o = JSON.parse(localStorage.getItem('sr_adm_enc')); if (!o) return ''; adminTok = new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64u8(o.i) }, azCryptoKey, b64u8(o.c))); } catch (e) {}
+  return adminTok;
+}
+async function admTokSave(t) {
+  adminTok = t; if (!azCryptoKey) return;
+  try { const iv = crypto.getRandomValues(new Uint8Array(12)); const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, azCryptoKey, new TextEncoder().encode(t))); localStorage.setItem('sr_adm_enc', JSON.stringify({ i: u8b64(iv), c: u8b64(ct) })); } catch (e) {}
 }
 async function devAdmin(path, opt) {
-  if (!adminTok) { adminTok = (prompt('输入故事城后台口令（服务器上设置的 ADMIN_TOKEN，本次打开网页期间只记在内存里）：') || '').trim(); }
+  if (!(await admTokLoad())) { const t = (prompt('第一次上架：输入故事城后台口令（服务器上设置的 ADMIN_TOKEN）。输入一次后，会用你的开发者口令加密保存在这台设备里，以后不用再输。') || '').trim(); if (t) await admTokSave(t); }
   if (!adminTok) return { ok: false, msg: '没有输入后台口令' };
   try {
     const r = await fetch(SHOP_BASE + path, Object.assign({}, opt, { headers: Object.assign({ Authorization: 'Bearer ' + adminTok }, opt.headers || {}) }));
-    if (r.status === 401) { adminTok = ''; return { ok: false, msg: '后台口令不对' }; }
+    if (r.status === 401) { adminTok = ''; try { localStorage.removeItem('sr_adm_enc'); } catch (e) {} return { ok: false, msg: '后台口令不对（已清除，下次重新输入）' }; }
     if (r.status === 429) return { ok: false, msg: '口令错误次数太多，10 分钟后再试' };
     if (!r.ok) return { ok: false, msg: '服务器返回 ' + r.status };
-    return { ok: true };
+    return { ok: true, res: r };
   } catch (e) { return { ok: false, msg: '连不上服务器' }; }
 }
 async function devPublish(entry, file) {            // file = {name, blob, priv}；成功返回 true，失败返回原因文字
@@ -1530,12 +1484,120 @@ async function devUnlist(id) {
   const r = await devAdmin('/admin/item/' + id, { method: 'DELETE' });
   if (r.ok) { storyCat.items = storyCat.items.filter(x => x.id !== id); renderStoryCity(''); setScStatus('已下架'); } else setScStatus('下架失败：' + r.msg);
 }
+function devSlug(t) { return String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40); }
+function devParse(text) {                           // 解析中英对照文本：句子 + 前两句的中文（做试读）
+  const pb = parseBlockSegs(text); const allSegs = []; let off = 0;
+  for (const sg of pb.segs) { if (sg.lang === 'en') { allSegs.push({ lang: 'en', idxs: Array.from({ length: sg.n }, (_, k) => off + k) }); off += sg.n; } else allSegs.push(sg); }
+  const al = /[㐀-鿿]/.test(text) ? alignSegs(allSegs, pb.sentences) : { zh: {} };
+  const preview = [1, 2, 3].filter(i => pb.sentences[i] && al.zh[i]).slice(0, 2).map(i => ({ en: pb.sentences[i], zh: al.zh[i] }));
+  return { sents: pb.sentences, preview };
+}
+async function devVoiceFor(p) {                      // 合成 → 配到本机 → 下载留底 → 上架语音商品。成功返回 true，失败抛错
+  const voice = azCfg().voice, uniq = new Map();
+  for (const t of p.sents) { const k = await vpKey(t); if (!uniq.has(k)) uniq.set(k, String(t).trim()); }
+  const todo = [...uniq.entries()], clips = new Map(); let i = 0, done = 0, failed = 0;
+  const worker = async () => {
+    while (i < todo.length && failed < 3) {
+      const [k, t] = todo[i++]; let ok = false;
+      for (let a = 0; a < 3 && !ok; a++) { try { const r2 = await azLoad(t, voice); clips.set(k, r2.blob); if (!r2.cached) azUsedAdd(t.length); ok = true; } catch (e) { await new Promise(z => setTimeout(z, 700 * (a + 1))); } }
+      if (!ok) failed++; else { done++; if (done % 5 === 0 || done === todo.length) setScStatus('正在合成语音 ' + done + ' / ' + todo.length + ' 句…（请保持屏幕亮着）'); }
+    }
+  };
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  if (clips.size < todo.length) throw new Error('只合成了 ' + clips.size + ' / ' + todo.length + ' 句（Key、网络或额度有问题）。再点一次会接着做，已经合成的不会重复收费');
+  setScStatus('正在打包语音…');
+  const out = new JSZip(), vid = (await azHash('vpack\n' + p.id + '\n' + voice)).slice(0, 16), vtitle = p.title + ' 自然语音包';
+  out.file('manifest.json', JSON.stringify({ format: 'sr-voicepack', v: 1, id: vid, title: vtitle, voice, buyer: '', count: todo.length }));
+  for (const [k, b] of clips) out.file('clips/' + k + '.mp3', b);
+  await vpImportClips(out, [...clips.keys()].map(k => 'clips/' + k + '.mp3'), { id: vid, title: vtitle }, vtitle, null);   // 这台设备上马上就能听到
+  const blob = await out.generateAsync({ type: 'blob', compression: 'STORE' });
+  const fname = p.id + '-voice.zip';
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fname;      // 留一份底
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+  setScStatus('正在上架语音商品…');
+  const entry = { id: p.id + '-voice', kind: 'voice', forId: p.id, title: vtitle, level: p.level || '', count: p.sents.length, desc: '《' + (p.titleZh || p.title) + '》的自然人声朗读，导入后点“听原音”即可听到。' };
+  if (p.vprice) entry.price = p.vprice;
+  const pub = await devPublish(entry, { name: p.vprice ? entry.id + '.zip' : fname, blob, priv: !!p.vprice });
+  if (pub !== true) throw new Error('语音已做好并配到本机，但上架失败：' + pub);
+  return true;
+}
+async function devNewStoryPop() {
+  if (!azReady()) { setScStatus('请先在“帮助”里解锁开发者模式'); return; }
+  const F = 'width:100%;box-sizing:border-box;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--pop);color:var(--ink);font-size:15px;margin:4px 0 8px';
+  showPop('<h3 style="margin:0 0 6px">＋ 上架新故事</h3>' +
+    '<div class="filebtn" style="margin-bottom:8px"><button type="button" tabindex="-1">选择中英对照文本（.txt / .md）</button><input type="file" accept=".txt,.md,.markdown" onchange="devNewFile(event)"></div>' +
+    '<div id="dnInfo" class="note" style="margin-bottom:6px">选好文件后，标题、等级、句数会自动识别。</div>' +
+    '<div class="note">英文标题</div><input id="dnTitle" style="' + F + '"><div class="note">中文名</div><input id="dnZh" style="' + F + '">' +
+    '<div class="note">等级</div><input id="dnLevel" value="A1 入门" style="' + F + '">' +
+    '<div class="note">故事价格（元，0 或留空 = 免费）</div><input id="dnPrice" inputmode="decimal" value="0" style="' + F + '">' +
+    '<label style="display:flex;gap:8px;align-items:center;margin:4px 0 8px;color:var(--ink)"><input type="checkbox" id="dnVoice" checked onchange="document.getElementById(\'dnVRow\').style.display=this.checked?\'block\':\'none\'"> 同时生成自然语音</label>' +
+    '<div id="dnVRow"><div class="note">语音价格（元，0 或留空 = 免费）</div><input id="dnVPrice" inputmode="decimal" value="9.9" style="' + F + '"></div>' +
+    '<div class="row" style="margin-top:6px"><button id="dnGo" onclick="devNewGo()" disabled>开始上架</button><button class="ghost" onclick="openStoryCity()">返回</button></div>' +
+    '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>');
+}
+let devNew = null;
+async function devNewFile(ev) {
+  const file = ev.target.files[0]; ev.target.value = ''; if (!file) return;
+  try {
+    let text = await readAsText(file); if (/\.(md|markdown)$/i.test(file.name)) text = mdToText(text);
+    const d = devParse(text); if (!d.sents.length) throw new Error('没有识别到英文句子');
+    const lines = text.split(/\n\s*\n/).map(x => x.trim()).filter(Boolean);
+    const title = /[㐀-鿿]/.test(lines[0] || '') ? '' : (lines[0] || '').slice(0, 80), zh = (lines.slice(0, 3).find(x => /[㐀-鿿]/.test(x) && x.length <= 30)) || '';
+    devNew = { text, d };
+    document.getElementById('dnTitle').value = title; document.getElementById('dnZh').value = zh;
+    const chars = d.sents.reduce((m, x) => m + x.length, 0);
+    document.getElementById('dnInfo').textContent = '《' + (title || file.name) + '》共 ' + d.sents.length + ' 句，约 ' + chars + ' 个字符' + (d.preview.length ? '，已自动取前两句做试读' : '，没识别到中文对照，试读为空') + '。本月免费额度这台设备上约已用 ' + azUsed() + ' / ' + AZ_FREE + '。';
+    document.getElementById('dnGo').disabled = false;
+  } catch (e) { document.getElementById('dnInfo').textContent = '读取失败：' + (e && e.message ? e.message : '未知错误'); }
+}
+async function devNewGo() {
+  if (!devNew || devGenBusy) return;
+  const title = document.getElementById('dnTitle').value.trim(), zh = document.getElementById('dnZh').value.trim(), level = document.getElementById('dnLevel').value.trim();
+  const price = Math.max(0, parseFloat(document.getElementById('dnPrice').value) || 0), wantVoice = document.getElementById('dnVoice').checked, vprice = Math.max(0, parseFloat(document.getElementById('dnVPrice').value) || 0);
+  if (!title) { setScStatus('请填英文标题'); return; }
+  const id = devSlug(title) || ('s' + Date.now().toString(36));
+  const chars = devNew.d.sents.reduce((m, x) => m + x.length, 0);
+  if (wantVoice && azUsed() + chars > AZ_FREE && !confirm('这本约 ' + chars + ' 字符，加上本月已记录的 ' + azUsed() + '，会超出 ' + AZ_FREE + ' 免费额度，超出部分会向微软付费。继续吗？')) return;
+  devGenBusy = true; document.getElementById('dnGo').disabled = true;
+  try {
+    setScStatus('正在上架故事…');
+    const z = new JSZip();
+    z.file('manifest.json', JSON.stringify({ format: 'sr-story', v: 1, id, title, level, voice: '', count: devNew.d.sents.length }));
+    z.file('book.txt', devNew.text);
+    const blob = await z.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+    const entry = { id, kind: 'story', title, titleZh: zh, level, count: devNew.d.sents.length, voice: wantVoice, desc: zh ? zh + '。' : '', preview: devNew.d.preview };
+    if (price) entry.price = price;
+    const pub = await devPublish(entry, { name: id + '.srbook', blob, priv: !!price });
+    if (pub !== true) throw new Error('故事上架失败：' + pub);
+    if (wantVoice) await devVoiceFor({ id, title, titleZh: zh, level, sents: devNew.d.sents, vprice });
+    storyCat = null; await openStoryCity();
+    setScStatus('全部完成：《' + title + '》已上架' + (wantVoice ? '，自然语音也配好并上架了（这台设备上点“听原音”就能听到）。' : '。'));
+  } catch (e) { setScStatus((e && e.message ? e.message : '未知错误') + '（修好后再点“开始上架”，已合成的语音不会重复收费）'); document.getElementById('dnGo') && (document.getElementById('dnGo').disabled = false); }
+  devGenBusy = false;
+}
+async function devGenVoice(id) {                      // 已上架的故事补做语音：只问一个价格
+  if (!azReady()) { setScStatus('请先在“帮助”里解锁开发者模式'); return; }
+  const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it) return;
+  const pr = prompt('给《' + it.title + '》生成自然语音并上架。语音价格（元，留空 = 免费）：', '9.9'); if (pr == null) return;
+  if (devGenBusy) { setScStatus('正在生成中，请等它做完'); return; }
+  devGenBusy = true;
+  try {
+    setScStatus('正在读取《' + it.title + '》…');
+    let zbuf;
+    if (it.file) { const r = await fetch(shopUrl(it.file), { cache: 'no-cache' }); if (!r.ok) throw new Error('读取失败（HTTP ' + r.status + '）'); zbuf = await r.arrayBuffer(); }
+    else { const r = await devAdmin('/admin/private/' + it.id + '.srbook', { method: 'GET' }); if (!r.ok) throw new Error('读取收费故事失败：' + r.msg); zbuf = await r.res.arrayBuffer(); }
+    const text = await (await JSZip.loadAsync(zbuf)).file('book.txt').async('string');
+    await devVoiceFor({ id: it.id, title: it.title, titleZh: it.titleZh, level: it.level, sents: devParse(text).sents, vprice: Math.max(0, parseFloat(pr) || 0) });
+    storyCat = null; await openStoryCity(); setScStatus('完成：语音已配好并上架。');
+  } catch (e) { setScStatus('生成失败：' + (e && e.message ? e.message : '未知错误')); }
+  devGenBusy = false;
+}
 function scToggle(id) { const el = document.getElementById('scPrev-' + id); if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none'; }
 function scBuy(id) {
   const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it) return;
   showPop('<h3 style="margin:0 0 6px">《' + esc(it.title) + '》</h3>' +
     '<div class="note" style="font-size:14px;color:var(--ink)">价格：¥' + esc(String(it.price)) + (it.kind === 'voice' ? '（自然语音包）' : it.voice ? '（含自然语音包）' : '') + '<br>' + esc((storyCat && storyCat.buy) || '请联系店主购买，付款后会发给你一个故事包文件。') + '</div>' +
-    '<div class="note" style="margin-top:10px">收到文件后，回到故事城，点“导入故事包/语音包文件”选择它就行，' + (it.kind === 'voice' ? '语音会加到对应的书上。' : '故事和语音会一起加入书架。') + '</div>' +
+    '<div class="note" style="margin-top:10px">在线购买功能还在准备中。</div>' +
     '<div class="row" style="margin-top:12px"><button class="ghost" onclick="openStoryCity()">返回故事城</button></div>');
 }
 function renderStoryCity(err) {
@@ -1562,7 +1624,8 @@ function renderStoryCity(err) {
       (prev ? '<div id="scPrev-' + it.id + '" style="display:none;margin-top:8px">' + prev + '</div>' : '') + '</div></div>';
   }).join('');
   if (!items.length) h += '<div class="note">暂时还没有故事上架。</div>';
-  h += '<div class="row" style="margin-top:6px"><div class="filebtn"><button class="ghost sm" type="button" tabindex="-1">导入故事包/语音包文件</button><input type="file" accept=".srbook,.zip" onchange="importStoryFile(event)"></div></div>' +
+  h += (azReady() ? '<div class="row" style="margin-top:6px"><button class="sm" onclick="devNewStoryPop()">＋ 上架新故事（开发者）</button></div>' : '') +
+    (azReady() ? '<div class="row" style="margin-top:6px"><div class="filebtn"><button class="ghost sm" type="button" tabindex="-1">导入故事包/语音包文件（调试用）</button><input type="file" accept=".srbook,.zip" onchange="importStoryFile(event)"></div></div>' : '') +
     '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>';
   showPop(h);
 }

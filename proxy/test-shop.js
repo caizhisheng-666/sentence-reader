@@ -20,6 +20,8 @@ const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-toke
   r = await call('/admin/file/secret.zip?private=1', { m: 'PUT', h: A, body: 'PRIV' }); assert.equal(r.s, 200);
   r = await call('/files/secret.zip'); assert.equal(r.s, 404);   // 收费文件不能公开下载
   assert.equal(require('fs').readFileSync('/tmp/shoptest/shop/private/secret.zip', 'utf8'), 'PRIV');
+  r = await call('/admin/private/secret.zip', { h: A }); assert.equal(r.s, 200); assert.equal(r.b, 'PRIV');
+  r = await call('/admin/private/secret.zip', { h: { Origin: 'https://ok.example' } }); assert.equal(r.s, 401);
   r = await call('/files/..%2Fcatalog.json'); assert.equal(r.s, 404);
   r = await call('/admin/file/big.zip', { m: 'PUT', h: A, body: 'x'.repeat(5000) }); assert.equal(r.s, 413);
   r = await call('/admin/file/bad.exe', { m: 'PUT', h: A, body: 'x' }); assert.equal(r.s, 404);

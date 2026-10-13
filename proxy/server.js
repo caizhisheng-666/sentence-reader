@@ -158,6 +158,12 @@ async function shopRoutes(req, res) {
   if (adminLimited(ip, false)) return out(429, { error: 'too-many-failures' });
   if (!adminOk(req)) { adminLimited(ip, true); return out(401, { error: 'unauthorized' }); }
   try {
+    m = /^\/admin\/private\/([A-Za-z0-9._-]{1,90})$/.exec(url);
+    if (req.method === 'GET' && m) {
+      const f = path.join(SHOP_PRIV, m[1]); if (!fs.existsSync(f)) return out(404, { error: 'not-found' });
+      const h2 = { 'Content-Type': 'application/zip', 'Content-Length': fs.statSync(f).size }; if (okO) { h2['Access-Control-Allow-Origin'] = okO; h2.Vary = 'Origin'; }
+      res.writeHead(200, h2); fs.createReadStream(f).pipe(res); return true;
+    }
     if (req.method === 'POST' && url === '/admin/item') {
       const it = cleanItem(JSON.parse(await readBody(req, 20000))); if (!it) return out(400, { error: 'bad-item' });
       const j = shopRead(); const k = j.items.findIndex(x => x.id === it.id); if (k >= 0) j.items[k] = it; else j.items.push(it);
