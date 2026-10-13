@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sentence-reader-v42';
+const CACHE_NAME = 'sentence-reader-v43';
 const PRECACHE = [
   './', './index.html', './dict-basic.js', './grammar.js', './manifest.json', './icon-192.png', './icon-512.png',
   './lib/jszip.min.js', './lib/pdf.min.js', './lib/pdf.worker.min.js',
@@ -30,7 +30,7 @@ self.addEventListener('fetch', event => {
   if (url.pathname.endsWith('.gz') || url.pathname.endsWith('/dict.tsv')) return;
 
   // 翻译接口：只走网络，不缓存
-  if (url.hostname.includes('mymemory.translated.net')) return;
+  if (url.hostname.includes('mymemory.translated.net') || url.hostname.includes('translate.googleapis.com')) return;
 
   // 本站文件：网络优先（保证更新马上生效），离线时用缓存
   if (url.origin === self.location.origin) {

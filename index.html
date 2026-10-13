@@ -156,7 +156,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.13-42';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.13-43';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null }, simCache = { idx: -1, list: [] };
@@ -279,20 +279,26 @@ async function fetchViaMyMemory(q) {
 async function translateText(text) {
   const q = text.slice(0, 480);
   await throttleGap();
-  // 主用：Google 免费接口，容量更大更稳定
-  if (Date.now() > googleBadUntil) {
-    try { return await fetchViaGoogle(q); } catch (e) { googleBadUntil = Date.now() + 10 * 60 * 1000; /* 失败就换下一个源，10 分钟内不再先试它 */ }
-  }
-  // 备用：MyMemory，遇到 429 自动重试几次
+  // 同时请求 Google 和 MyMemory，谁先成功用谁（Google 在国内常被墙，不再傻等它超时）
   const delays = [0, 1500, 3500];
-  let lastErr;
-  for (let i = 0; i < delays.length; i++) {
-    if (delays[i]) await new Promise(r => setTimeout(r, delays[i]));
-    await throttleGap();
-    try { return await fetchViaMyMemory(q); }
-    catch (e) { lastErr = e; if (e.code !== 429) throw e; }
+  const myMem = (async () => {
+    let lastErr;
+    for (let i = 0; i < delays.length; i++) {
+      if (delays[i]) { await new Promise(r => setTimeout(r, delays[i])); await throttleGap(); }
+      try { return await fetchViaMyMemory(q); }
+      catch (e) { lastErr = e; if (e.code !== 429) throw e; }
+    }
+    throw lastErr;
+  })();
+  const jobs = [myMem];
+  if (Date.now() > googleBadUntil) {
+    jobs.push(fetchViaGoogle(q).catch(e => { googleBadUntil = Date.now() + 10 * 60 * 1000; /* 失败后 10 分钟内不再请求它 */ throw e; }));
   }
-  throw lastErr || new Error('两个免费翻译源暂时都请求失败，请稍等一会儿再点重试');
+  try { return await Promise.any(jobs); }
+  catch (agg) {
+    const errs = (agg && agg.errors) || [];
+    throw errs[0] || new Error('两个免费翻译源暂时都请求失败，请稍等一会儿再点重试');
+  }
 }
 
 
@@ -2688,7 +2694,7 @@ function render() {
   else if (c && c.translation) trans = esc(c.translation);
   else if (c && c.failed) trans = '整句翻译失败：' + esc(c.err) + ' <button class="link" onclick="retryTranslate()">重试</button>';
   else if (!navigator.onLine) trans = '当前离线，整句翻译需要联网。点单词查词和下面的语法讲解可以正常使用。';
-  else trans = '正在翻译…';
+  else trans = '正在翻译…<span style="color:var(--sub);font-size:.85em">（免费翻译偶尔较慢，请稍等）</span>';
 
   const ga = getAnalysis();
   const gHtml = '<details class="section" ' + (gramOpen ? 'open' : '') + ' ontoggle="gramOpen=this.open"><summary>语法讲解（离线）</summary>' +
