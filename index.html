@@ -163,7 +163,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.15-85';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.15-86';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -511,7 +511,8 @@ function splitSentences(text) {
   text = text.replace(/[\uff01-\uff5e]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
   text = text.replace(/[\uE000\u2160-\u217f\u2460-\u24ff\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+/g, ' \u2029 ');
   text = text.replace(/[ \t]+/g, ' ').trim();
-  text = text.replace(/\b(Mr|Mrs|Ms|Dr|St|Jr|Sr|Prof|Mt|No)\./g, '$1\u2024');
+  text = text.replace(/\b(Mr|Mrs|Ms|Dr|St|Jr|Sr|Prof|Mt|MR|MRS|MS|DR|ST|JR|SR|PROF|MT)\./g, '$1\u2024');   // 称呼缩写不当句末（含全大写，如书开头的 MR. JONES）
+  text = text.replace(/\b(No|NO)\.(?=\s*\d)/g, '$1\u2024');   // No. 5 这种编号才保护；对话里说的 "No." 照常断句
   text = text.replace(/\b((?:[A-Z]\.){2,3})(?=s\b)/g, m => m.replace(/\./g, '\u2024'));   // A.J.s（A.J. 的复数）不拆开
   text = text.replace(/\b((?:[A-Z]\.){1,3}[A-Z])\.(?=\s+[a-z]|\s*[,;:])/g, (m, w) => w.replace(/\./g, '\u2024') + '\u2024');   // A.J. / J.K. 这类缩写后面接小写词或逗号：不当作句末
   text = text.replace(/\b((?:[A-Z]\.){1,3}[A-Z])\.(?=\s+[A-Z])/g, (m, w) => w.replace(/\./g, '\u2024') + '.');   // 缩写后面是大写词：只保护中间的点
