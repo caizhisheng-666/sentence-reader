@@ -163,7 +163,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.15-81';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.15-82';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1508,7 +1508,7 @@ async function devPublish(entry, file) {            // file = {name, blob, priv}
 async function devUnlist(id) {
   if (!confirm('把这个商品从故事城下架吗？（不会删除买家手里已有的）')) return;
   const r = await devAdmin('/admin/item/' + id, { method: 'DELETE' });
-  if (r.ok) { storyCat.items = storyCat.items.filter(x => x.id !== id); renderStoryCity(''); setScStatus('已下架'); } else setScStatus('下架失败：' + r.msg);
+  if (r.ok) { storyCat.items = storyCat.items.filter(x => x.id !== id); catCacheSet(storyCat); renderStoryCity(''); setScStatus('已下架'); } else setScStatus('下架失败：' + r.msg);
 }
 function devSlug(t) { return String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40); }
 function devParse(text) {                           // 解析中英对照文本：句子 + 前两句的中文（做试读）
@@ -1588,7 +1588,7 @@ async function devNewGo() {
     if (price) entry.price = price;
     const pub = await devPublish(entry, { name: id + '.srbook', blob: pk.blob, priv: !!price });
     if (pub !== true) throw new Error('上架失败：' + pub);
-    storyCat = null; await openStoryCity();
+    await openStoryCity(true);
     setScStatus('全部完成：《' + title + '》已上架' + (price ? '，定价 ¥' + price : '，免费') + (clips ? '，自然语音已打包在故事里，这台设备上点“听原音”就能听到。' : '。'));
   } catch (e) { setScStatus((e && e.message ? e.message : '未知错误') + '（修好后再点“开始上架”，已合成的语音不会重复收费）'); document.getElementById('dnGo') && (document.getElementById('dnGo').disabled = false); }
   devGenBusy = false;
@@ -1613,7 +1613,7 @@ async function devGenVoice(id) {                      // 已上架的故事补�
     const entry = Object.assign({}, it, { voice: true }); delete entry.kind; entry.kind = 'story';
     const pub = await devPublish(entry, { name: it.id + '.srbook', blob: pk.blob, priv: !!it.price });
     if (pub !== true) throw new Error('更新失败：' + pub);
-    storyCat = null; await openStoryCity(); setScStatus('完成：自然语音已打包进《' + it.title + '》，买家获取后自带语音。');
+    await openStoryCity(true); setScStatus('完成：自然语音已打包进《' + it.title + '》，买家获取后自带语音。');
   } catch (e) { setScStatus('生成失败：' + (e && e.message ? e.message : '未知错误')); }
   devGenBusy = false;
 }
@@ -1628,7 +1628,7 @@ function scBuy(id) {
 function renderStoryCity(err) {
   const items = ((storyCat && storyCat.items) || []).filter(x => x.kind !== 'voice');     // 语音不单独卖，买故事自带语音
   const owned = new Set(shelfGet().map(x => x.id));
-  let h = '<h3 style="margin:0 0 6px">🏙 故事城</h3><div class="note" style="margin-bottom:10px">' + esc((storyCat && storyCat.intro) || '原创中英对照故事，点单词发音，点句子朗读。') + '</div>';
+  let h = '<h3 id="scList" style="margin:0 0 6px">🏙 故事城</h3><div class="note" style="margin-bottom:10px">' + esc((storyCat && storyCat.intro) || '原创中英对照故事，点单词发音，点句子朗读。') + '</div>';
   if (err) h += '<div class="note" style="color:#b94a48;margin-bottom:8px">' + esc(err) + '</div>';
   h += items.map(it => {
     const have = owned.has('story-' + it.id), free = !it.price;
@@ -1651,22 +1651,38 @@ function renderStoryCity(err) {
     '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>';
   showPop(h);
 }
-async function openStoryCity() {
+function fetchT(url, ms, opt) {                    // 带时间上限的网络请求：网慢时不无限等
+  const ctrl = new AbortController(), t = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, Object.assign({ signal: ctrl.signal }, opt || {})).finally(() => clearTimeout(t));
+}
+function catCacheGet() { try { return JSON.parse(localStorage.getItem('sr_cat_cache') || 'null'); } catch (e) { return null; } }
+function catCacheSet(c) { try { localStorage.setItem('sr_cat_cache', JSON.stringify(c)); } catch (e) {} }
+async function fetchStoryCat() {
+  const [loc, srv] = await Promise.all([
+    fetchT('stories/catalog.json', 6000, { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetchT(SHOP_BASE + '/catalog', 6000, { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).catch(() => null)
+  ]);
+  if (!loc && !srv) return null;
+  const base = loc || { items: [] }, sv = srv || { items: [], removed: [] };
+  const gone = new Set(sv.removed || []), byId = new Map();
+  (base.items || []).filter(x => !gone.has(x.id)).forEach(x => byId.set(x.id, x));
+  (sv.items || []).forEach(x => byId.set(x.id, x));                  // 服务器上架的商品优先
+  const cat = Object.assign({}, base, { items: [...byId.values()] });
+  catCacheSet(cat);
+  return cat;
+}
+async function openStoryCity(fresh) {               // fresh = 刚上架/修改完，要等最新目录
+  if (!storyCat && !fresh) storyCat = catCacheGet();
+  if (storyCat && !fresh) {                         // 先马上显示上次的目录，后台再更新
+    renderStoryCity('');
+    const cat = await fetchStoryCat();
+    if (cat && JSON.stringify(cat) !== JSON.stringify(storyCat)) { storyCat = cat; if (document.getElementById('scList') && !devGenBusy) renderStoryCity(''); }
+    return;
+  }
   showPop('<h3 style="margin:0 0 6px">🏙 故事城</h3><div class="note">正在加载…</div>');
-  let err = '';
-  try {
-    const [loc, srv] = await Promise.all([
-      fetch('stories/catalog.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch(SHOP_BASE + '/catalog', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).catch(() => null)
-    ]);
-    if (!loc && !srv) throw new Error('offline');
-    const base = loc || { items: [] }, sv = srv || { items: [], removed: [] };
-    const gone = new Set(sv.removed || []), byId = new Map();
-    (base.items || []).filter(x => !gone.has(x.id)).forEach(x => byId.set(x.id, x));
-    (sv.items || []).forEach(x => byId.set(x.id, x));                  // 服务器上架的商品优先
-    storyCat = Object.assign({}, base, { items: [...byId.values()] });
-  } catch (e) { err = storyCat ? '没连上网，显示的是上次的目录。' : '故事目录加载失败，请检查网络。'; }
-  renderStoryCity(err);
+  const cat = await fetchStoryCat();
+  if (cat) storyCat = cat;
+  renderStoryCity(cat ? '' : (storyCat ? '没连上网，显示的是上次的目录。' : '故事目录加载失败，请检查网络后再点一次“故事城”。'));
 }
 /* ---------- 语音包：买来的“一句一个音频”文件包，导入后每句优先播放包里的声音 ---------- */
 // 包是 zip：manifest.json + clips/<哈希>.mp3，哈希 = SHA-256('vp1\n' + 英文句子)。按句子内容找，不靠序号，切句规则以后改了也不会错位。
