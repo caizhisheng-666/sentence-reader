@@ -56,7 +56,7 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .levelbar{display:flex;justify-content:space-between;align-items:center;background:transparent;border:none;padding:0 2px;font-size:13px;color:var(--sub)}
 .badge{background:var(--soft);color:var(--accent);border-radius:999px;padding:2px 10px;font-weight:600;font-size:12px}
 .sentence .w.speaking,.pgsent .w.speaking{background:var(--accent);color:#fff;border-radius:5px;box-shadow:0 0 0 3px var(--accent)}
-.voicesel{max-width:150px;border:1px solid var(--line);border-radius:10px;padding:9px 6px;font-size:13px;background:var(--pop);color:var(--ink);font-family:inherit}
+.voicesel{max-width:185px;border:1px solid var(--line);border-radius:10px;padding:9px 6px;font-size:13px;background:var(--pop);color:var(--ink);font-family:inherit}
 .navsticky{position:sticky;top:env(safe-area-inset-top,0px);z-index:15;background:var(--bg);padding:8px 0;margin-bottom:8px;border-bottom:1px solid var(--line)}
 .navsticky .row{flex-wrap:nowrap}
 .progressline{height:3px;background:var(--line);border-radius:3px;overflow:hidden;margin:10px 0 18px}
@@ -165,7 +165,9 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.14-78';        // 每次更新时改一下，方便定位问题
+const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
+let T_SHELF = 0;
+const APP_VERSION = '2026.10.14-79';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -255,6 +257,7 @@ async function boot() {
   vpInit();
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
   render();                                                    // 打开软件先进入书架
+  T_SHELF = Math.round(performance.now());
   loadVoices().then(refreshVoiceSelect).catch(() => {});      // 提前把声音列表加载好，第一次点“听原音”才有声音
   if (!dictInfo || !dictInfo.count) setTimeout(autoImportDict, 2500);      // 先让书架显示出来，词典稍后在后台下载
 }
@@ -299,6 +302,9 @@ async function openBook(id) {
   state = b; clearCurImages(); stopSpeech();
   saveState();
   loadCurrent();
+  if (!b.natVoice && vpCount > 0) {                              // 以前获取的故事没记“带自然语音”：看看前几句有没有语音
+    (async () => { for (const t of b.sentences.slice(0, 3)) { if (await vpGet(t)) { if (state === b) { b.natVoice = 'natural'; saveState(); refreshVoiceSelect(); } return; } } })();
+  }
 }
 function closeBook() {
   if (rec.on) { toast('正在录音，先点停止再回书架', 2000); return; }
@@ -611,13 +617,13 @@ function stripGutenberg(text) {
   if (em) text = text.slice(0, em.index);
   return text;
 }
-let importTitle = '', importBookId = '';
+let importTitle = '', importBookId = '', importNatVoice = '';
 async function finalizeImport(sentences, imageRanges, bookId, extraToast, toc, bil) {
   if (!sentences.length) { alert('没有识别到英文句子，请检查导入的内容。扫描版或英文画在图里的书，软件暂不支持识别图片里的文字。'); return; }
   const startIdx = detectStart(sentences);
-  state = { bookId: bookId || importBookId || ('b' + Date.now()), sentences, idx: startIdx, prog: {}, cache: {}, startDate: Date.now(), totalCompleted: 0, imageRanges: imageRanges || [], toc: toc || buildTextToc(sentences, startIdx), zh: (bil && bil.zh) || {}, zhp: (bil && bil.para) || {}, zhOff: {} };
+  state = { natVoice: importNatVoice || '', bookId: bookId || importBookId || ('b' + Date.now()), sentences, idx: startIdx, prog: {}, cache: {}, startDate: Date.now(), totalCompleted: 0, imageRanges: imageRanges || [], toc: toc || buildTextToc(sentences, startIdx), zh: (bil && bil.zh) || {}, zhp: (bil && bil.para) || {}, zhOff: {} };
   state.title = (importTitle || '').trim() || bookShortTitle(sentences);
-  importTitle = ''; importBookId = '';
+  importTitle = ''; importBookId = ''; importNatVoice = '';
   const entry = { id: state.bookId, title: state.title, addedAt: Date.now(), lastAt: Date.now(), total: sentences.length, idx: startIdx };
   await flushState();
   const l = shelfGet().filter(x => x.id !== entry.id); l.unshift(entry); shelfSet(l);
@@ -1139,8 +1145,9 @@ function playListen() {
     listenState.paused = false;
     render(); return;
   }
-  if (vpCount > 0 && !azSkipOnce) { playListenNatural(idx); return; }      // 导入过语音包：先找包里有没有这一句
-  if (azReady() && !azSkipOnce) { playListenNatural(idx); return; }
+  const sysOnly = !!(state.natVoice && state.useSys);          // 带自然语音的书，用户手动改用了系统声音
+  if (!sysOnly && vpCount > 0 && !azSkipOnce) { playListenNatural(idx); return; }      // 导入过语音包：先找包里有没有这一句
+  if (!sysOnly && azReady() && !azSkipOnce) { playListenNatural(idx); return; }
   azSkipOnce = false;
   markStopped();
   const u = new SpeechSynthesisUtterance(state.sentences[idx]);
@@ -1211,18 +1218,24 @@ function curatedVoices(en) {
   if (!res.us.f.length && !res.us.m.length && !res.gb.f.length && !res.gb.m.length) res.other = ok.filter(v => /^en[-_](US|GB)/i.test(v.lang)).slice(0, 8);   // 系统声音没有常见名字（部分安卓机）：只留美/英音的前 8 个
   return res;
 }
+function natVoiceName(v) { const m = /^[a-z]{2}-[A-Z]{2}-(.+?)(?:Multilingual)?Neural$/.exec(v || ''); return m ? m[1] : ''; }
+function natOn() { return !!(state && state.natVoice && !state.useSys); }   // 这本书带自然语音，并且没有改用系统声音
 function voiceSelectHtml() {
-  const en = (voiceListCache || []).filter(v => /^en/i.test(v.lang)), cur = getSavedVoiceURI();
+  const en = (voiceListCache || []).filter(v => /^en/i.test(v.lang)), cur = natOn() ? '__nat' : getSavedVoiceURI();
   const cv = curatedVoices(en);
   const opt = (v, tag) => '<option value="' + esc(v.voiceURI) + '"' + (v.voiceURI === cur ? ' selected' : '') + '>' + esc(shortVoiceName(v).replace(/\s*\(.*$/, '')) + '（' + (tag ? tag : (/GB/i.test(v.lang) ? '英音' : '美音')) + (v.localService ? '' : '·在线') + '）</option>';
   const grp = (label, fl, ml) => (fl.length || ml.length) ? '<optgroup label="' + label + '">' + fl.map(v => opt(v, '女')).join('') + ml.map(v => opt(v, '男')).join('') + '</optgroup>' : '';
   const shown = [...cv.us.f, ...cv.us.m, ...cv.gb.f, ...cv.gb.m, ...cv.other];
   const saved = cur && !shown.some(v => v.voiceURI === cur) ? en.find(v => v.voiceURI === cur) : null;     // 以前选过、不在精选里的音色：继续保留，免得选项消失
-  return '<select id="voiceSel" class="voicesel" onchange="onVoiceChange(this.value)" aria-label="选择朗读音色"><option value=""' + (cur ? '' : ' selected') + '>默认音色</option>' +
+  return '<select id="voiceSel" class="voicesel" onchange="onVoiceChange(this.value)" aria-label="选择朗读音色">' +
+    (state && state.natVoice ? '<option value="__nat"' + (cur === '__nat' ? ' selected' : '') + '>🎧 自然语音' + (natVoiceName(state.natVoice) ? '（' + esc(natVoiceName(state.natVoice)) + '）' : '') + '</option>' : '') +
+    '<option value=""' + (cur ? '' : ' selected') + '>' + (state && state.natVoice ? '系统默认音色' : '默认音色') + '</option>' +
     (saved ? '<optgroup label="当前使用">' + opt(saved, '') + '</optgroup>' : '') + grp('🇺🇸 美音', cv.us.f, cv.us.m) + grp('🇬🇧 英音', cv.gb.f, cv.gb.m) + (cv.other.length ? '<optgroup label="更多">' + cv.other.map(v => opt(v, '')).join('') + '</optgroup>' : '') + '</select>';
 }
 function refreshVoiceSelect() { const el = document.getElementById('voiceSel'); if (el) el.outerHTML = voiceSelectHtml(); }
 function onVoiceChange(uri) {
+  if (uri === '__nat') { if (state) { state.useSys = false; saveState(); } toast('已改用自然语音，点“听原音”试试', 2200); return; }
+  if (state && state.natVoice) { state.useSys = true; saveState(); }      // 这本书改用系统声音
   localStorage.setItem('sr_voice_uri', uri || '');
   previewVoice(uri);                            // 换了音色马上试听一句
 }
@@ -1423,7 +1436,7 @@ async function installStory(zip, fallbackName) {
   const text = await bf.async('string');
   const names = Object.keys(zip.files).filter(n => /^clips\/[0-9a-f]{16,64}\.mp3$/.test(n));
   if (names.length) await vpImportClips(zip, names, { id: 'story-' + man.id, title: man.title, buyer: man.buyer }, fallbackName, setScStatus);
-  importTitle = man.title || fallbackName || ''; importBookId = 'story-' + man.id;
+  importTitle = man.title || fallbackName || ''; importBookId = 'story-' + man.id; importNatVoice = names.length ? (man.voice || 'natural') : '';
   setScStatus('正在加入书架…');
   await importBook(text);
   return 'story';
@@ -2108,7 +2121,8 @@ async function copyDiag() {
   const standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || nav.standalone;
   const voices = currentVoices(), en = voices.filter(v => /^en/i.test(v.lang));
   const lines = [
-    '版本: ' + APP_VERSION,
+    '版本: ' + APP_VERSION + ' | 网址: ' + location.host + location.pathname,
+    '打开速度: ' + (function () { try { const n = performance.getEntriesByType('navigation')[0] || {}; return '页面文件取到 ' + Math.round(n.responseEnd || 0) + 'ms（' + (n.transferSize ? '来自网络 ' + Math.round(n.transferSize / 1024) + 'KB' : '来自手机缓存') + '）| 脚本开始 ' + T_SCRIPT + 'ms | 书架显示 ' + T_SHELF + 'ms'; } catch (e) { return '无法测量'; } })(),
     '时间: ' + new Date().toLocaleString(),
     '浏览器: ' + nav.userAgent,
     '屏幕: ' + screen.width + 'x' + screen.height + ' @' + (window.devicePixelRatio || 1) + 'x',
@@ -2547,6 +2561,7 @@ function pgMark(idx) {
   if (r) { r.classList.add('pgon'); try { r.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) {} }
 }
 async function pgGetBlob(text) {
+  if (state && state.natVoice && state.useSys) return null;
   const pk = vpCount > 0 ? await vpGet(text) : null;
   if (pk) return pk;
   if (azReady()) return (await azLoad(text, azCfg().voice)).blob;
