@@ -163,7 +163,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.14-80';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.15-81';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -350,9 +350,11 @@ function coverColor(id) {
 function shelfHtml() {
   const l = shelfGet().slice().sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0));
   const sel = shelfSel;
+  const sh = statsHtml();
   let html = '<div class="shelfbar"><h2>书架</h2><div class="row" style="gap:8px">' +
     '<button class="ghost sm" onclick="openStoryCity()">🏙 故事城</button><button class="ghost sm" onclick="openImportPop()">＋ 导入</button>' +
     (l.length ? '<button class="ghost sm" onclick="toggleShelfSel()">' + (sel ? '取消' : '选择') + '</button>' : '') + '</div></div>';
+  if (sh) html += '<div class="levelbar" style="margin:-6px 0 14px"><div>' + sh + '</div></div>';
   if (!l.length) {
     html += '<div class="card" style="text-align:center;padding:36px 20px"><div style="font-size:38px">📚</div><div style="margin:10px 0 4px;font-size:17px;color:var(--ink)">书架是空的</div><div class="note">点“＋ 导入”，添加英文电子书、PDF、文本，或粘贴一段英文。</div><div class="row" style="justify-content:center;margin-top:14px"><button onclick="openStoryCity()">去故事城看看</button><button class="ghost" onclick="openImportPop()">导入第一本书</button></div></div>';
     return html;
@@ -805,12 +807,24 @@ function detectStartBase(sentences) {
   while (i < cap && looksLikeFrontMatter(sentences[i])) i++;
   return Math.min(i, sentences.length - 1);
 }
-function levelInfo() {
-  const grades = ['学前启蒙', '一年级 · 上', '一年级 · 下', '二年级 · 上', '二年级 · 下', '三年级 · 上', '三年级 · 下', '四年级 · 上', '四年级 · 下', '五年级 · 上', '五年级 · 下', '六年级 · 毕业挑战'];
-  const weeks = Math.floor((Date.now() - state.startDate) / (7 * 24 * 3600 * 1000));
-  const bySent = Math.floor(state.totalCompleted / 20);
-  const idx = Math.min(grades.length - 1, Math.max(weeks, bySent));
-  return { label: grades[idx], idx };
+/* ---------- 学习记录：所有书合起来算。读到新的一句才算（来回翻已读过的句子不重复计） ---------- */
+function dayKey(t) { const d = new Date(t || Date.now()); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+function statsGet() { try { return JSON.parse(localStorage.getItem('sr_stats') || '{}'); } catch (e) { return {}; } }
+function statsCount() {
+  const st = statsGet(), today = dayKey(), yest = dayKey(Date.now() - 864e5);
+  st.total = (st.total || 0) + 1;
+  if (st.day !== today) { st.streak = st.day === yest ? (st.streak || 0) + 1 : 1; st.day = today; st.today = 0; }
+  st.today = (st.today || 0) + 1;
+  try { localStorage.setItem('sr_stats', JSON.stringify(st)); } catch (e) {}
+}
+function statsView() {                              // 显示用：今天没读、昨天也没读，连续天数就归零
+  const st = statsGet(), today = dayKey(), yest = dayKey(Date.now() - 864e5);
+  return { total: st.total || 0, today: st.day === today ? st.today || 0 : 0, streak: (st.day === today || st.day === yest) ? st.streak || 0 : 0 };
+}
+function statsHtml() {
+  const v = statsView();
+  if (!v.total) return '';
+  return '<span class="badge">已读 ' + v.total.toLocaleString() + ' 句</span> 今天 ' + v.today + ' 句' + (v.streak ? ' · 连续 ' + v.streak + ' 天' : '');
 }
 
 /* ---------- 词序对比打分（听写 / 跟读打分共用） ---------- */
@@ -1917,7 +1931,9 @@ async function deleteRecs() {
 function nextSentence() {
   if (rec.on) return;
   stopSpeech();
-  state.totalCompleted++; state.idx++;
+  if (state.maxRead == null) state.maxRead = state.idx;
+  if (state.idx >= state.maxRead) { statsCount(); state.maxRead = state.idx + 1; }
+  state.idx++;
   saveState(); loadCurrent();
 }
 function prevSentence() {
@@ -2174,7 +2190,7 @@ function openHelp() {
       li('各组件版权归原作者所有。')) +
     sec('免责声明',
       li('软件不提供书籍，请只导入你有权使用的书（如公版书、你自己购买的电子书）。') +
-      li('“对照美国 X 年级阶段”只是按学习进度给出的标识，<b>不是官方分级，也不是水平测评</b>。') +
+      li('顶部的“已读 X 句 · 今天 X 句 · 连续 X 天”是你所有书合起来的学习记录：往后读到新的一句才算，来回翻看读过的句子不重复计。') +
       li('语法讲解由规则自动生成，翻译来自机器翻译或书里自带的译文，仅供学习参考，可能有误。'))
   );
 }
@@ -2724,7 +2740,7 @@ function render() {
     app.innerHTML = header + '<div class="card finish"><div style="font-size:40px">🎉</div><h2>整本书读完了！</h2><div class="sub">共 ' + state.sentences.length + ' 句。</div><button style="margin-top:16px" onclick="closeBook()">回书架</button></div>';
     return;
   }
-  const lvl = levelInfo(), pct = Math.round(state.idx / state.sentences.length * 100);
+  const pct = Math.round(state.idx / state.sentences.length * 100);
   const c = state.cache[String(state.idx)];
 
   const bz = bookZh(state.idx), hasBz = !!(state.zh && state.zh[state.idx]);
@@ -2755,7 +2771,7 @@ function render() {
 
 
   app.innerHTML = header +
-    '<div class="levelbar"><div><span class="badge">Lv.' + (lvl.idx + 1) + '</span> 对照美国 ' + lvl.label + ' 阶段</div><div>' + (tocLabel() ? esc(tocLabel()) : '') + '</div></div>' +
+    '<div class="levelbar"><div>' + statsHtml() + '</div><div>' + (tocLabel() ? esc(tocLabel()) : '') + '</div></div>' +
     '<div class="card">' +
       (function () { const r = imageRangeFor(state.idx); return (r && r[0] === curImageStart) ? curImageUrls.map(u => '<img src="' + u + '" alt="书页插图" style="max-width:100%;max-height:60vh;object-fit:contain;border-radius:10px;margin:0 auto 14px;display:block">').join('') : ''; })() +
       '<div class="sentence">' + renderSentenceHTML(state.sentences[state.idx]) + '</div>' +
