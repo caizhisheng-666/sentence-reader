@@ -165,7 +165,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.15-87';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.15-88';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1168,9 +1168,7 @@ function playListen() {
     listenState.paused = false;
     render(); return;
   }
-  const sysOnly = !!(state.natVoice && state.useSys);          // 带自然语音的书，用户手动改用了系统声音
-  if (!sysOnly && (vpCount > 0 || state.natSrc) && !azSkipOnce) { playListenNatural(idx); return; }      // 导入过语音包：先找包里有没有这一句
-  if (!sysOnly && azReady() && !azSkipOnce) { playListenNatural(idx); return; }
+  if (natPossible() && !azSkipOnce) { playListenNatural(idx); return; }     // 只有带自然语音的书（或开发者解锁了自然语音）才去找；普通的书直接用系统声音
   azSkipOnce = false;
   markStopped();
   const u = new SpeechSynthesisUtterance(state.sentences[idx]);
@@ -1242,6 +1240,11 @@ function curatedVoices(en) {
   return res;
 }
 function natVoiceName(v) { const m = /^[a-z]{2}-[A-Z]{2}-(.+?)(?:Multilingual)?Neural$/.exec(v || ''); return m ? m[1] : ''; }
+function natPossible() {                           // 这本书可能用到自然语音吗？不可能的话，系统朗读要在点击的这一下里直接发起（iPhone 的要求）
+  if (!state) return false;
+  if (state.natVoice) return !state.useSys;
+  return azReady();
+}
 function natOn() { return !!(state && state.natVoice && !state.useSys); }   // 这本书带自然语音，并且没有改用系统声音
 function voiceSelectHtml() {
   const en = (voiceListCache || []).filter(v => /^en/i.test(v.lang)), cur = natOn() ? '__nat' : getSavedVoiceURI();
@@ -2701,7 +2704,7 @@ async function pgGetBlob(text) {
 function pgPlayOne(idx, job) {
   return new Promise(async res => {
     const text = state.sentences[idx], pos = pgTokPos(text); let blob = null;
-    try { blob = await pgGetBlob(text); } catch (e) {}
+    if (natPossible()) { try { blob = await pgGetBlob(text); } catch (e) {} }     // 普通的书不等待，直接系统朗读（iPhone 要在点击里发起）
     if (job !== pgPlayJob) return res(false);
     pgHlStop();
     if (blob) {
