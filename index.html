@@ -92,8 +92,10 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .bottombar .bmid{font-size:12px;color:var(--sub);text-align:center;flex:1;line-height:1.3}
 .bottombar button{min-width:96px}
 .bottombar button.nxt{font-weight:600;min-width:112px}
-.bottombar .bplay{width:46px;height:46px;min-width:0;padding:0;border-radius:50%;font-size:17px;line-height:1;display:inline-flex;align-items:center;justify-content:center;margin:0 auto 4px}
-@media (max-width:380px){.bottombar button{min-width:84px}.bottombar button.nxt{min-width:92px}.bottombar .bbin{gap:6px;padding-left:12px;padding-right:12px}}
+.bottombar .bplay{flex:1;max-width:160px;min-width:0}
+.bottombar .bprog{position:absolute;left:0;right:0;top:0;height:2px;background:var(--line)}
+.bottombar .bprog>div{height:100%;background:var(--accent)}
+@media (max-width:380px){.bottombar button{min-width:76px}.bottombar button.nxt{min-width:84px}.bottombar .bbin{gap:6px;padding-left:12px;padding-right:12px}}
 .soft{background:var(--soft);color:var(--accent)}
 .menulist{background:var(--card);border-radius:14px;overflow:hidden;margin:8px 0 4px}
 .menulist button{display:flex;width:100%;align-items:center;justify-content:space-between;background:transparent;color:var(--ink);border-radius:0;padding:14px 16px;font-size:16px;font-weight:400;text-align:left;border-bottom:.5px solid var(--line)}
@@ -165,7 +167,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.15-88';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.15-89';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -266,7 +268,7 @@ async function boot() {
   render();                                                    // 打开软件先进入书架
   T_SHELF = Math.round(performance.now());
   loadLibs().catch(() => {});
-  loadVoices().then(refreshVoiceSelect).catch(() => {});      // 提前把声音列表加载好，第一次点“听原音”才有声音
+  loadVoices().then(refreshVoiceSelect).catch(() => {});      // 提前把声音列表加载好，第一次点底部的“▶ 朗读”才有声音
   if (!dictInfo || !dictInfo.count) setTimeout(autoImportDict, 2500);      // 先让书架显示出来，词典稍后在后台下载
 }
 window.addEventListener('online', () => { if (state) loadCurrent(); });
@@ -1154,7 +1156,7 @@ function recordRateProbe(key, rate, ms) {
   if (state) render();
 }
 function playListen() {
-  if (rec.on) { toast('正在录音，先点停止再听原音', 2000); return; }
+  if (rec.on) { toast('正在录音，先点停止再朗读', 2000); return; }
   const idx = state.idx;
   if (azLoading && listenState.idx === idx) { stopSpeech(); render(); return; }       // 正在生成自然语音时再点一下 = 取消
   if (listenState.idx === idx && listenState.playing && !listenState.paused) {
@@ -1260,7 +1262,7 @@ function voiceSelectHtml() {
 }
 function refreshVoiceSelect() { const el = document.getElementById('voiceSel'); if (el) el.outerHTML = voiceSelectHtml(); }
 function onVoiceChange(uri) {
-  if (uri === '__nat') { if (state) { state.useSys = false; saveState(); } toast('已改用自然语音，点“听原音”试试', 2200); return; }
+  if (uri === '__nat') { if (state) { state.useSys = false; saveState(); } toast('已改用自然语音，点底部的“▶ 朗读”试试', 2200); return; }
   if (state && state.natVoice) { state.useSys = true; saveState(); }      // 这本书改用系统声音
   localStorage.setItem('sr_voice_uri', uri || '');
   previewVoice(uri);                            // 换了音色马上试听一句
@@ -1414,7 +1416,7 @@ function azStart(blob, text, idx, job) {
     if (state.idx === idx) render();
   }).catch(() => {
     if (job._stopped) return;
-    azFail(new Error('浏览器没有允许播放，请再点一次“听原音”'));
+    azFail(new Error('浏览器没有允许播放，请再点一次“▶ 朗读”'));
     azActive = false; azLoading = false; listenState = { idx: -1, playing: false, paused: false };
     if (state.idx === idx) render();
   });
@@ -1508,7 +1510,7 @@ async function getStoryVoice(it) {
     if (state && state.bookId === bid) { state.natVoice = nv; refreshVoiceSelect(); }
     const l = shelfGet(), e = l.find(x => x.id === bid); if (e) { e.nv = 1; shelfSet(l); }
     delete voiceDl[it.id];
-    toast('《' + it.title + '》的自然语音下载好了，点“听原音”就能听到', 3500);
+    toast('《' + it.title + '》的自然语音下载好了，点底部的“▶ 朗读”就能听到', 3500);
     if (document.getElementById('scList')) renderStoryCity('');
   } catch (e) {
     delete voiceDl[it.id];
@@ -1653,7 +1655,7 @@ async function devNewGo() {
     const pub = await devPublish(entry, { name: id + '.srbook', blob: pk.blob, priv: !!price });
     if (pub !== true) throw new Error('上架失败：' + pub);
     await openStoryCity(true);
-    setScStatus('全部完成：《' + title + '》已上架' + (price ? '，定价 ¥' + price : '，免费') + (clips ? '，自然语音也已上架（用户获取后会在后台自动下载），这台设备上点“听原音”就能听到。' : '。'));
+    setScStatus('全部完成：《' + title + '》已上架' + (price ? '，定价 ¥' + price : '，免费') + (clips ? '，自然语音也已上架（用户获取后会在后台自动下载），这台设备上点底部的“▶ 朗读”就能听到。' : '。'));
   } catch (e) { setScStatus((e && e.message ? e.message : '未知错误') + '（修好后再点“开始上架”，已合成的语音不会重复收费）'); document.getElementById('dnGo') && (document.getElementById('dnGo').disabled = false); }
   devGenBusy = false;
 }
@@ -2262,7 +2264,7 @@ function openHelp() {
     '<div class="row" style="margin:12px 0 4px"><button onclick="copyDiag()">复制诊断信息</button>' + (FEEDBACK_URL ? '<button class="ghost" onclick="openFeedback()">打开反馈问卷</button>' : '') + '</div>' +
     '<div class="note">遇到问题（没声音、录不了音、书导入不对等），先点“复制诊断信息”，粘贴发给发你链接的人。诊断信息只有设备和软件状态，没有书的内容和你的录音。</div>' +
     sec('快速上手',
-      li('点句子里的<b>单词</b>查词，点哪个词就读哪个词，同时弹出解释。') + li('点 <b>听原音</b>，念到哪个词哪个词会亮；旁边的下拉菜单可以换美音、英音。') +
+      li('点句子里的<b>单词</b>查词，点哪个词就读哪个词，同时弹出解释。') + li('点底部的 <b>▶ 朗读</b>，念到哪个词哪个词会亮；旁边的下拉菜单可以换美音、英音。') +
       li('<b>🎙️ 跟读录音</b>会保存在本机，可以回放对比。') + li('<b>点“语速”没变化？</b>有些手机或声音不支持调速，软件会自动检测并提示。这时可以换一个声音试试。') +
       li('顶部 <b>整页翻译</b> 把一页的句子连同中文一起列出来，点句子就读；<b>目录</b> 可以跳到任意页；右上角 <b>···</b> 里有语音包、词典、语法字典和帮助。') +
       li('装到手机桌面：iPhone 用 Safari，点分享 → 添加到主屏幕；安卓用 Chrome，点 ⋮ → 安装应用。<b>装好后请在桌面图标里导入书（打开软件先是书架，点“＋ 导入”）</b>，浏览器和桌面图标的数据是分开的。'), true) +
@@ -2874,7 +2876,7 @@ function render() {
 
 
   app.innerHTML = header +
-    '<div class="levelbar"><div>' + statsHtml() + '</div><div>' + (tocLabel() ? esc(tocLabel()) : '') + '</div></div>' +
+    '<div class="levelbar"><div>' + statsHtml() + '</div><div>' + (tocLabel() ? esc(tocLabel()) + ' · ' : '') + (state.idx + 1) + ' / ' + state.sentences.length + '</div></div>' +
     '<div class="card">' +
       (function () { const r = imageRangeFor(state.idx); return (r && r[0] === curImageStart) ? curImageUrls.map(u => '<img src="' + u + '" alt="书页插图" style="max-width:100%;max-height:60vh;object-fit:contain;border-radius:10px;margin:0 auto 14px;display:block">').join('') : ''; })() +
       '<div class="sentence"' + (function () { const n = state.sentences[state.idx].length; return n > 280 ? ' style="font-size:21px"' : n > 160 ? ' style="font-size:24px"' : ''; })() + '>' + renderSentenceHTML(state.sentences[state.idx]) + '</div>' +
@@ -2884,8 +2886,6 @@ function render() {
       '</div>' +
       '<div class="section">' +
         '<div class="row">' +
-          '<button onclick="playListen()">' +
-            (listenState.idx === state.idx && listenState.playing ? (listenState.paused ? '继续' : (azLoading ? '生成中…' : '暂停')) : '听原音') + '</button>' +
           voiceSelectHtml() +
           '<button class="ghost sm" onclick="cycleRate()">语速 ' + getRate() + 'x' + (rateIgnored[voiceKeyNow()] ? '（此声音不支持）' : '') + '</button>' +
           '<button class="recbtn ' + (rec.on ? 'on' : '') + '" onclick="toggleRecord()">' + (rec.on ? '停止录音 <span id="recTime">0.0 秒</span>' : '跟读录音') + '</button>' +
@@ -2893,9 +2893,9 @@ function render() {
       practiceHtml +
       gHtml +
     '</div>' +
-    '<div class="bottombar"><div class="bbin">' +
+    '<div class="bottombar"><div class="bprog"><div style="width:' + pct + '%"></div></div><div class="bbin">' +
       '<button class="ghost" onclick="prevSentence()" ' + (state.idx > 0 && !rec.on ? '' : 'disabled') + '>上一句</button>' +
-      '<div class="bmid"><button class="bplay" onclick="playListen()" aria-label="朗读这一句">' + (listenState.idx === state.idx && listenState.playing ? (listenState.paused ? '▶' : (azLoading ? '…' : '❚❚')) : '▶') + '</button><div>' + (state.idx + 1) + ' / ' + state.sentences.length + '</div><div class="progressline" style="margin:4px 0 0"><div class="progressfill" style="width:' + pct + '%"></div></div></div>' +
+      '<button class="bplay" onclick="playListen()" aria-label="朗读这一句">' + (listenState.idx === state.idx && listenState.playing ? (listenState.paused ? '▶ 继续' : (azLoading ? '生成中…' : '❚❚ 暂停')) : '▶ 朗读') + '</button>' +
       '<button class="nxt" onclick="nextSentence()" ' + (rec.on ? 'disabled' : '') + '>下一句</button>' +
     '</div></div>';
   applySpeakHighlight();
