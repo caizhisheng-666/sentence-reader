@@ -163,7 +163,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.15-82';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.15-83';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -632,7 +632,7 @@ async function finalizeImport(sentences, imageRanges, bookId, extraToast, toc, b
   state = { natVoice: importNatVoice || '', bookId: bookId || importBookId || ('b' + Date.now()), sentences, idx: startIdx, prog: {}, cache: {}, startDate: Date.now(), totalCompleted: 0, imageRanges: imageRanges || [], toc: toc || buildTextToc(sentences, startIdx), zh: (bil && bil.zh) || {}, zhp: (bil && bil.para) || {}, zhOff: {} };
   state.title = (importTitle || '').trim() || bookShortTitle(sentences);
   importTitle = ''; importBookId = ''; importNatVoice = '';
-  const entry = { id: state.bookId, title: state.title, addedAt: Date.now(), lastAt: Date.now(), total: sentences.length, idx: startIdx };
+  const entry = { id: state.bookId, title: state.title, addedAt: Date.now(), lastAt: Date.now(), total: sentences.length, idx: startIdx, nv: state.natVoice ? 1 : 0 };
   await flushState();
   const l = shelfGet().filter(x => x.id !== entry.id); l.unshift(entry); shelfSet(l);
   state = null; closePop(); render();                           // 导入后回到书架，点封面开始读
@@ -1324,7 +1324,7 @@ async function azFetchAudio(text, voice) {
   const c = azCfg();
   let resp;
   try {
-    resp = await fetch(azUrl('tts'), { method: 'POST', headers: { 'Ocp-Apim-Subscription-Key': c.key, 'Content-Type': 'application/ssml+xml', 'X-Microsoft-OutputFormat': 'audio-24khz-48kbitrate-mono-mp3' }, body: azSsml(text, voice) });
+    resp = await fetch(azUrl('tts'), { method: 'POST', headers: { 'Ocp-Apim-Subscription-Key': c.key, 'Content-Type': 'application/ssml+xml', 'X-Microsoft-OutputFormat': 'audio-16khz-32kbitrate-mono-mp3' }, body: azSsml(text, voice) });
   } catch (e) { throw azErr('network', '连不上微软语音服务（网络问题，或被浏览器的跨域限制拦截）'); }
   if (!resp.ok) throw azErr('http' + resp.status, azHttpMsg(resp.status));
   const blob = await resp.blob();
@@ -1459,16 +1459,53 @@ async function installStory(zip, fallbackName) {
   importTitle = man.title || fallbackName || ''; importBookId = 'story-' + man.id; importNatVoice = names.length ? (man.voice || 'natural') : '';
   setScStatus('正在加入书架…');
   await importBook(text);
-  return 'story';
+  return { clips: names.length, voice: man.voice || '' };
 }
+async function fetchProgress(url, onPct) {          // 下载并报告进度（百分比）
+  const r = await fetch(url, { cache: 'no-cache' }); if (!r.ok) throw new Error('下载失败（HTTP ' + r.status + '）');
+  const len = +r.headers.get('Content-Length') || 0;
+  if (!r.body || !r.body.getReader || !len) return await r.arrayBuffer();
+  const rd = r.body.getReader(), parts = []; let got = 0;
+  for (;;) { const { done, value } = await rd.read(); if (done) break; parts.push(value); got += value.length; if (onPct) onPct(Math.min(99, Math.round(got / len * 100))); }
+  const out = new Uint8Array(got); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; }
+  return out.buffer;
+}
+const voiceUrlOf = it => shopUrl(String(it.file).replace(/\.srbook$/, '.voice.zip'));      // 语音单独放在“故事名.voice.zip”
+const voiceDl = {};                                  // 正在后台下载语音的故事：id → 百分比
 async function getStory(id) {
   const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it || !it.file) return;
   try {
     setScStatus('正在下载《' + it.title + '》…');
-    const r = await fetch(shopUrl(it.file), { cache: 'no-cache' }); if (!r.ok) throw new Error('下载失败（HTTP ' + r.status + '）');
+    const buf = await fetchProgress(shopUrl(it.file), p => setScStatus('正在下载《' + it.title + '》' + p + '%…'));
     await loadLibs();
-    await installStory(await JSZip.loadAsync(await r.arrayBuffer()), it.title);
+    const r = await installStory(await JSZip.loadAsync(buf), it.title);
+    if (it.voice && !r.clips) getStoryVoice(it);       // 文字先进书架，可以先读；语音在后台下载
   } catch (e) { setScStatus('获取失败：' + (e && e.message ? e.message : '未知错误') + '。请检查网络后重试。'); }
+}
+async function getStoryVoice(it) {
+  if (voiceDl[it.id] != null) return;
+  voiceDl[it.id] = 0;
+  toast('《' + it.title + '》已加入书架，可以先读。自然语音正在后台下载…', 4000);
+  const upd = () => { const el = document.getElementById('scVoice-' + it.id); if (el) el.textContent = '语音下载中 ' + voiceDl[it.id] + '%'; };
+  try {
+    const buf = await fetchProgress(voiceUrlOf(it), p => { voiceDl[it.id] = p; upd(); });
+    await loadLibs();
+    const z = await JSZip.loadAsync(buf), man = JSON.parse(await z.file('manifest.json').async('string'));
+    const names = Object.keys(z.files).filter(n => /^clips\/[0-9a-f]{16,64}\.mp3$/.test(n));
+    if (!names.length) throw new Error('语音文件是空的');
+    await vpImportClips(z, names, { id: 'story-' + it.id, title: it.title }, it.title, null);
+    const bid = 'story-' + it.id, nv = man.voice || 'natural';
+    const bk = await idbGet('books', bid); if (bk) { bk.natVoice = nv; await idbPut('books', bk, bid); }
+    if (state && state.bookId === bid) { state.natVoice = nv; refreshVoiceSelect(); }
+    const l = shelfGet(), e = l.find(x => x.id === bid); if (e) { e.nv = 1; shelfSet(l); }
+    delete voiceDl[it.id];
+    toast('《' + it.title + '》的自然语音下载好了，点“听原音”就能听到', 3500);
+    if (document.getElementById('scList')) renderStoryCity('');
+  } catch (e) {
+    delete voiceDl[it.id];
+    toast('《' + it.title + '》的自然语音没下载成功（' + (e && e.message ? e.message : '网络问题') + '），可以在故事城里再点“下载语音”', 5000);
+    if (document.getElementById('scList')) renderStoryCity('');
+  }
 }
 /* 隐藏功能（只有已解锁开发者模式、能用你自己的 Azure Key 的设备才会看到）：点故事卡片上的“生成语音”，自动给这个故事合成自然语音，打成带语音的故事包下载 */
 let devGenBusy = false;
@@ -1533,12 +1570,17 @@ async function devSynth(sents) {                     // 用开发者的 Azure Ke
   if (clips.size < todo.length) throw new Error('只合成了 ' + clips.size + ' / ' + todo.length + ' 句（Key、网络或额度有问题）。再点一次会接着做，已经合成的不会重复收费');
   return { clips, voice };
 }
-async function devPackStory(man, text, clips) {          // 故事包 = 清单 + 中英对照正文 + （可选）每句语音，买故事就自带语音
-  await loadLibs();
+async function devPackStory(man, text, clips) {          // 故事包只放文字（很小，用户马上能读）；语音单独打包（见 devPackVoice）
   const z = new JSZip();
   z.file('manifest.json', JSON.stringify(man)); z.file('book.txt', text);
   if (clips) for (const [k, b] of clips) z.file('clips/' + k + '.mp3', b);
   return { z, blob: await z.generateAsync({ type: 'blob', compression: clips ? 'STORE' : 'DEFLATE' }) };
+}
+async function devPackVoice(id, title, voice, clips) {
+  const z = new JSZip();
+  z.file('manifest.json', JSON.stringify({ format: 'sr-voicepack', v: 1, id: 'story-' + id, title, voice, count: clips.size }));
+  for (const [k, b] of clips) z.file('clips/' + k + '.mp3', b);
+  return { z, blob: await z.generateAsync({ type: 'blob', compression: 'STORE' }) };
 }
 async function devNewStoryPop() {
   if (!azReady()) { setScStatus('请先在“帮助”里解锁开发者模式'); return; }
@@ -1582,14 +1624,20 @@ async function devNewGo() {
     if (wantVoice) { const r = await devSynth(devNew.d.sents); clips = r.clips; voice = r.voice; }
     setScStatus('正在打包并上架…');
     const man = { format: 'sr-story', v: 1, id, title, level, voice, count: devNew.d.sents.length };
-    const pk = await devPackStory(man, devNew.text, clips);
-    if (clips) await vpImportClips(pk.z, [...clips.keys()].map(k => 'clips/' + k + '.mp3'), { id: 'story-' + id, title }, title, null);   // 这台设备上马上就能听到
+    const pk = await devPackStory(man, devNew.text, null);
+    if (clips) {
+      const vp = await devPackVoice(id, title, voice, clips);
+      await vpImportClips(vp.z, [...clips.keys()].map(k => 'clips/' + k + '.mp3'), { id: 'story-' + id, title }, title, null);   // 这台设备上马上就能听到
+      setScStatus('正在上传语音（' + (vp.blob.size / 1048576).toFixed(1) + ' MB）…');
+      const up = await devAdmin('/admin/file/' + id + '.voice.zip' + (price ? '?private=1' : ''), { method: 'PUT', body: vp.blob });
+      if (!up.ok) throw new Error('语音上传失败：' + up.msg);
+    }
     const entry = { id, kind: 'story', title, titleZh: zh, level, count: devNew.d.sents.length, voice: !!clips, desc: zh ? zh + '。' : '', preview: devNew.d.preview };
     if (price) entry.price = price;
     const pub = await devPublish(entry, { name: id + '.srbook', blob: pk.blob, priv: !!price });
     if (pub !== true) throw new Error('上架失败：' + pub);
     await openStoryCity(true);
-    setScStatus('全部完成：《' + title + '》已上架' + (price ? '，定价 ¥' + price : '，免费') + (clips ? '，自然语音已打包在故事里，这台设备上点“听原音”就能听到。' : '。'));
+    setScStatus('全部完成：《' + title + '》已上架' + (price ? '，定价 ¥' + price : '，免费') + (clips ? '，自然语音也已上架（用户获取后会在后台自动下载），这台设备上点“听原音”就能听到。' : '。'));
   } catch (e) { setScStatus((e && e.message ? e.message : '未知错误') + '（修好后再点“开始上架”，已合成的语音不会重复收费）'); document.getElementById('dnGo') && (document.getElementById('dnGo').disabled = false); }
   devGenBusy = false;
 }
@@ -1608,8 +1656,12 @@ async function devGenVoice(id) {                      // 已上架的故事补�
     const man = JSON.parse(await old.file('manifest.json').async('string')), text = await old.file('book.txt').async('string');
     const { clips, voice } = await devSynth(devParse(text).sents);
     setScStatus('正在打包并更新…');
-    const pk = await devPackStory(Object.assign({}, man, { voice }), text, clips);
-    await vpImportClips(pk.z, [...clips.keys()].map(k => 'clips/' + k + '.mp3'), { id: 'story-' + it.id, title: it.title }, it.title, null);
+    const pk = await devPackStory(Object.assign({}, man, { voice }), text, null);
+    const vp = await devPackVoice(it.id, it.title, voice, clips);
+    await vpImportClips(vp.z, [...clips.keys()].map(k => 'clips/' + k + '.mp3'), { id: 'story-' + it.id, title: it.title }, it.title, null);
+    setScStatus('正在上传语音（' + (vp.blob.size / 1048576).toFixed(1) + ' MB）…');
+    const up = await devAdmin('/admin/file/' + it.id + '.voice.zip' + (it.price ? '?private=1' : ''), { method: 'PUT', body: vp.blob });
+    if (!up.ok) throw new Error('语音上传失败：' + up.msg);
     const entry = Object.assign({}, it, { voice: true }); delete entry.kind; entry.kind = 'story';
     const pub = await devPublish(entry, { name: it.id + '.srbook', blob: pk.blob, priv: !!it.price });
     if (pub !== true) throw new Error('更新失败：' + pub);
@@ -1638,7 +1690,8 @@ function renderStoryCity(err) {
       '<div style="flex:1;min-width:0"><div style="font-size:16px;color:var(--ink)">' + esc(it.title) + (it.titleZh ? ' <span class="note">' + esc(it.titleZh) + '</span>' : '') + '</div>' +
       '<div class="note">' + esc(meta) + '</div>' + (it.desc ? '<div class="note" style="margin-top:4px;color:var(--ink)">' + esc(it.desc) + '</div>' : '') +
       '<div class="row" style="margin-top:8px;gap:8px">' +
-      (have ? '<button class="sm" onclick="closePop();openBook(\'story-' + it.id + '\')">已在书架 · 打开</button>'
+      (have ? '<button class="sm" onclick="closePop();openBook(\'story-' + it.id + '\')">已在书架 · 打开</button>' +
+          (it.voice && it.file && !(shelfGet().find(x => x.id === 'story-' + it.id) || {}).nv ? (voiceDl[it.id] != null ? '<span class="note" id="scVoice-' + it.id + '">语音下载中 ' + voiceDl[it.id] + '%</span>' : '<button class="ghost sm" onclick="getStoryVoice(storyCat.items.find(x => x.id === \'' + it.id + '\'))">⬇ 下载语音</button>') : '')
         : free ? '<button class="sm" onclick="getStory(\'' + it.id + '\')">免费获取</button>'
         : '<button class="sm" onclick="scBuy(\'' + it.id + '\')">¥' + esc(String(it.price)) + ' 购买</button>') +
       (prev ? '<button class="ghost sm" onclick="scToggle(\'' + it.id + '\')">试读</button>' : '') +
