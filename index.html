@@ -165,7 +165,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.14-74';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.14-75';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -178,11 +178,6 @@ function ensurePdf() {
   if (window.pdfjsLib) return Promise.resolve();
   return pdfReady || (pdfReady = loadScript('./lib/pdf.min.js').then(() => { pdfjsLib.GlobalWorkerOptions.workerSrc = './lib/pdf.worker.min.js'; }).catch(() =>
     loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js').then(() => { pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; })).catch(e => { pdfReady = null; throw e; }));
-}
-let papaReady = null;
-function ensurePapa() {
-  if (window.Papa) return Promise.resolve();
-  return papaReady || (papaReady = loadScript('https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js').catch(e => { papaReady = null; throw new Error('导入组件没有加载成功，请联网刷新页面后再试'); }));
 }
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
 
@@ -2018,62 +2013,6 @@ async function wordClick(i, el) {
   positionWordPop(rect);
 }
 function retryWordLookup() { if (lastWordEl && lastWordIdx >= 0) wordClick(lastWordIdx, lastWordEl); }
-/* ---------- 离线大词典导入 ---------- */
-// ECDICT 完整版有 76 万词条，其中大量是生僻词和专有名词。只保留常用词（词频前 6 万，或带考试/柯林斯/牛津标记的），体积小很多。
-function ecKeep(r) {
-  const frq = parseInt(r.frq, 10) || 0, bnc = parseInt(r.bnc, 10) || 0;
-  const rank = Math.min(frq || 1e9, bnc || 1e9);
-  const flagged = (parseInt(r.collins, 10) || 0) > 0 || String(r.oxford || '').trim() === '1' || String(r.tag || '').trim() !== '';
-  return rank <= 60000 || flagged;
-}
-async function parseDictBlob(blob, name, onProgress) {
-  await ensurePapa();
-  const head = await blob.slice(0, 4096).text();
-  const firstLine = head.split(/\r?\n/)[0].toLowerCase();
-  const isEcdict = firstLine.includes('word') && firstLine.includes('translation');
-  const isTsv = !isEcdict && firstLine.includes('\t');
-  await idbClear('dict');
-  await idbPut('meta', null, 'dictInfo');
-  dictInfo = null;
-  let count = 0, pending = Promise.resolve();
-  await new Promise((resolve, reject) => {
-    Papa.parse(blob, {
-      header: isEcdict,
-      delimiter: isTsv ? '\t' : '',
-      skipEmptyLines: true,
-      chunkSize: 2 * 1024 * 1024,
-      chunk: (results, parser) => {
-        parser.pause();
-        const items = [];
-        for (const r of results.data) {
-          let w, t, p = '', d = '', x = '';
-          if (isEcdict) { if (!ecKeep(r)) continue; w = r.word; t = r.translation; p = r.phonetic || ''; d = r.definition || ''; x = r.exchange || ''; }
-          else { w = r[0]; t = (r.slice(1) || []).join(' '); }
-          if (!w) continue;
-          w = String(w).trim();
-          if (!w || w.indexOf(' ') >= 0 || w.length > 40) continue;
-          t = String(t || '').replace(/\\n/g, '\n').trim();
-          d = String(d || '').replace(/\\n/g, '\n').trim();
-          if (!t && !d) continue;
-          const low = w.toLowerCase();
-          items.push({ w: (w === low ? low : '^' + low), t, p, d: d.slice(0, 400), x });
-        }
-        count += items.length;
-        pending = idbPutMany('dict', items).then(() => {
-          if (onProgress) onProgress(count, 100 * (results.meta.cursor || 0) / blob.size);
-          parser.resume();
-        }).catch(err => { parser.abort(); reject(err); });
-      },
-      complete: () => { pending.then(resolve, reject); },
-      error: err => reject(err)
-    });
-  });
-  if (!count) throw new Error('没有读到任何词条，文件格式可能不对');
-  dictInfo = { count, name, at: Date.now() };
-  await idbPut('meta', dictInfo, 'dictInfo');
-  return count;
-}
-
 /* ---------- 本站词典文件：dict.tsv.gz（和网页放在同一个地方，不依赖任何外部网站） ---------- */
 const SLIM_DICT_URLS = ['./dict.tsv.gz', './dict.tsv'];
 let autoDictRunning = false;
@@ -2128,31 +2067,6 @@ async function autoImportDict(force) {
     setAutoMsg('自动下载失败：' + (e && e.message ? e.message : '未知错误'));
   } finally { autoDictRunning = false; }
 }
-async function exportSlimDict() {
-  setDictStatus('正在整理精简词典…', 0);
-  try {
-    const all = await idbGetAll('dict');
-    const lines = [];
-    for (const e of all) {
-      if (!e.t) continue;
-      const m = (e.x || '').match(/(?:^|\/)0:([^\/]+)/);
-      const t = String(e.t).slice(0, 110).replace(/\r/g, '').replace(/\t/g, ' ').replace(/\n/g, '\\n');
-      lines.push([e.w, String(e.p || '').replace(/\t/g, ' '), t, m ? '0:' + m[1] : ''].join('\t'));
-    }
-    if (!lines.length) { setDictStatus('还没有可导出的词典，请先导入 ecdict.csv。'); return; }
-    const raw = new Blob([lines.join('\n')], { type: 'text/tab-separated-values' });
-    let out = raw, name = 'dict.tsv';
-    if (typeof CompressionStream !== 'undefined') { out = await new Response(raw.stream().pipeThrough(new CompressionStream('gzip'))).blob(); name = 'dict.tsv.gz'; }
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(out); a.download = name; document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
-    const mb = out.size / 1048576;
-    setDictStatus('已生成 ' + name + '（' + lines.length.toLocaleString() + ' 个词，' + mb.toFixed(1) + ' MB）。' + (mb > 24 ? ' ⚠ 超过 25MB，GitHub 网页上传会失败，请告诉我再缩小。' : ' 请把它上传到 GitHub 仓库根目录。'), 100);
-  } catch (err) {
-    setDictStatus('导出失败：' + (err && err.message ? err.message : '未知错误'));
-  }
-}
-
 function openDictSettings() {
   const has = dictInfo && dictInfo.count;
   const status = has
@@ -2163,18 +2077,9 @@ function openDictSettings() {
     '<div class="note" style="font-size:14px;color:var(--ink)">' + status + '</div>' +
     '<div class="row" style="margin-top:12px">' +
       (has ? '' : '<button onclick="retryAutoDict()">重试自动下载</button>') +
-      '<div class="filebtn"><button class="ghost" type="button" tabindex="-1">选择词典文件导入</button><input type="file" accept=".csv,.txt,.tsv" onchange="importDictFromInput(event)"></div>' +
-      (has ? '<button class="ghost sm" onclick="exportSlimDict()">导出精简词典文件</button><button class="ghost sm" onclick="clearDict()">删除词典</button>' : '') +
+      (has ? '<button class="ghost sm" onclick="clearDict()">删除词典</button>' : '') +
     '</div>' +
-    '<div id="dictStatus" class="note" style="margin-top:10px"></div><div class="pbar" id="dictBar" style="display:none"><div></div></div>' +
-    '<details style="margin-top:14px"><summary style="cursor:pointer;font-weight:600">怎么让所有人打开网站就自动有大词典？（只需你做一次）</summary>' +
-    '<div class="note" style="line-height:1.7;margin-top:8px">' +
-    '1. 在<b>电脑</b>上下载 ECDICT 的 <b>ecdict.csv</b>：打开 github.com/skywind3000/ECDICT，点里面的 ecdict.csv 文件，再点右上角的下载按钮（Download raw file）。这是 76 万词条的完整版，文件比较大，在国内下载可能需要开 VPN。<br>' +
-    '2. 回到这里，点“选择词典文件导入”，选这个 ecdict.csv。只会保留常用词，电脑上大约一两分钟。<br>' +
-    '3. 导入完成后点“导出精简词典文件”，会下载一个 <b>dict.tsv.gz</b>。<br>' +
-    '4. 到你的 GitHub 仓库，Add file → Upload files，把 dict.tsv.gz 传到和 index.html 同一个位置，点 Commit changes。<br>' +
-    '5. 之后任何人第一次联网打开网站，会自动从你的网站下载这个词典，存在自己设备里，以后离线也能查。' +
-    '</div></details>'
+    '<div id="dictStatus" class="note" style="margin-top:10px"></div><div class="pbar" id="dictBar" style="display:none"><div></div></div>'
   );
 }
 async function retryAutoDict() {
@@ -2186,20 +2091,6 @@ function setDictStatus(msg, pct) {
   const el = document.getElementById('dictStatus'); if (el) el.textContent = msg;
   const bar = document.getElementById('dictBar');
   if (bar) { bar.style.display = pct == null ? 'none' : 'block'; if (pct != null) bar.firstChild.style.width = Math.min(100, pct) + '%'; }
-}
-async function importDictFromInput(ev) {
-  const file = ev.target.files[0];
-  if (!file) return;
-  setDictStatus('正在导入（只保留常用词）…', 0);
-  try {
-    const count = await parseDictBlob(file, file.name, (c, pct) => setDictStatus('已导入 ' + c.toLocaleString() + ' 个词条…', pct));
-    setAutoMsg('');
-    setDictStatus('导入完成：' + count.toLocaleString() + ' 个词条，现在可以离线查词了。想让所有人都用上，请看下面的说明，先点“导出精简词典文件”。', 100);
-    const hasBtns = document.querySelector('#pop [onclick="exportSlimDict()"]');
-    if (!hasBtns) setTimeout(openDictSettings, 2500);
-  } catch (err) {
-    setDictStatus('导入失败：' + (err && err.message ? err.message : '未知错误') + '。可能是存储空间不足或文件格式不对。');
-  }
 }
 async function clearDict() {
   if (!confirm('删除已导入的离线大词典？')) return;
@@ -2271,7 +2162,7 @@ function openHelp() {
       li('软件本身不收集任何使用数据。')) +
     sec('开源与致谢',
       li('英汉词典数据：ECDICT（skywind3000，MIT 许可）') + li('PDF 解析：pdf.js（Mozilla，Apache-2.0）') + li('epub 解压：JSZip（MIT / GPLv3 双许可）') +
-      li('表格解析：PapaParse（MIT）') + li('各组件版权归原作者所有。')) +
+      li('各组件版权归原作者所有。')) +
     sec('免责声明',
       li('软件不提供书籍，请只导入你有权使用的书（如公版书、你自己购买的电子书）。') +
       li('“对照美国 X 年级阶段”只是按学习进度给出的标识，<b>不是官方分级，也不是水平测评</b>。') +
