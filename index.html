@@ -56,6 +56,10 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .levelbar{display:flex;justify-content:space-between;align-items:center;background:transparent;border:none;padding:0 2px;font-size:13px;color:var(--sub)}
 .badge{background:var(--soft);color:var(--accent);border-radius:999px;padding:2px 10px;font-weight:600;font-size:12px}
 .sentence .w.speaking,.pgsent .w.speaking{background:var(--accent);color:#fff;border-radius:5px;box-shadow:0 0 0 3px var(--accent)}
+.onerow{flex-wrap:nowrap!important;gap:8px!important;align-items:center}
+@media (max-width:380px){.onerow{gap:6px!important}.onerow>button{padding-left:11px;padding-right:11px}.onerow .voicesel{padding-left:4px;padding-right:2px}}
+.onerow>button{flex:none;white-space:nowrap}
+.onerow .voicesel{flex:1 1 auto;min-width:0;max-width:none}
 .voicesel{max-width:185px;border:1px solid var(--line);border-radius:10px;padding:9px 6px;font-size:13px;background:var(--pop);color:var(--ink);font-family:inherit}
 .navsticky{position:sticky;top:env(safe-area-inset-top,0px);z-index:15;background:var(--bg);padding:8px 0;margin-bottom:8px;border-bottom:1px solid var(--line)}
 .navsticky .row{flex-wrap:nowrap}
@@ -167,7 +171,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.15-89';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.15-90';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2265,7 +2269,7 @@ function openHelp() {
     '<div class="note">遇到问题（没声音、录不了音、书导入不对等），先点“复制诊断信息”，粘贴发给发你链接的人。诊断信息只有设备和软件状态，没有书的内容和你的录音。</div>' +
     sec('快速上手',
       li('点句子里的<b>单词</b>查词，点哪个词就读哪个词，同时弹出解释。') + li('点底部的 <b>▶ 朗读</b>，念到哪个词哪个词会亮；旁边的下拉菜单可以换美音、英音。') +
-      li('<b>🎙️ 跟读录音</b>会保存在本机，可以回放对比。') + li('<b>点“语速”没变化？</b>有些手机或声音不支持调速，软件会自动检测并提示。这时可以换一个声音试试。') +
+      li('<b>🎙 跟读</b>：录下自己读这一句，保存在本机，可以回放和原音对比。') + li('<b>点“语速”没变化？</b>有些手机或声音不支持调速，软件会自动检测并提示。这时可以换一个声音试试。') +
       li('顶部 <b>整页翻译</b> 把一页的句子连同中文一起列出来，点句子就读；<b>目录</b> 可以跳到任意页；右上角 <b>···</b> 里有语音包、词典、语法字典和帮助。') +
       li('装到手机桌面：iPhone 用 Safari，点分享 → 添加到主屏幕；安卓用 Chrome，点 ⋮ → 安装应用。<b>装好后请在桌面图标里导入书（打开软件先是书架，点“＋ 导入”）</b>，浏览器和桌面图标的数据是分开的。'), true) +
     sec('隐私与数据',
@@ -2869,7 +2873,7 @@ function render() {
     ? '<div class="note" style="margin-top:10px">我的录音（最近 3 次，先听原音再听自己的，对比发音）：</div>' +
       recView.urls.map((u, i) => '<div class="recitem"><span>' + (i === 0 ? '最新' : '第 ' + (i + 1) + ' 条') + '</span><audio controls preload="metadata" src="' + u.url + '"></audio></div>').join('') +
       '<button class="link" onclick="deleteRecs()">删除这句的录音</button>'
-    : '<div class="note" style="margin-top:10px">点"跟读录音"录下自己的声音，读完点停止，录音保存在本机。</div>';
+    : '<div class="note" style="margin-top:10px">点“🎙 跟读”录下自己读这一句，读完点“■ 停止”，录音保存在本机，可以和原音对比。</div>';
 
   // “更多练习”（听写 / 句子重组 / 跟读打分）已从界面撤下；功能代码还在，想恢复时把下面这行改回按钮即可
   const practiceHtml = '';
@@ -2885,10 +2889,10 @@ function render() {
         '<button class="iconbtn" style="flex-shrink:0" onclick="toggleZh()">' + (getShowZh() ? '隐藏中文' : '显示中文') + '</button>' +
       '</div>' +
       '<div class="section">' +
-        '<div class="row">' +
+        '<div class="row onerow">' +
           voiceSelectHtml() +
-          '<button class="ghost sm" onclick="cycleRate()">语速 ' + getRate() + 'x' + (rateIgnored[voiceKeyNow()] ? '（此声音不支持）' : '') + '</button>' +
-          '<button class="recbtn ' + (rec.on ? 'on' : '') + '" onclick="toggleRecord()">' + (rec.on ? '停止录音 <span id="recTime">0.0 秒</span>' : '跟读录音') + '</button>' +
+          '<button class="ghost sm" onclick="cycleRate()"' + (rateIgnored[voiceKeyNow()] ? ' title="这个声音不支持调速"' : '') + '>语速 ' + getRate() + 'x' + (rateIgnored[voiceKeyNow()] ? ' ⚠' : '') + '</button>' +
+          '<button class="recbtn ' + (rec.on ? 'on' : '') + '" onclick="toggleRecord()">' + (rec.on ? '■ 停止 <span id="recTime">0.0 秒</span>' : '🎙 跟读') + '</button>' +
         '</div>' + recs + '</div>' +
       practiceHtml +
       gHtml +
