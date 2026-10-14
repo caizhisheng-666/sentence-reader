@@ -171,7 +171,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.15-90';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.15-91';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2269,7 +2269,7 @@ function openHelp() {
     '<div class="note">遇到问题（没声音、录不了音、书导入不对等），先点“复制诊断信息”，粘贴发给发你链接的人。诊断信息只有设备和软件状态，没有书的内容和你的录音。</div>' +
     sec('快速上手',
       li('点句子里的<b>单词</b>查词，点哪个词就读哪个词，同时弹出解释。') + li('点底部的 <b>▶ 朗读</b>，念到哪个词哪个词会亮；旁边的下拉菜单可以换美音、英音。') +
-      li('<b>🎙 跟读</b>：录下自己读这一句，保存在本机，可以回放和原音对比。') + li('<b>点“语速”没变化？</b>有些手机或声音不支持调速，软件会自动检测并提示。这时可以换一个声音试试。') +
+      li('<b>🎙 跟读</b>：录下自己读这一句，保存在本机，可以回放和原音对比。') + li('<b>点“0.9x”这样的语速按钮没变化？</b>有些手机或声音不支持调速，软件会自动检测并提示。这时可以换一个声音试试。') +
       li('顶部 <b>整页翻译</b> 把一页的句子连同中文一起列出来，点句子就读；<b>目录</b> 可以跳到任意页；右上角 <b>···</b> 里有语音包、词典、语法字典和帮助。') +
       li('装到手机桌面：iPhone 用 Safari，点分享 → 添加到主屏幕；安卓用 Chrome，点 ⋮ → 安装应用。<b>装好后请在桌面图标里导入书（打开软件先是书架，点“＋ 导入”）</b>，浏览器和桌面图标的数据是分开的。'), true) +
     sec('隐私与数据',
@@ -2891,7 +2891,7 @@ function render() {
       '<div class="section">' +
         '<div class="row onerow">' +
           voiceSelectHtml() +
-          '<button class="ghost sm" onclick="cycleRate()"' + (rateIgnored[voiceKeyNow()] ? ' title="这个声音不支持调速"' : '') + '>语速 ' + getRate() + 'x' + (rateIgnored[voiceKeyNow()] ? ' ⚠' : '') + '</button>' +
+          '<button class="ghost sm" onclick="cycleRate()" aria-label="语速" title="' + (rateIgnored[voiceKeyNow()] ? '这个声音不支持调速' : '语速，点一下换一档') + '">' + getRate() + 'x' + (rateIgnored[voiceKeyNow()] ? ' ⚠' : '') + '</button>' +
           '<button class="recbtn ' + (rec.on ? 'on' : '') + '" onclick="toggleRecord()">' + (rec.on ? '■ 停止 <span id="recTime">0.0 秒</span>' : '🎙 跟读') + '</button>' +
         '</div>' + recs + '</div>' +
       practiceHtml +
