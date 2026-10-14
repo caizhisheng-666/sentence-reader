@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sentence-reader-v77';
+const CACHE_NAME = 'sentence-reader-v78';
 const PRECACHE = [
   './', './index.html', './dict-basic.js', './grammar.js', './manifest.json', './icon-192.png', './icon-512.png',
   './lib/jszip.min.js', './lib/pdf.min.js', './lib/pdf.worker.min.js'
@@ -28,16 +28,18 @@ self.addEventListener('fetch', event => {
   // 翻译接口：只走网络，不缓存
   if (url.hostname.includes('mymemory.translated.net') || url.hostname.includes('translate.googleapis.com')) return;
 
-  // 本站文件：网络优先（保证更新马上生效），离线时用缓存
+  // 故事城的目录和故事文件：要最新的，不经过缓存
+  if (url.origin === self.location.origin && url.pathname.includes('/stories/')) return;
+
+  // 本站文件：缓存优先，马上打开；同时在后台下载最新版存起来，下次打开就是新版（网慢时也不用干等）
   if (url.origin === self.location.origin) {
-    event.respondWith(
-      fetch(req).then(res => {
-        const copy = res.clone();
-        caches.open(CACHE_NAME).then(c => c.put(req, copy));
-        return res;
-      }).catch(() => caches.match(req, { ignoreSearch: true })
-        .then(r => r || (req.mode === 'navigate' ? caches.match('./index.html') : undefined)))
-    );
+    event.respondWith(caches.open(CACHE_NAME).then(async cache => {
+      const cached = (await cache.match(req, { ignoreSearch: true })) || (req.mode === 'navigate' ? await cache.match('./index.html') : undefined);
+      const net = fetch(req).then(res => { if (res && res.ok) cache.put(req, res.clone()); return res; });
+      event.waitUntil(net.then(() => {}, () => {}));
+      if (cached) return cached;
+      return net.catch(() => caches.match('./index.html'));
+    }));
     return;
   }
 
