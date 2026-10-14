@@ -25,6 +25,24 @@ const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-toke
   r = await call('/files/..%2Fcatalog.json'); assert.equal(r.s, 404);
   r = await call('/admin/file/big.zip', { m: 'PUT', h: A, body: 'x'.repeat(5000) }); assert.equal(r.s, 413);
   r = await call('/admin/file/bad.exe', { m: 'PUT', h: A, body: 'x' }); assert.equal(r.s, 404);
+  // 语音按句拆分：上传 voice.zip 自动拆；旧格式 srbook 用 /admin/split 转换
+  const JSZip = require('../lib/jszip.min.js');
+  const H1 = 'a'.repeat(64), H2 = 'b'.repeat(64);
+  let z = new JSZip(); z.file('manifest.json', '{}'); z.file('clips/' + H1 + '.mp3', 'AUDIO-ONE'); z.file('clips/' + H2 + '.mp3', 'AUDIO-TWO');
+  let zb = await z.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+  r = await call('/admin/file/kit.voice.zip', { m: 'PUT', h: A, body: zb }); assert.equal(r.s, 200); assert.equal(JSON.parse(r.b).clips, 2);
+  r = await call('/files/kit/' + H1 + '.mp3'); assert.equal(r.s, 200); assert.equal(r.b, 'AUDIO-ONE'); assert.equal(r.h['content-type'], 'audio/mpeg');
+  r = await call('/files/kit/' + 'c'.repeat(64) + '.mp3'); assert.equal(r.s, 404);
+  z = new JSZip(); z.file('manifest.json', '{"format":"sr-story","id":"leg"}'); z.file('book.txt', 'Hello there.'); z.file('clips/' + H1 + '.mp3', 'OLD-ONE');
+  zb = await z.generateAsync({ type: 'nodebuffer', compression: 'STORE' });
+  r = await call('/admin/file/leg.srbook', { m: 'PUT', h: A, body: zb }); assert.equal(r.s, 200);
+  r = await call('/admin/split/leg', { m: 'POST', h: A }); assert.equal(r.s, 200); assert.equal(JSON.parse(r.b).clips, 1);
+  r = await new Promise(ok => http.get({ port: 9922, path: '/files/leg.srbook' }, rr => { const ch = []; rr.on('data', c => ch.push(c)); rr.on('end', () => ok(Buffer.concat(ch))); }));
+  const lz = await JSZip.loadAsync(r); assert.deepEqual(Object.keys(lz.files).sort(), ['book.txt', 'manifest.json']); assert.equal(await lz.file('book.txt').async('string'), 'Hello there.');
+  r = await call('/files/leg/' + H1 + '.mp3'); assert.equal(r.b, 'OLD-ONE');
+  r = await call('/files/leg.voice.zip'); assert.equal(r.s, 200);
+  r = await call('/admin/split/leg', { m: 'POST', h: A }); assert.equal(JSON.parse(r.b).already, true);
+  r = await call('/admin/split/leg', { m: 'POST', h: { Origin: 'https://ok.example' } }); assert.equal(r.s, 401);
   r = await call('/admin/item/kitten-voice', { m: 'DELETE', h: A }); assert.equal(r.s, 200);
   r = await call('/catalog'); const j = JSON.parse(r.b); assert.equal(j.items.length, 0); assert.deepEqual(j.removed, ['kitten-voice']);
   for (let i = 0; i < 9; i++) r = await call('/admin/item', { m: 'POST', h: { Origin: 'https://ok.example', Authorization: 'Bearer nope', 'Content-Type': 'application/json' }, body: '{}' });

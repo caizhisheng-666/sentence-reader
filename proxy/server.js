@@ -137,6 +137,47 @@ function cleanItem(b) {
   if (Array.isArray(b.preview)) o.preview = b.preview.slice(0, 5).map(p => ({ en: String((p && p.en) || '').slice(0, 300), zh: String((p && p.zh) || '').slice(0, 300) }));
   return o;
 }
+// ---- 最小 zip 读写（故事包都是本软件生成的，不压缩或 deflate）：把语音拆成一句一个文件，读到哪句取哪句 ----
+const zlib = require('zlib');
+function unzipBuf(buf) {
+  let e = buf.length - 22;
+  while (e >= 0 && buf.readUInt32LE(e) !== 0x06054b50) e--;
+  if (e < 0) throw new Error('bad-zip');
+  const n = buf.readUInt16LE(e + 10); let p = buf.readUInt32LE(e + 16); const out = [];
+  for (let i = 0; i < n; i++) {
+    if (buf.readUInt32LE(p) !== 0x02014b50) throw new Error('bad-zip');
+    const method = buf.readUInt16LE(p + 10), csize = buf.readUInt32LE(p + 20), nl = buf.readUInt16LE(p + 28), xl = buf.readUInt16LE(p + 30), cl = buf.readUInt16LE(p + 32), lo = buf.readUInt32LE(p + 42);
+    const name = buf.slice(p + 46, p + 46 + nl).toString('utf8');
+    const start = lo + 30 + buf.readUInt16LE(lo + 26) + buf.readUInt16LE(lo + 28), raw = buf.slice(start, start + csize);
+    if (!name.endsWith('/')) out.push({ name, data: method === 8 ? zlib.inflateRawSync(raw) : raw });
+    p += 46 + nl + xl + cl;
+  }
+  return out;
+}
+const crcT = (() => { const t = []; for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = b => { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = crcT[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+function zipStore(files) {
+  const parts = [], cen = []; let off = 0;
+  for (const f of files) {
+    const nm = Buffer.from(f.name), crc = crc32(f.data), h = Buffer.alloc(30);
+    h.writeUInt32LE(0x04034b50, 0); h.writeUInt16LE(20, 4); h.writeUInt16LE(0x0800, 6); h.writeUInt32LE(0x00210000, 10);
+    h.writeUInt32LE(crc, 14); h.writeUInt32LE(f.data.length, 18); h.writeUInt32LE(f.data.length, 22); h.writeUInt16LE(nm.length, 26);
+    parts.push(h, nm, f.data);
+    const c = Buffer.alloc(46);
+    c.writeUInt32LE(0x02014b50, 0); c.writeUInt16LE(20, 4); c.writeUInt16LE(20, 6); c.writeUInt16LE(0x0800, 8); c.writeUInt32LE(0x00210000, 12);
+    c.writeUInt32LE(crc, 16); c.writeUInt32LE(f.data.length, 20); c.writeUInt32LE(f.data.length, 24); c.writeUInt16LE(nm.length, 28); c.writeUInt32LE(off, 42);
+    cen.push(c, nm); off += 30 + nm.length + f.data.length;
+  }
+  const cd = Buffer.concat(cen), e = Buffer.alloc(22);
+  e.writeUInt32LE(0x06054b50, 0); e.writeUInt16LE(files.length, 8); e.writeUInt16LE(files.length, 10); e.writeUInt32LE(cd.length, 12); e.writeUInt32LE(off, 16);
+  return Buffer.concat([...parts, cd, e]);
+}
+const CLIP_RE = /^clips\/([0-9a-f]{16,64})\.mp3$/;
+function extractClips(id, entries, priv) {          // 语音拆成 files/<故事>/<句子哈希>.mp3
+  const dir = path.join(priv ? SHOP_PRIV : SHOP_FILES, id); fs.mkdirSync(dir, { recursive: true });
+  let n = 0; for (const e of entries) { const m = CLIP_RE.exec(e.name); if (m) { fs.writeFileSync(path.join(dir, m[1] + '.mp3'), e.data); n++; } }
+  return n;
+}
 function readBody(req, limit) {
   return new Promise((ok, no) => { let raw = '', n = 0; req.on('data', c => { n += c.length; if (n <= limit) raw += c; }); req.on('end', () => n > limit ? no(new Error('too-big')) : ok(raw)); req.on('error', no); });
 }
@@ -144,6 +185,12 @@ async function shopRoutes(req, res) {
   const url = req.url.split('?')[0];
   const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
   if (req.method === 'GET' && url === '/catalog') { res.writeHead(200, { ...pubHead, 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(shopRead())); return true; }
+  const cm = /^\/files\/([a-z0-9][a-z0-9-]{0,59})\/([0-9a-f]{16,64})\.mp3$/.exec(url);
+  if (req.method === 'GET' && cm) {
+    const f = path.join(SHOP_FILES, cm[1], cm[2] + '.mp3');
+    if (!fs.existsSync(f)) { res.writeHead(404, pubHead); res.end(); return true; }
+    res.writeHead(200, { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=86400', 'Content-Type': 'audio/mpeg', 'Content-Length': fs.statSync(f).size }); fs.createReadStream(f).pipe(res); return true;
+  }
   let m = /^\/files\/([A-Za-z0-9._-]{1,90})$/.exec(url);
   if (req.method === 'GET' && m) {
     const f = path.join(SHOP_FILES, m[1]);
@@ -169,6 +216,17 @@ async function shopRoutes(req, res) {
       const j = shopRead(); const k = j.items.findIndex(x => x.id === it.id); if (k >= 0) j.items[k] = it; else j.items.push(it);
       j.removed = (j.removed || []).filter(x => x !== it.id); shopWrite(j); return out(200, { ok: true, count: j.items.length });
     }
+    m = /^\/admin\/split\/([a-z0-9][a-z0-9-]{0,59})$/.exec(url);
+    if (req.method === 'POST' && m) {                  // 旧格式（语音打包在故事里）→ 故事只留文字，语音拆成一句一个文件
+      const priv = !fs.existsSync(path.join(SHOP_FILES, m[1] + '.srbook')), dir = priv ? SHOP_PRIV : SHOP_FILES, f = path.join(dir, m[1] + '.srbook');
+      if (!fs.existsSync(f)) return out(404, { error: 'not-found' });
+      const ents = unzipBuf(fs.readFileSync(f)), clipsE = ents.filter(e => CLIP_RE.test(e.name)), rest = ents.filter(e => !CLIP_RE.test(e.name));
+      if (!clipsE.length) return out(200, { ok: true, already: true });
+      const n = extractClips(m[1], clipsE, priv);
+      fs.writeFileSync(path.join(dir, m[1] + '.voice.zip'), zipStore([{ name: 'manifest.json', data: Buffer.from(JSON.stringify({ format: 'sr-voicepack', v: 1, id: 'story-' + m[1], count: n })) }, ...clipsE]));
+      const tmp2 = f + '.tmp'; fs.writeFileSync(tmp2, zipStore(rest)); fs.renameSync(tmp2, f);
+      return out(200, { ok: true, clips: n, bytes: fs.statSync(f).size });
+    }
     m = /^\/admin\/item\/([a-z0-9-]{1,60})$/.exec(url);
     if (req.method === 'DELETE' && m) {
       const j = shopRead(); j.items = j.items.filter(x => x.id !== m[1]); j.removed = [...new Set([...(j.removed || []), m[1]])]; shopWrite(j); return out(200, { ok: true });
@@ -184,7 +242,10 @@ async function shopRoutes(req, res) {
         req.on('end', () => { if (bad) { try { fs.unlinkSync(tmp); } catch (e) {} ok(); } else w.end(ok); }); req.on('error', no);
       });
       if (bad) return out(413, { error: 'too-big' });
-      fs.renameSync(tmp, path.join(dir, m[1])); return out(200, { ok: true, bytes: n });
+      fs.renameSync(tmp, path.join(dir, m[1]));
+      const vm = /^([a-z0-9][a-z0-9-]{0,59})\.voice\.zip$/.exec(m[1]);
+      let clips = 0; if (vm) { try { clips = extractClips(vm[1], unzipBuf(fs.readFileSync(path.join(dir, m[1]))), priv); } catch (e) { return out(400, { error: 'bad-voice-zip' }); } }
+      return out(200, { ok: true, bytes: n, clips });
     }
   } catch (e) { return out(e.message === 'too-big' ? 413 : 400, { error: e.message === 'too-big' ? 'too-big' : 'bad-request' }); }
   return out(404, { error: 'not-found' });
