@@ -165,7 +165,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.14-75';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.14-76';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1495,9 +1495,9 @@ function devParse(text) {                           // 解析中英对照文本�
   const preview = [1, 2, 3].filter(i => pb.sentences[i] && al.zh[i]).slice(0, 2).map(i => ({ en: pb.sentences[i], zh: al.zh[i] }));
   return { sents: pb.sentences, preview };
 }
-async function devVoiceFor(p) {                      // 合成 → 配到本机 → 下载留底 → 上架语音商品。成功返回 true，失败抛错
+async function devSynth(sents) {                     // 用开发者的 Azure Key 逐句合成。返回 { clips: Map(哈希→音频), voice }；缺句会抛错（再点一次接着做，已合成的不重复收费）
   const voice = azCfg().voice, uniq = new Map();
-  for (const t of p.sents) { const k = await vpKey(t); if (!uniq.has(k)) uniq.set(k, String(t).trim()); }
+  for (const t of sents) { const k = await vpKey(t); if (!uniq.has(k)) uniq.set(k, String(t).trim()); }
   const todo = [...uniq.entries()], clips = new Map(); let i = 0, done = 0, failed = 0;
   const worker = async () => {
     while (i < todo.length && failed < 3) {
@@ -1508,21 +1508,13 @@ async function devVoiceFor(p) {                      // 合成 → 配到本机 
   };
   await Promise.all([worker(), worker(), worker(), worker()]);
   if (clips.size < todo.length) throw new Error('只合成了 ' + clips.size + ' / ' + todo.length + ' 句（Key、网络或额度有问题）。再点一次会接着做，已经合成的不会重复收费');
-  setScStatus('正在打包语音…');
-  const out = new JSZip(), vid = (await azHash('vpack\n' + p.id + '\n' + voice)).slice(0, 16), vtitle = p.title + ' 自然语音包';
-  out.file('manifest.json', JSON.stringify({ format: 'sr-voicepack', v: 1, id: vid, title: vtitle, voice, buyer: '', count: todo.length }));
-  for (const [k, b] of clips) out.file('clips/' + k + '.mp3', b);
-  await vpImportClips(out, [...clips.keys()].map(k => 'clips/' + k + '.mp3'), { id: vid, title: vtitle }, vtitle, null);   // 这台设备上马上就能听到
-  const blob = await out.generateAsync({ type: 'blob', compression: 'STORE' });
-  const fname = p.id + '-voice.zip';
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fname;      // 留一份底
-  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-  setScStatus('正在上架语音商品…');
-  const entry = { id: p.id + '-voice', kind: 'voice', forId: p.id, title: vtitle, level: p.level || '', count: p.sents.length, desc: '《' + (p.titleZh || p.title) + '》的自然人声朗读，导入后点“听原音”即可听到。' };
-  if (p.vprice) entry.price = p.vprice;
-  const pub = await devPublish(entry, { name: p.vprice ? entry.id + '.zip' : fname, blob, priv: !!p.vprice });
-  if (pub !== true) throw new Error('语音已做好并配到本机，但上架失败：' + pub);
-  return true;
+  return { clips, voice };
+}
+async function devPackStory(man, text, clips) {          // 故事包 = 清单 + 中英对照正文 + （可选）每句语音，买故事就自带语音
+  const z = new JSZip();
+  z.file('manifest.json', JSON.stringify(man)); z.file('book.txt', text);
+  if (clips) for (const [k, b] of clips) z.file('clips/' + k + '.mp3', b);
+  return { z, blob: await z.generateAsync({ type: 'blob', compression: clips ? 'STORE' : 'DEFLATE' }) };
 }
 async function devNewStoryPop() {
   if (!azReady()) { setScStatus('请先在“帮助”里解锁开发者模式'); return; }
@@ -1533,8 +1525,7 @@ async function devNewStoryPop() {
     '<div class="note">英文标题</div><input id="dnTitle" style="' + F + '"><div class="note">中文名</div><input id="dnZh" style="' + F + '">' +
     '<div class="note">等级</div><input id="dnLevel" value="A1 入门" style="' + F + '">' +
     '<div class="note">故事价格（元，0 或留空 = 免费）</div><input id="dnPrice" inputmode="decimal" value="0" style="' + F + '">' +
-    '<label style="display:flex;gap:8px;align-items:center;margin:4px 0 8px;color:var(--ink)"><input type="checkbox" id="dnVoice" checked onchange="document.getElementById(\'dnVRow\').style.display=this.checked?\'block\':\'none\'"> 同时生成自然语音</label>' +
-    '<div id="dnVRow"><div class="note">语音价格（元，0 或留空 = 免费）</div><input id="dnVPrice" inputmode="decimal" value="9.9" style="' + F + '"></div>' +
+    '<label style="display:flex;gap:8px;align-items:center;margin:4px 0 8px;color:var(--ink)"><input type="checkbox" id="dnVoice" checked> 同时生成自然语音（买故事就自带语音）</label>' +
     '<div class="row" style="margin-top:6px"><button id="dnGo" onclick="devNewGo()" disabled>开始上架</button><button class="ghost" onclick="openStoryCity()">返回</button></div>' +
     '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>');
 }
@@ -1556,32 +1547,31 @@ async function devNewFile(ev) {
 async function devNewGo() {
   if (!devNew || devGenBusy) return;
   const title = document.getElementById('dnTitle').value.trim(), zh = document.getElementById('dnZh').value.trim(), level = document.getElementById('dnLevel').value.trim();
-  const price = Math.max(0, parseFloat(document.getElementById('dnPrice').value) || 0), wantVoice = document.getElementById('dnVoice').checked, vprice = Math.max(0, parseFloat(document.getElementById('dnVPrice').value) || 0);
+  const price = Math.max(0, parseFloat(document.getElementById('dnPrice').value) || 0), wantVoice = document.getElementById('dnVoice').checked;
   if (!title) { setScStatus('请填英文标题'); return; }
   const id = devSlug(title) || ('s' + Date.now().toString(36));
   const chars = devNew.d.sents.reduce((m, x) => m + x.length, 0);
   if (wantVoice && azUsed() + chars > AZ_FREE && !confirm('这本约 ' + chars + ' 字符，加上本月已记录的 ' + azUsed() + '，会超出 ' + AZ_FREE + ' 免费额度，超出部分会向微软付费。继续吗？')) return;
   devGenBusy = true; document.getElementById('dnGo').disabled = true;
   try {
-    setScStatus('正在上架故事…');
-    const z = new JSZip();
-    z.file('manifest.json', JSON.stringify({ format: 'sr-story', v: 1, id, title, level, voice: '', count: devNew.d.sents.length }));
-    z.file('book.txt', devNew.text);
-    const blob = await z.generateAsync({ type: 'blob', compression: 'DEFLATE' });
-    const entry = { id, kind: 'story', title, titleZh: zh, level, count: devNew.d.sents.length, voice: wantVoice, desc: zh ? zh + '。' : '', preview: devNew.d.preview };
+    let clips = null, voice = '';
+    if (wantVoice) { const r = await devSynth(devNew.d.sents); clips = r.clips; voice = r.voice; }
+    setScStatus('正在打包并上架…');
+    const man = { format: 'sr-story', v: 1, id, title, level, voice, count: devNew.d.sents.length };
+    const pk = await devPackStory(man, devNew.text, clips);
+    if (clips) await vpImportClips(pk.z, [...clips.keys()].map(k => 'clips/' + k + '.mp3'), { id: 'story-' + id, title }, title, null);   // 这台设备上马上就能听到
+    const entry = { id, kind: 'story', title, titleZh: zh, level, count: devNew.d.sents.length, voice: !!clips, desc: zh ? zh + '。' : '', preview: devNew.d.preview };
     if (price) entry.price = price;
-    const pub = await devPublish(entry, { name: id + '.srbook', blob, priv: !!price });
-    if (pub !== true) throw new Error('故事上架失败：' + pub);
-    if (wantVoice) await devVoiceFor({ id, title, titleZh: zh, level, sents: devNew.d.sents, vprice });
+    const pub = await devPublish(entry, { name: id + '.srbook', blob: pk.blob, priv: !!price });
+    if (pub !== true) throw new Error('上架失败：' + pub);
     storyCat = null; await openStoryCity();
-    setScStatus('全部完成：《' + title + '》已上架' + (wantVoice ? '，自然语音也配好并上架了（这台设备上点“听原音”就能听到）。' : '。'));
+    setScStatus('全部完成：《' + title + '》已上架' + (price ? '，定价 ¥' + price : '，免费') + (clips ? '，自然语音已打包在故事里，这台设备上点“听原音”就能听到。' : '。'));
   } catch (e) { setScStatus((e && e.message ? e.message : '未知错误') + '（修好后再点“开始上架”，已合成的语音不会重复收费）'); document.getElementById('dnGo') && (document.getElementById('dnGo').disabled = false); }
   devGenBusy = false;
 }
-async function devGenVoice(id) {                      // 已上架的故事补做语音：只问一个价格
+async function devGenVoice(id) {                      // 已上架的故事补做语音：语音打包进故事，原地更新（价格不变）
   if (!azReady()) { setScStatus('请先在“帮助”里解锁开发者模式'); return; }
   const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it) return;
-  const pr = prompt('给《' + it.title + '》生成自然语音并上架。语音价格（元，留空 = 免费）：', '9.9'); if (pr == null) return;
   if (devGenBusy) { setScStatus('正在生成中，请等它做完'); return; }
   devGenBusy = true;
   try {
@@ -1589,9 +1579,16 @@ async function devGenVoice(id) {                      // 已上架的故事补�
     let zbuf;
     if (it.file) { const r = await fetch(shopUrl(it.file), { cache: 'no-cache' }); if (!r.ok) throw new Error('读取失败（HTTP ' + r.status + '）'); zbuf = await r.arrayBuffer(); }
     else { const r = await devAdmin('/admin/private/' + it.id + '.srbook', { method: 'GET' }); if (!r.ok) throw new Error('读取收费故事失败：' + r.msg); zbuf = await r.res.arrayBuffer(); }
-    const text = await (await JSZip.loadAsync(zbuf)).file('book.txt').async('string');
-    await devVoiceFor({ id: it.id, title: it.title, titleZh: it.titleZh, level: it.level, sents: devParse(text).sents, vprice: Math.max(0, parseFloat(pr) || 0) });
-    storyCat = null; await openStoryCity(); setScStatus('完成：语音已配好并上架。');
+    const old = await JSZip.loadAsync(zbuf);
+    const man = JSON.parse(await old.file('manifest.json').async('string')), text = await old.file('book.txt').async('string');
+    const { clips, voice } = await devSynth(devParse(text).sents);
+    setScStatus('正在打包并更新…');
+    const pk = await devPackStory(Object.assign({}, man, { voice }), text, clips);
+    await vpImportClips(pk.z, [...clips.keys()].map(k => 'clips/' + k + '.mp3'), { id: 'story-' + it.id, title: it.title }, it.title, null);
+    const entry = Object.assign({}, it, { voice: true }); delete entry.kind; entry.kind = 'story';
+    const pub = await devPublish(entry, { name: it.id + '.srbook', blob: pk.blob, priv: !!it.price });
+    if (pub !== true) throw new Error('更新失败：' + pub);
+    storyCat = null; await openStoryCity(); setScStatus('完成：自然语音已打包进《' + it.title + '》，买家获取后自带语音。');
   } catch (e) { setScStatus('生成失败：' + (e && e.message ? e.message : '未知错误')); }
   devGenBusy = false;
 }
@@ -1604,7 +1601,7 @@ function scBuy(id) {
     '<div class="row" style="margin-top:12px"><button class="ghost" onclick="openStoryCity()">返回故事城</button></div>');
 }
 function renderStoryCity(err) {
-  const items = (storyCat && storyCat.items) || [];
+  const items = ((storyCat && storyCat.items) || []).filter(x => x.kind !== 'voice' || azReady());     // 语音包不单独卖了，旧的语音商品只给开发者看（方便下架）
   const owned = new Set(shelfGet().map(x => x.id));
   let h = '<h3 style="margin:0 0 6px">🏙 故事城</h3><div class="note" style="margin-bottom:10px">' + esc((storyCat && storyCat.intro) || '原创中英对照故事，点单词发音，点句子朗读。') + '</div>';
   if (err) h += '<div class="note" style="color:#b94a48;margin-bottom:8px">' + esc(err) + '</div>';
