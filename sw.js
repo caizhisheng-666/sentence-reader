@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sentence-reader-v83';
+const CACHE_NAME = 'sentence-reader-v84';
 const PRECACHE = [
   './', './index.html', './dict-basic.js', './grammar.js', './manifest.json', './icon-192.png', './icon-512.png',
   './lib/jszip.min.js', './lib/pdf.min.js', './lib/pdf.worker.min.js'
@@ -43,7 +43,10 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // CDN 组件：缓存优先
+  // 其他网站（如故事城目录、故事文件、翻译接口）：不经过缓存，每次都取最新的
+  if (url.hostname !== 'cdnjs.cloudflare.com') return;
+
+  // CDN 组件（只在本站组件加载失败时才会用到）：缓存优先
   event.respondWith(
     caches.match(req).then(cached => cached || fetch(req).then(res => {
       const copy = res.clone();

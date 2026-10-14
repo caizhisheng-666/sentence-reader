@@ -163,7 +163,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.15-83';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.15-84';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1462,7 +1462,7 @@ async function installStory(zip, fallbackName) {
   return { clips: names.length, voice: man.voice || '' };
 }
 async function fetchProgress(url, onPct) {          // 下载并报告进度（百分比）
-  const r = await fetch(url, { cache: 'no-cache' }); if (!r.ok) throw new Error('下载失败（HTTP ' + r.status + '）');
+  const r = await fetch(url + (url.includes('?') ? '&' : '?') + 't=' + Date.now(), { cache: 'no-store' }); if (!r.ok) throw new Error('下载失败（HTTP ' + r.status + '）');
   const len = +r.headers.get('Content-Length') || 0;
   if (!r.body || !r.body.getReader || !len) return await r.arrayBuffer();
   const rd = r.body.getReader(), parts = []; let got = 0;
@@ -1649,7 +1649,7 @@ async function devGenVoice(id) {                      // 已上架的故事补�
   try {
     setScStatus('正在读取《' + it.title + '》…');
     let zbuf;
-    if (it.file) { const r = await fetch(shopUrl(it.file), { cache: 'no-cache' }); if (!r.ok) throw new Error('读取失败（HTTP ' + r.status + '）'); zbuf = await r.arrayBuffer(); }
+    if (it.file) { const r = await fetch(shopUrl(it.file) + '?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) throw new Error('读取失败（HTTP ' + r.status + '）'); zbuf = await r.arrayBuffer(); }
     else { const r = await devAdmin('/admin/private/' + it.id + '.srbook', { method: 'GET' }); if (!r.ok) throw new Error('读取收费故事失败：' + r.msg); zbuf = await r.res.arrayBuffer(); }
     await loadLibs();
     const old = await JSZip.loadAsync(zbuf);
@@ -1712,8 +1712,8 @@ function catCacheGet() { try { return JSON.parse(localStorage.getItem('sr_cat_ca
 function catCacheSet(c) { try { localStorage.setItem('sr_cat_cache', JSON.stringify(c)); } catch (e) {} }
 async function fetchStoryCat() {
   const [loc, srv] = await Promise.all([
-    fetchT('stories/catalog.json', 6000, { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).catch(() => null),
-    fetchT(SHOP_BASE + '/catalog', 6000, { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).catch(() => null)
+    fetchT('stories/catalog.json?t=' + Date.now(), 6000, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetchT(SHOP_BASE + '/catalog?t=' + Date.now(), 6000, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
   ]);
   if (!loc && !srv) return null;
   const base = loc || { items: [] }, sv = srv || { items: [], removed: [] };
