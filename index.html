@@ -161,20 +161,29 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 <!-- 组件优先用本站自带的（lib 文件夹，国内也能秒开）；缺文件或加载失败时，再退回外网 CDN -->
 <script src="./lib/jszip.min.js"></script>
 <script>window.JSZip || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\/script>');</script>
-<script src="./lib/pdf.min.js"></script>
-<script>window.__pdfLocal = !!window.pdfjsLib; window.pdfjsLib || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"><\/script>');</script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="./dict-basic.js"></script>
 <script src="./grammar.js"></script>
 <script>
 'use strict';
-const APP_VERSION = '2026.10.14-73';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.14-74';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
 let rec = { mr: null, on: false, start: 0, timer: null };
 let recView = { key: '', urls: [] };
-if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = window.__pdfLocal ? './lib/pdf.worker.min.js' : 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+/* 体积大、不常用的组件：用到时才加载（PDF 导入、词典文件导入），不拖慢打开软件 */
+function loadScript(src) { return new Promise((res, rej) => { const el = document.createElement('script'); el.src = src; el.onload = res; el.onerror = () => { el.remove(); rej(new Error('组件加载失败')); }; document.head.appendChild(el); }); }
+let pdfReady = null;
+function ensurePdf() {
+  if (window.pdfjsLib) return Promise.resolve();
+  return pdfReady || (pdfReady = loadScript('./lib/pdf.min.js').then(() => { pdfjsLib.GlobalWorkerOptions.workerSrc = './lib/pdf.worker.min.js'; }).catch(() =>
+    loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js').then(() => { pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; })).catch(e => { pdfReady = null; throw e; }));
+}
+let papaReady = null;
+function ensurePapa() {
+  if (window.Papa) return Promise.resolve();
+  return papaReady || (papaReady = loadScript('https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js').catch(e => { papaReady = null; throw new Error('导入组件没有加载成功，请联网刷新页面后再试'); }));
+}
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
 
 /* ---------- IndexedDB：离线大词典 + 录音 ---------- */
@@ -252,7 +261,7 @@ async function boot() {
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
   render();                                                    // 打开软件先进入书架
   loadVoices().then(refreshVoiceSelect).catch(() => {});      // 提前把声音列表加载好，第一次点“听原音”才有声音
-  if (!dictInfo || !dictInfo.count) autoImportDict();
+  if (!dictInfo || !dictInfo.count) setTimeout(autoImportDict, 2500);      // 先让书架显示出来，词典稍后在后台下载
 }
 window.addEventListener('online', () => { if (state) loadCurrent(); });
 window.addEventListener('offline', () => render());
@@ -2018,7 +2027,7 @@ function ecKeep(r) {
   return rank <= 60000 || flagged;
 }
 async function parseDictBlob(blob, name, onProgress) {
-  if (!window.Papa) throw new Error('导入组件没有加载成功，请联网刷新页面后再试');
+  await ensurePapa();
   const head = await blob.slice(0, 4096).text();
   const firstLine = head.split(/\r?\n/)[0].toLowerCase();
   const isEcdict = firstLine.includes('word') && firstLine.includes('translation');
@@ -2087,7 +2096,7 @@ async function importSlimText(text, name) {
     const f = line.split('\t');
     if (f.length < 3 || !f[0]) continue;
     batch.push({ w: f[0], p: f[1] || '', t: (f[2] || '').replace(/\\n/g, '\n'), d: '', x: f[3] || '' });
-    if (batch.length >= 5000) { await idbPutMany('dict', batch); count += batch.length; batch = []; }
+    if (batch.length >= 1500) { await idbPutMany('dict', batch); count += batch.length; batch = []; await new Promise(r => setTimeout(r, 20)); }     // 小批量写入，中间让出时间给界面，不卡
   }
   if (batch.length) { await idbPutMany('dict', batch); count += batch.length; }
   if (!count) throw new Error('词典文件是空的或格式不对');
@@ -2449,7 +2458,7 @@ function setImportStatus(html) { const el = document.getElementById('importStatu
 function letterCount(t) { return ((t || '').match(/[A-Za-z]/g) || []).length; }
 
 async function parsePdf(buf) {
-  if (!window.pdfjsLib) throw new Error('PDF 组件没有加载成功，请联网刷新后再试');
+  try { await ensurePdf(); } catch (e) { throw new Error('PDF 组件没有加载成功，请联网刷新后再试'); }
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
   const n = pdf.numPages, texts = [];
   for (let i = 1; i <= n; i++) {

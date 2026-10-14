@@ -1,11 +1,7 @@
-const CACHE_NAME = 'sentence-reader-v73';
+const CACHE_NAME = 'sentence-reader-v74';
 const PRECACHE = [
   './', './index.html', './dict-basic.js', './grammar.js', './manifest.json', './icon-192.png', './icon-512.png',
-  './lib/jszip.min.js', './lib/pdf.min.js', './lib/pdf.worker.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js'
+  './lib/jszip.min.js', './lib/pdf.min.js', './lib/pdf.worker.min.js'
 ];
 
 self.addEventListener('install', event => {
