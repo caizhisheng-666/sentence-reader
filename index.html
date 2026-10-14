@@ -158,16 +158,12 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
   <div class="fs-topbar"><button class="iconbtn" onclick="closeFullscreen()">← 返回</button><span id="fsTitle"></span></div>
   <div id="fsBody" class="fs-body"></div>
 </div>
-<!-- 组件优先用本站自带的（lib 文件夹，国内也能秒开）；缺文件或加载失败时，再退回外网 CDN -->
-<script src="./lib/jszip.min.js"></script>
-<script>window.JSZip || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\/script>');</script>
-<script src="./dict-basic.js"></script>
-<script src="./grammar.js"></script>
+<!-- 压缩包解析、基础词典、语法引擎：书架显示出来以后再在后台加载（见 loadLibs），网慢时不拖住打开 -->
 <script>
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.14-79';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.14-80';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -175,6 +171,15 @@ let rec = { mr: null, on: false, start: 0, timer: null };
 let recView = { key: '', urls: [] };
 /* 体积大、不常用的组件：用到时才加载（PDF 导入、词典文件导入），不拖慢打开软件 */
 function loadScript(src) { return new Promise((res, rej) => { const el = document.createElement('script'); el.src = src; el.onload = res; el.onerror = () => { el.remove(); rej(new Error('组件加载失败')); }; document.head.appendChild(el); }); }
+let LIBS = null;
+function loadLibs() {                                // 后台加载常用组件；带版本号，服务器可以让浏览器长期缓存
+  const v = '?v=' + APP_VERSION;
+  return LIBS || (LIBS = Promise.all([
+    window.JSZip ? 0 : loadScript('./lib/jszip.min.js' + v).catch(() => loadScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js')),
+    window.BASIC_DICT ? 0 : loadScript('./dict-basic.js' + v),
+    window.EG ? 0 : loadScript('./grammar.js' + v)
+  ]).then(() => { analysisCache = { idx: -1, res: null }; if (state) render(); }).catch(e => { LIBS = null; throw new Error('组件加载失败，请检查网络后重试'); }));
+}
 let pdfReady = null;
 function ensurePdf() {
   if (window.pdfjsLib) return Promise.resolve();
@@ -258,6 +263,7 @@ async function boot() {
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
   render();                                                    // 打开软件先进入书架
   T_SHELF = Math.round(performance.now());
+  loadLibs().catch(() => {});
   loadVoices().then(refreshVoiceSelect).catch(() => {});      // 提前把声音列表加载好，第一次点“听原音”才有声音
   if (!dictInfo || !dictInfo.count) setTimeout(autoImportDict, 2500);      // 先让书架显示出来，词典稍后在后台下载
 }
@@ -1446,6 +1452,7 @@ async function getStory(id) {
   try {
     setScStatus('正在下载《' + it.title + '》…');
     const r = await fetch(shopUrl(it.file), { cache: 'no-cache' }); if (!r.ok) throw new Error('下载失败（HTTP ' + r.status + '）');
+    await loadLibs();
     await installStory(await JSZip.loadAsync(await r.arrayBuffer()), it.title);
   } catch (e) { setScStatus('获取失败：' + (e && e.message ? e.message : '未知错误') + '。请检查网络后重试。'); }
 }
@@ -1513,6 +1520,7 @@ async function devSynth(sents) {                     // 用开发者的 Azure Ke
   return { clips, voice };
 }
 async function devPackStory(man, text, clips) {          // 故事包 = 清单 + 中英对照正文 + （可选）每句语音，买故事就自带语音
+  await loadLibs();
   const z = new JSZip();
   z.file('manifest.json', JSON.stringify(man)); z.file('book.txt', text);
   if (clips) for (const [k, b] of clips) z.file('clips/' + k + '.mp3', b);
@@ -1581,6 +1589,7 @@ async function devGenVoice(id) {                      // 已上架的故事补�
     let zbuf;
     if (it.file) { const r = await fetch(shopUrl(it.file), { cache: 'no-cache' }); if (!r.ok) throw new Error('读取失败（HTTP ' + r.status + '）'); zbuf = await r.arrayBuffer(); }
     else { const r = await devAdmin('/admin/private/' + it.id + '.srbook', { method: 'GET' }); if (!r.ok) throw new Error('读取收费故事失败：' + r.msg); zbuf = await r.res.arrayBuffer(); }
+    await loadLibs();
     const old = await JSZip.loadAsync(zbuf);
     const man = JSON.parse(await old.file('manifest.json').async('string')), text = await old.file('book.txt').async('string');
     const { clips, voice } = await devSynth(devParse(text).sents);
@@ -1923,6 +1932,7 @@ async function dictLookup(w) {
   try { return (await idbGet('dict', w)) || (await idbGet('dict', '^' + w)) || null; } catch (e) { return null; }
 }
 async function lookupWord(raw) {
+  await loadLibs();
   const cands = EG.lemmaCandidates(raw), results = [], seen = new Set(), extra = [];
   const tryOne = async c => {
     if (seen.has(c.w) || results.length >= 3) return;
@@ -2102,6 +2112,7 @@ function refHtml(r, noTitle) {
     r.eg.map(e => { const p = e.split('｜'); return '<div class="eg">• ' + esc(p[0]) + (p[1] ? '<br><span class="sub">' + esc(p[1]) + '</span>' : '') + '</div>'; }).join('') + '</div>';
 }
 function openGrammarDict(key) {
+  if (!window.EG) { toast('正在加载语法字典…', 1500); loadLibs().then(() => openGrammarDict(key)).catch(e => toast(e.message, 3000)); return; }
   if (key && EG.REF[key]) { showPop(refHtml(EG.REF[key]) + '<button class="link" onclick="openGrammarDict()">查看全部语法条目</button>'); return; }
   let html = '<h3 style="margin:0 0 4px">📘 语法字典</h3><div class="note">离线可用，共 ' + Object.keys(EG.REF).length + ' 个条目。</div>';
   EG.GROUPS.forEach(g => {
@@ -2232,6 +2243,8 @@ function normalizeZipPath(p) {
   return out.join('/');
 }
 async function parseEpub(buf) {
+  await loadLibs();
+
   const zip = await JSZip.loadAsync(buf);
   const cf = zip.file('META-INF/container.xml');
   if (!cf) throw new Error('这不是有效的 epub 文件');
@@ -2282,6 +2295,8 @@ function mdToText(s) {
     .replace(/(^|\W)_(.+?)_(?=\W|$)/g, '$1$2').replace(/`([^`]+)`/g, '$1').replace(/<[^>]+>/g, '');
 }
 async function parseDocx(buf) {
+  await loadLibs();
+
   const zip = await JSZip.loadAsync(buf);
   const f = zip.file('word/document.xml');
   if (!f) throw new Error('这不是有效的 .docx 文件（旧版 .doc 请先在 Word 里另存为 .docx）');
@@ -2726,7 +2741,7 @@ function render() {
     ga.items.map(it => '<div class="gi"><div class="gt">' + esc(it.title) + '</div>' +
       (it.hit ? '<div class="gh">“' + esc(it.hit) + '”</div>' : '') +
       '<div class="gd">' + esc(it.detail) + '</div>' +
-      (EG.REF[it.key] ? '<button class="link" onclick="openGrammarDict(\'' + it.key + '\')">在语法字典中查看</button>' : '') + '</div>').join('') +
+      (window.EG && EG.REF[it.key] ? '<button class="link" onclick="openGrammarDict(\'' + it.key + '\')">在语法字典中查看</button>' : '') + '</div>').join('') +
     '<div class="note" style="margin-top:6px">语法讲解由规则自动分析，适合作为读句子的提示；遇到复杂长句时仅供参考。</div></details>';
 
   const recs = (recView.key === recKey() && recView.urls.length)
