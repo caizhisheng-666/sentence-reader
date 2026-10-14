@@ -92,6 +92,8 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .bottombar .bmid{font-size:12px;color:var(--sub);text-align:center;flex:1;line-height:1.3}
 .bottombar button{min-width:96px}
 .bottombar button.nxt{font-weight:600;min-width:112px}
+.bottombar .bplay{width:46px;height:46px;min-width:0;padding:0;border-radius:50%;font-size:17px;line-height:1;display:inline-flex;align-items:center;justify-content:center;margin:0 auto 4px}
+@media (max-width:380px){.bottombar button{min-width:84px}.bottombar button.nxt{min-width:92px}.bottombar .bbin{gap:6px;padding-left:12px;padding-right:12px}}
 .soft{background:var(--soft);color:var(--accent)}
 .menulist{background:var(--card);border-radius:14px;overflow:hidden;margin:8px 0 4px}
 .menulist button{display:flex;width:100%;align-items:center;justify-content:space-between;background:transparent;color:var(--ink);border-radius:0;padding:14px 16px;font-size:16px;font-weight:400;text-align:left;border-bottom:.5px solid var(--line)}
@@ -163,7 +165,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.15-86';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.15-87';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2872,7 +2874,7 @@ function render() {
     '<div class="levelbar"><div>' + statsHtml() + '</div><div>' + (tocLabel() ? esc(tocLabel()) : '') + '</div></div>' +
     '<div class="card">' +
       (function () { const r = imageRangeFor(state.idx); return (r && r[0] === curImageStart) ? curImageUrls.map(u => '<img src="' + u + '" alt="书页插图" style="max-width:100%;max-height:60vh;object-fit:contain;border-radius:10px;margin:0 auto 14px;display:block">').join('') : ''; })() +
-      '<div class="sentence">' + renderSentenceHTML(state.sentences[state.idx]) + '</div>' +
+      '<div class="sentence"' + (function () { const n = state.sentences[state.idx].length; return n > 280 ? ' style="font-size:21px"' : n > 160 ? ' style="font-size:24px"' : ''; })() + '>' + renderSentenceHTML(state.sentences[state.idx]) + '</div>' +
       '<div class="row" style="justify-content:space-between;align-items:flex-start;gap:8px">' +
         '<div class="zh">' + (getShowZh() ? (bz ? '<span class="src" style="margin:0 6px 0 0">书中译文' + (state.zhp && state.zhp[state.idx] ? '·整段' : '') + '</span>' : '') + trans + (hasBz ? ' <button class="link" onclick="toggleBookZh()">' + (bz ? '改看机器翻译' : '改看书中译文') + '</button>' : '') : '<span class="sub">中文翻译已隐藏</span>') + '</div>' +
         '<button class="iconbtn" style="flex-shrink:0" onclick="toggleZh()">' + (getShowZh() ? '隐藏中文' : '显示中文') + '</button>' +
@@ -2890,7 +2892,7 @@ function render() {
     '</div>' +
     '<div class="bottombar"><div class="bbin">' +
       '<button class="ghost" onclick="prevSentence()" ' + (state.idx > 0 && !rec.on ? '' : 'disabled') + '>上一句</button>' +
-      '<div class="bmid">第 ' + (state.idx + 1) + ' 句 · 共 ' + state.sentences.length + ' 句<div class="progressline" style="margin:6px 0 0"><div class="progressfill" style="width:' + pct + '%"></div></div></div>' +
+      '<div class="bmid"><button class="bplay" onclick="playListen()" aria-label="朗读这一句">' + (listenState.idx === state.idx && listenState.playing ? (listenState.paused ? '▶' : (azLoading ? '…' : '❚❚')) : '▶') + '</button><div>' + (state.idx + 1) + ' / ' + state.sentences.length + '</div><div class="progressline" style="margin:4px 0 0"><div class="progressfill" style="width:' + pct + '%"></div></div></div>' +
       '<button class="nxt" onclick="nextSentence()" ' + (rec.on ? 'disabled' : '') + '>下一句</button>' +
     '</div></div>';
   applySpeakHighlight();
