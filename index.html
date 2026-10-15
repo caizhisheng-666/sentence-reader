@@ -99,9 +99,6 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .bottombar .bplay{flex:1;max-width:160px;min-width:0;display:inline-flex;align-items:center;justify-content:center;align-self:stretch;padding-top:0;padding-bottom:0}
 .bottombar .bplay:not(.playing){background:var(--soft);color:var(--accent)}
 .spk{display:block}
-.spk.on .w1{animation:spkw 1.1s ease-in-out infinite}
-.spk.on .w2{animation:spkw 1.1s ease-in-out .25s infinite}
-@keyframes spkw{0%,100%{opacity:.25}50%{opacity:1}}
 .bplay.loading .spk{opacity:.6}
 .pgplay:not(.playing){background:var(--soft);color:var(--accent)}
 .bottombar .bprog{position:absolute;left:0;right:0;top:0;height:2px;background:var(--line)}
@@ -122,7 +119,7 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.72}}
 @media (prefers-reduced-motion: reduce){.recbtn.on{animation:none}}
 .recitem{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:var(--sub)}
-.recitem audio{height:36px;flex:1;min-width:0}
+.recplay{width:38px;height:38px;min-width:0;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--soft);color:var(--accent)}
 .gsum{display:inline-block;background:var(--pop);border-radius:8px;padding:4px 10px;font-size:13px;margin-bottom:6px}
 .gi{padding:10px 0;border-bottom:1px solid var(--line)}
 .gi:last-child{border-bottom:none}
@@ -1222,7 +1219,8 @@ function speakText(text, rate) {               // 单词、听写、整页翻译
     markStopped(); speakNow(u);
   } catch (e) {}
 }
-function speakWord() { speakText(curWord); }
+function spkFlash(btn, ms) { if (!btn) return; btn.innerHTML = SPK_ON; clearTimeout(btn._t); btn._t = setTimeout(() => { btn.innerHTML = SPK_OFF; }, ms || 1400); }
+function speakWord(btn) { speakText(curWord); spkFlash(btn); }
 function previewVoice(uri) {
   try {
     const v = currentVoices().find(x => x.voiceURI === uri);
@@ -2034,6 +2032,18 @@ async function toggleRecord() {
     render();
   } finally { recBusy = false; }
 }
+let recAudio = null, recIdx = -1;
+function recStop() { if (recAudio) { try { recAudio.pause(); } catch (e) {} recAudio = null; } const b = document.getElementById('recp-' + recIdx); if (b) b.innerHTML = SPK_OFF; recIdx = -1; }
+function recPlay(i) {                               // 播放自己的跟读录音：喇叭打开=正在播放，再点一下停止
+  const was = recIdx; recStop();
+  if (was === i) return;
+  const u = recView.urls[i]; if (!u) return;
+  stopSpeech();
+  recAudio = new Audio(u.url); recIdx = i;
+  const b = document.getElementById('recp-' + i); if (b) b.innerHTML = SPK_ON;
+  recAudio.onended = recAudio.onerror = () => { if (recIdx === i) recStop(); };
+  recAudio.play().catch(() => recStop());
+}
 async function deleteRecs() {
   if (!confirm('删除这一句的所有录音？')) return;
   try { await idbDel('recs', recKey()); } catch (e) {}
@@ -2119,8 +2129,9 @@ async function wordClick(i, el) {
   speakText(clean);                               // 点读：点哪个词就直接念哪个词（必须在点击的这一下里同步发起），同时照常弹出词典
   lastWordSentIdx = (el && el.dataset && el.dataset.s) ? parseInt(el.dataset.s, 10) : -1;
   const rect = el.getBoundingClientRect();
-  const head = '<div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div class="dhead">' + esc(clean) + '</div><button class="iconbtn" onclick="speakWord()" aria-label="朗读这个词">' + SPK_ON.replace(' on"', '"') + '</button></div>';
+  const head = '<div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div class="dhead">' + esc(clean) + '</div><button class="iconbtn" id="wpSpk" onclick="speakWord(this)" aria-label="朗读这个词">' + SPK_ON + '</button></div>';
   document.getElementById('wpBody').innerHTML = head + '<div class="note">查询中…</div>';
+  spkFlash(document.getElementById('wpSpk'));
   positionWordPop(rect);
   let res = [];
   try { res = await lookupWord(clean); }
@@ -2692,8 +2703,9 @@ function pgHlSet(idx, k) {
   const el = document.querySelector('#pgs-' + idx + ' .w[data-k="' + k + '"]'); if (el) el.classList.add('speaking');
 }
 function pgHlStop() { if (pgHlTimer) { clearInterval(pgHlTimer); pgHlTimer = null; } pgHlSet(0, -1); }
-const SPK_OFF = '<svg class="spk" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 9.5v5h3.6L12.5 19V5L7.6 9.5H4z" fill="currentColor"/></svg>';
-const SPK_ON = '<svg class="spk on" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 9.5v5h3.6L12.5 19V5L7.6 9.5H4z" fill="currentColor"/><path class="w1" d="M15.5 9.2a4 4 0 0 1 0 5.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path class="w2" d="M18.2 6.6a7.6 7.6 0 0 1 0 10.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+const SPK_BODY = '<path d="M3.5 9.6c0-.6.5-1.1 1.1-1.1h2.6l4.1-3.6c.7-.6 1.7-.1 1.7.8v12.6c0 .9-1 1.4-1.7.8l-4.1-3.6H4.6c-.6 0-1.1-.5-1.1-1.1V9.6z" fill="currentColor"/>';
+const SPK_OFF = '<svg class="spk" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">' + SPK_BODY + '<path d="M16 9.5l5 5M21 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';   // 关闭（没在播放）
+const SPK_ON = '<svg class="spk on" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">' + SPK_BODY + '<path d="M15.8 9a4.2 4.2 0 0 1 0 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M18.6 6.4a8 8 0 0 1 0 11.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';   // 打开（正在播放）
 function pgMark(idx) {
   document.querySelectorAll('.pgon').forEach(e => e.classList.remove('pgon'));
   document.querySelectorAll('.pgplay').forEach(e => { e.innerHTML = SPK_OFF; e.classList.remove('playing'); });
@@ -2889,8 +2901,8 @@ function render() {
     '<div class="note" style="margin-top:6px">语法讲解由规则自动分析，适合作为读句子的提示；遇到复杂长句时仅供参考。</div></details>';
 
   const recs = (recView.key === recKey() && recView.urls.length)
-    ? '<div class="note" style="margin-top:10px">我的录音（最近 3 次，先听原音再听自己的，对比发音）：</div>' +
-      recView.urls.map((u, i) => '<div class="recitem"><span>' + (i === 0 ? '最新' : '第 ' + (i + 1) + ' 条') + '</span><audio controls preload="metadata" src="' + u.url + '"></audio></div>').join('') +
+    ? '<div class="note" style="margin-top:10px">我的录音（最近 3 次，先听原音再点喇叭听自己的，对比发音）：</div>' +
+      recView.urls.map((u, i) => '<div class="recitem"><span style="min-width:44px">' + (i === 0 ? '最新' : '第 ' + (i + 1) + ' 条') + '</span><button class="recplay" id="recp-' + i + '" onclick="recPlay(' + i + ')" aria-label="播放我的录音">' + SPK_OFF + '</button><span>' + (u.dur ? u.dur.toFixed(1) + ' 秒' : '') + '</span></div>').join('') +
       '<button class="link" onclick="deleteRecs()">删除这句的录音</button>'
     : '<div class="note" style="margin-top:10px">点“🎙 跟读”录下自己读这一句，读完点“■ 停止”，录音保存在本机，可以和原音对比。</div>';
 
