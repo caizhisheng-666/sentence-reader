@@ -96,7 +96,14 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .bottombar .bmid{font-size:12px;color:var(--sub);text-align:center;flex:1;line-height:1.3}
 .bottombar button{min-width:96px}
 .bottombar button.nxt{font-weight:600;min-width:112px}
-.bottombar .bplay{flex:1;max-width:160px;min-width:0}
+.bottombar .bplay{flex:1;max-width:160px;min-width:0;display:inline-flex;align-items:center;justify-content:center;padding-top:8px;padding-bottom:8px}
+.bottombar .bplay:not(.playing){background:var(--soft);color:var(--accent)}
+.spk{display:block}
+.spk.on .w1{animation:spkw 1.1s ease-in-out infinite}
+.spk.on .w2{animation:spkw 1.1s ease-in-out .25s infinite}
+@keyframes spkw{0%,100%{opacity:.25}50%{opacity:1}}
+.bplay.loading .spk{opacity:.6}
+.pgplay:not(.playing){background:var(--soft);color:var(--accent)}
 .bottombar .bprog{position:absolute;left:0;right:0;top:0;height:2px;background:var(--line)}
 .bottombar .bprog>div{height:100%;background:var(--accent)}
 @media (max-width:380px){.bottombar button{min-width:76px}.bottombar button.nxt{min-width:84px}.bottombar .bbin{gap:6px;padding-left:12px;padding-right:12px}}
@@ -171,7 +178,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.15-91';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.15-92';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -362,7 +369,7 @@ function shelfHtml() {
   let html = '<div class="shelfbar"><h2>书架</h2><div class="row" style="gap:8px">' +
     '<button class="ghost sm" onclick="openStoryCity()">🏙 故事城</button><button class="ghost sm" onclick="openImportPop()">＋ 导入</button>' +
     (l.length ? '<button class="ghost sm" onclick="toggleShelfSel()">' + (sel ? '取消' : '选择') + '</button>' : '') + '</div></div>';
-  if (sh) html += '<div class="levelbar" style="margin:-6px 0 14px"><div>' + sh + '</div></div>';
+  if (sh) html += '<div class="levelbar" style="margin:-6px 0 14px"><div id="statsLine">' + sh + '</div></div>';
   if (!l.length) {
     html += '<div class="card" style="text-align:center;padding:36px 20px"><div style="font-size:38px">📚</div><div style="margin:10px 0 4px;font-size:17px;color:var(--ink)">书架是空的</div><div class="note">点“＋ 导入”，添加英文电子书、PDF、文本，或粘贴一段英文。</div><div class="row" style="justify-content:center;margin-top:14px"><button onclick="openStoryCity()">去故事城看看</button><button class="ghost" onclick="openImportPop()">导入第一本书</button></div></div>';
     return html;
@@ -816,26 +823,34 @@ function detectStartBase(sentences) {
   while (i < cap && looksLikeFrontMatter(sentences[i])) i++;
   return Math.min(i, sentences.length - 1);
 }
-/* ---------- 学习记录：所有书合起来算。读到新的一句才算（来回翻已读过的句子不重复计） ---------- */
+/* ---------- 学习记录：所有书合起来算。
+   已读：自己跟读过的句数（跟读录音满 1 秒），同一句跟读几遍只算一句。
+   已听：一句话完整放完才算一遍，同一句听几遍算几遍；中途停掉的不算。 */
 function dayKey(t) { const d = new Date(t || Date.now()); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
 function statsGet() { try { return JSON.parse(localStorage.getItem('sr_stats') || '{}'); } catch (e) { return {}; } }
-function statsCount() {
+function statsBump(field) {
   const st = statsGet(), today = dayKey(), yest = dayKey(Date.now() - 864e5);
-  st.total = (st.total || 0) + 1;
-  if (st.day !== today) { st.streak = st.day === yest ? (st.streak || 0) + 1 : 1; st.day = today; st.today = 0; }
-  st.today = (st.today || 0) + 1;
+  st[field] = (st[field] || 0) + 1;
+  if (st.day !== today) { st.streak = st.day === yest ? (st.streak || 0) + 1 : 1; st.day = today; }
   try { localStorage.setItem('sr_stats', JSON.stringify(st)); } catch (e) {}
+  const el = document.getElementById('statsLine'); if (el) el.innerHTML = statsHtml();
 }
-function statsView() {                              // 显示用：今天没读、昨天也没读，连续天数就归零
+function statsView() {                              // 显示用：今天没读也没听、昨天也没有，连续天数就归零
   const st = statsGet(), today = dayKey(), yest = dayKey(Date.now() - 864e5);
-  return { total: st.total || 0, today: st.day === today ? st.today || 0 : 0, streak: (st.day === today || st.day === yest) ? st.streak || 0 : 0 };
+  return { read: st.spoke || 0, heard: st.heard || 0, streak: (st.day === today || st.day === yest) ? st.streak || 0 : 0 };
 }
 function statsHtml() {
   const v = statsView();
-  if (!v.total) return '';
-  return '<span class="badge">已读 ' + v.total.toLocaleString() + ' 句</span> 今天 ' + v.today + ' 句' + (v.streak ? ' · 连续 ' + v.streak + ' 天' : '');
+  if (!v.read && !v.heard) return '';
+  return '<span class="badge">已读 ' + v.read.toLocaleString() + ' 句</span> 已听 ' + v.heard.toLocaleString() + ' 遍' + (v.streak ? ' · 连续 ' + v.streak + ' 天' : '');
 }
-
+function heardOne() { statsBump('heard'); }
+function spokeOnce(key) {
+  let l = []; try { l = JSON.parse(localStorage.getItem('sr_spoke') || '[]'); } catch (e) {}
+  if (l.includes(key)) return;
+  l.push(key); try { localStorage.setItem('sr_spoke', JSON.stringify(l)); } catch (e) {}
+  statsBump('spoke');
+}
 /* ---------- 词序对比打分（听写 / 跟读打分共用） ---------- */
 function normWords(s) { return (s.match(/[A-Za-z']+/g) || []).map(w => w.toLowerCase()); }
 function lcsMatch(target, user) {
@@ -1187,6 +1202,7 @@ function playListen() {
   };
   u.onend = () => {
     if (u._stopped) return;
+    heardOne();
     clearSpeakHighlight();
     if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false };
     if (state.idx === idx) render();
@@ -1400,6 +1416,7 @@ function azStart(blob, text, idx, job) {
   a.onloadedmetadata = () => { starts = azStarts(text); };
   a.onended = () => {
     if (job._stopped) return;
+    heardOne();
     azTimerStop(); azActive = false; clearSpeakHighlight();
     if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false };
     if (state.idx === idx) render();
@@ -1999,6 +2016,7 @@ async function toggleRecord() {
       const blob = new Blob(chunks, { type: mr.mimeType || chunks[0]?.type || 'audio/webm' });
       let msg = '';
       if (blob.size > 0 && dur >= 0.8) {
+        spokeOnce(keyAtStart);                      // 已读 = 自己跟读过的句子（同一句读几遍只算一句）
         try {
           const arr = (await idbGet('recs', keyAtStart)) || [];
           arr.unshift({ blob, t: Date.now(), dur });
@@ -2023,8 +2041,6 @@ async function deleteRecs() {
 function nextSentence() {
   if (rec.on) return;
   stopSpeech();
-  if (state.maxRead == null) state.maxRead = state.idx;
-  if (state.idx >= state.maxRead) { statsCount(); state.maxRead = state.idx + 1; }
   state.idx++;
   saveState(); loadCurrent();
 }
@@ -2102,7 +2118,7 @@ async function wordClick(i, el) {
   speakText(clean);                               // 点读：点哪个词就直接念哪个词（必须在点击的这一下里同步发起），同时照常弹出词典
   lastWordSentIdx = (el && el.dataset && el.dataset.s) ? parseInt(el.dataset.s, 10) : -1;
   const rect = el.getBoundingClientRect();
-  const head = '<div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div class="dhead">' + esc(clean) + '</div><button class="iconbtn" onclick="speakWord()">🔊</button></div>';
+  const head = '<div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div class="dhead">' + esc(clean) + '</div><button class="iconbtn" onclick="speakWord()" aria-label="朗读这个词">' + SPK_ON.replace(' on"', '"') + '</button></div>';
   document.getElementById('wpBody').innerHTML = head + '<div class="note">查询中…</div>';
   positionWordPop(rect);
   let res = [];
@@ -2282,7 +2298,7 @@ function openHelp() {
       li('各组件版权归原作者所有。')) +
     sec('免责声明',
       li('软件不提供书籍，请只导入你有权使用的书（如公版书、你自己购买的电子书）。') +
-      li('顶部的“已读 X 句 · 今天 X 句 · 连续 X 天”是你所有书合起来的学习记录：往后读到新的一句才算，来回翻看读过的句子不重复计。') +
+      li('顶部的“已读 X 句 · 已听 X 遍 · 连续 X 天”是你所有书合起来的学习记录：<b>已读</b>是你点“🎙 跟读”自己读过的句数（同一句读几遍只算一句）；<b>已听</b>是朗读完整放完的遍数，中途停掉的不算。') +
       li('语法讲解由规则自动生成，翻译来自机器翻译或书里自带的译文，仅供学习参考，可能有误。'))
   );
 }
@@ -2652,7 +2668,7 @@ function pgWordsHtml(idx) {
 function pgRowHtml(idx) {
   const cur = idx === state.idx;
   return '<div id="pgs-' + idx + '" style="display:flex;gap:10px;align-items:flex-start;padding:10px ' + (cur ? '8px' : '0') + ';border-bottom:1px solid var(--line);' + (cur ? 'background:var(--pop);border-radius:10px' : '') + '">' +
-    '<button class="pgplay" onclick="pgSpeak(' + idx + ')" aria-label="朗读这一句" title="朗读这一句">▶</button>' +
+    '<button class="pgplay" onclick="pgSpeak(' + idx + ')" aria-label="朗读这一句" title="朗读这一句">' + SPK_OFF + '</button>' +
     '<div style="flex:1;min-width:0">' +
       '<div class="pgsent" style="font-size:17px;line-height:1.6">' + pgWordsHtml(idx) + '</div>' +
       (getShowZh() ? '<div class="zh" id="pgz-' + idx + '" style="margin-top:4px;font-size:14px">' + pgTransHtml(idx) + '</div>' : '') +
@@ -2675,11 +2691,13 @@ function pgHlSet(idx, k) {
   const el = document.querySelector('#pgs-' + idx + ' .w[data-k="' + k + '"]'); if (el) el.classList.add('speaking');
 }
 function pgHlStop() { if (pgHlTimer) { clearInterval(pgHlTimer); pgHlTimer = null; } pgHlSet(0, -1); }
+const SPK_OFF = '<svg class="spk" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 9.5v5h3.6L12.5 19V5L7.6 9.5H4z" fill="currentColor"/></svg>';
+const SPK_ON = '<svg class="spk on" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 9.5v5h3.6L12.5 19V5L7.6 9.5H4z" fill="currentColor"/><path class="w1" d="M15.5 9.2a4 4 0 0 1 0 5.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path class="w2" d="M18.2 6.6a7.6 7.6 0 0 1 0 10.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
 function pgMark(idx) {
   document.querySelectorAll('.pgon').forEach(e => e.classList.remove('pgon'));
-  document.querySelectorAll('.pgplay').forEach(e => { e.textContent = '▶'; });
+  document.querySelectorAll('.pgplay').forEach(e => { e.innerHTML = SPK_OFF; e.classList.remove('playing'); });
   pgCurIdx = idx;
-  if (idx >= 0) { const pb = document.querySelector('#pgs-' + idx + ' .pgplay'); if (pb) pb.textContent = '■'; }
+  if (idx >= 0) { const pb = document.querySelector('#pgs-' + idx + ' .pgplay'); if (pb) { pb.innerHTML = SPK_ON; pb.classList.add('playing'); } }
   const r = idx >= 0 ? document.getElementById('pgs-' + idx) : null;
   if (r) { r.classList.add('pgon'); try { r.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) {} }
 }
@@ -2715,7 +2733,7 @@ function pgPlayOne(idx, job) {
     pgHlStop();
     if (blob) {
       const a = azSetSrc(blob); const starts = tokStarts(text, pos);
-      a.onended = () => { pgHlStop(); res(true); }; a.onerror = () => { pgHlStop(); res(true); };
+      a.onended = () => { pgHlStop(); if (job === pgPlayJob) heardOne(); res(true); }; a.onerror = () => { pgHlStop(); res(true); };
       a.play().then(() => {
         if (job !== pgPlayJob) return;
         pgHlTimer = setInterval(() => {
@@ -2748,7 +2766,7 @@ function pgPlayOne(idx, job) {
           let k = pos.findIndex(p => ev.charIndex >= p.start && ev.charIndex < p.end); if (k < 0) k = pos.findIndex(p => p.start >= ev.charIndex);
           if (k >= 0) pgHlSet(idx, k);
         };
-        u.onend = u.onerror = () => { pgHlStop(); res(true); };
+        u.onend = () => { pgHlStop(); if (job === pgPlayJob) heardOne(); res(true); }; u.onerror = () => { pgHlStop(); res(true); };
         speechSynthesis.cancel(); speechSynthesis.speak(u);
       } catch (e) { res(true); }
     }
@@ -2880,7 +2898,7 @@ function render() {
 
 
   app.innerHTML = header +
-    '<div class="levelbar"><div>' + statsHtml() + '</div><div>' + (tocLabel() ? esc(tocLabel()) + ' · ' : '') + (state.idx + 1) + ' / ' + state.sentences.length + '</div></div>' +
+    '<div class="levelbar"><div id="statsLine">' + statsHtml() + '</div><div>' + (tocLabel() ? esc(tocLabel()) + ' · ' : '') + (state.idx + 1) + ' / ' + state.sentences.length + '</div></div>' +
     '<div class="card">' +
       (function () { const r = imageRangeFor(state.idx); return (r && r[0] === curImageStart) ? curImageUrls.map(u => '<img src="' + u + '" alt="书页插图" style="max-width:100%;max-height:60vh;object-fit:contain;border-radius:10px;margin:0 auto 14px;display:block">').join('') : ''; })() +
       '<div class="sentence"' + (function () { const n = state.sentences[state.idx].length; return n > 280 ? ' style="font-size:21px"' : n > 160 ? ' style="font-size:24px"' : ''; })() + '>' + renderSentenceHTML(state.sentences[state.idx]) + '</div>' +
@@ -2899,7 +2917,7 @@ function render() {
     '</div>' +
     '<div class="bottombar"><div class="bprog"><div style="width:' + pct + '%"></div></div><div class="bbin">' +
       '<button class="ghost" onclick="prevSentence()" ' + (state.idx > 0 && !rec.on ? '' : 'disabled') + '>上一句</button>' +
-      '<button class="bplay" onclick="playListen()" aria-label="朗读这一句">' + (listenState.idx === state.idx && listenState.playing ? (listenState.paused ? '▶ 继续' : (azLoading ? '生成中…' : '❚❚ 暂停')) : '▶ 朗读') + '</button>' +
+      (function () { const on = listenState.idx === state.idx && listenState.playing && !listenState.paused; return '<button class="bplay' + (on ? ' playing' : '') + (on && azLoading ? ' loading' : '') + '" onclick="playListen()" aria-label="' + (on ? '暂停朗读' : '朗读这一句') + '">' + (on ? SPK_ON : SPK_OFF) + '</button>'; })() +
       '<button class="nxt" onclick="nextSentence()" ' + (rec.on ? 'disabled' : '') + '>下一句</button>' +
     '</div></div>';
   applySpeakHighlight();
