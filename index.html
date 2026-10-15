@@ -32,7 +32,7 @@
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
-#app{max-width:680px;margin:0 auto;padding:calc(64px + env(safe-area-inset-top,0px)) 20px calc(104px + env(safe-area-inset-bottom,0px));}
+#app{max-width:680px;margin:0 auto;padding:calc(64px + env(safe-area-inset-top,0px)) 20px calc(160px + env(safe-area-inset-bottom,0px));}
 h1{font-size:17px;letter-spacing:.5px;margin:0;font-weight:600}
 input,select,textarea{font-size:16px !important}
 .sub{color:var(--sub);font-size:13px}
@@ -91,8 +91,9 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .zh{color:var(--sub);font-size:17px;line-height:1.75;font-family:'Songti SC','Noto Serif SC',var(--serif)}
 .section{margin-top:22px;padding-top:16px;border-top:.5px solid var(--line)}
 /* 底部栏：上一句 / 进度 / 下一句，固定在屏幕底部 */
-.bottombar{position:fixed;left:0;right:0;bottom:0;z-index:25;display:flex;justify-content:center;background:var(--bar);-webkit-backdrop-filter:blur(24px) saturate(160%);backdrop-filter:blur(24px) saturate(160%);border-top:.5px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
-.bottombar .bbin{width:100%;max-width:680px;padding:10px 16px 12px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.bottombar{position:fixed;left:0;right:0;bottom:0;z-index:25;display:flex;flex-direction:column;align-items:center;background:var(--bar);-webkit-backdrop-filter:blur(24px) saturate(160%);backdrop-filter:blur(24px) saturate(160%);border-top:.5px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
+.bottombar .bctl{width:100%;max-width:680px;padding:9px 16px 0;box-sizing:border-box}
+.bottombar .bbin{width:100%;max-width:680px;padding:8px 16px 12px;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:10px}
 .bottombar .bmid{font-size:12px;color:var(--sub);text-align:center;flex:1;line-height:1.3}
 .bottombar button{min-width:96px}
 .bottombar button.nxt{font-weight:600;min-width:112px}
@@ -175,7 +176,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.15-92';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.15-93';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2919,16 +2920,18 @@ function render() {
         '<div class="zh">' + (getShowZh() ? (bz ? '<span class="src" style="margin:0 6px 0 0">书中译文' + (state.zhp && state.zhp[state.idx] ? '·整段' : '') + '</span>' : '') + trans + (hasBz ? ' <button class="link" onclick="toggleBookZh()">' + (bz ? '改看机器翻译' : '改看书中译文') + '</button>' : '') : '<span class="sub">中文翻译已隐藏</span>') + '</div>' +
         '<button class="iconbtn" style="flex-shrink:0" onclick="toggleZh()">' + (getShowZh() ? '隐藏中文' : '显示中文') + '</button>' +
       '</div>' +
-      '<div class="section">' +
-        '<div class="row onerow">' +
-          voiceSelectHtml() +
-          '<button class="ghost sm" onclick="cycleRate()" aria-label="语速" title="' + (rateIgnored[voiceKeyNow()] ? '这个声音不支持调速' : '语速，点一下换一档') + '">' + getRate() + 'x' + (rateIgnored[voiceKeyNow()] ? ' ⚠' : '') + '</button>' +
-          '<button class="recbtn ' + (rec.on ? 'on' : '') + '" onclick="toggleRecord()">' + (rec.on ? '■ 停止 <span id="recTime">0.0 秒</span>' : '🎙 跟读') + '</button>' +
-        '</div>' + recs + '</div>' +
+      '<div class="section">' + recs + '</div>' +
       practiceHtml +
       gHtml +
     '</div>' +
-    '<div class="bottombar"><div class="bprog"><div style="width:' + pct + '%"></div></div><div class="bbin">' +
+    '<div class="bottombar"><div class="bprog"><div style="width:' + pct + '%"></div></div>' +
+    '<div class="bctl">' +
+      '<div class="row onerow">' +
+          voiceSelectHtml() +
+          '<button class="ghost sm" onclick="cycleRate()" aria-label="语速" title="' + (rateIgnored[voiceKeyNow()] ? '这个声音不支持调速' : '语速，点一下换一档') + '">' + getRate() + 'x' + (rateIgnored[voiceKeyNow()] ? ' ⚠' : '') + '</button>' +
+          '<button class="recbtn ' + (rec.on ? 'on' : '') + '" onclick="toggleRecord()">' + (rec.on ? '■ 停止 <span id="recTime">0.0 秒</span>' : '🎙 跟读') + '</button>' +
+        '</div>' + '</div>' +
+    '<div class="bbin">' +
       '<button class="ghost" onclick="prevSentence()" ' + (state.idx > 0 && !rec.on ? '' : 'disabled') + '>上一句</button>' +
       (function () { const on = listenState.idx === state.idx && listenState.playing && !listenState.paused; return '<button class="bplay' + (on ? ' playing' : '') + (on && azLoading ? ' loading' : '') + '" onclick="playListen()" aria-label="' + (on ? '暂停朗读' : '朗读这一句') + '">' + (on ? SPK_ON : SPK_OFF) + '</button>'; })() +
       '<button class="nxt" onclick="nextSentence()" ' + (rec.on ? 'disabled' : '') + '>下一句</button>' +
