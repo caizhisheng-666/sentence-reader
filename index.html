@@ -825,7 +825,7 @@ function detectStartBase(sentences) {
 }
 /* ---------- 学习记录：所有书合起来算。
    已读：自己跟读过的句数（跟读录音满 1 秒），同一句跟读几遍只算一句。
-   已听：一句话完整放完才算一遍，同一句听几遍算几遍；中途停掉的不算。 */
+   已听：一句话完整听完才算，同一句听几遍只算一句；中途停掉的不算。 */
 function dayKey(t) { const d = new Date(t || Date.now()); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
 function statsGet() { try { return JSON.parse(localStorage.getItem('sr_stats') || '{}'); } catch (e) { return {}; } }
 function statsBump(field) {
@@ -842,15 +842,16 @@ function statsView() {                              // 显示用：今天没读�
 function statsHtml() {
   const v = statsView();
   if (!v.read && !v.heard) return '';
-  return '<span class="badge">已读 ' + v.read.toLocaleString() + ' 句</span> 已听 ' + v.heard.toLocaleString() + ' 遍' + (v.streak ? ' · 连续 ' + v.streak + ' 天' : '');
+  return '<span class="badge">已读 ' + v.read.toLocaleString() + ' 句</span> 已听 ' + v.heard.toLocaleString() + ' 句' + (v.streak ? ' · 连续 ' + v.streak + ' 天' : '');
 }
-function heardOne() { statsBump('heard'); }
-function spokeOnce(key) {
-  let l = []; try { l = JSON.parse(localStorage.getItem('sr_spoke') || '[]'); } catch (e) {}
+function onceKey(store, key, field) {               // 同一句只算一次（按“哪本书的第几句”记）
+  let l = []; try { l = JSON.parse(localStorage.getItem(store) || '[]'); } catch (e) {}
   if (l.includes(key)) return;
-  l.push(key); try { localStorage.setItem('sr_spoke', JSON.stringify(l)); } catch (e) {}
-  statsBump('spoke');
+  l.push(key); try { localStorage.setItem(store, JSON.stringify(l)); } catch (e) {}
+  statsBump(field);
 }
+function heardOne(idx) { if (state) onceKey('sr_heard', state.bookId + ':' + idx, 'heard'); }
+function spokeOnce(key) { onceKey('sr_spoke', key, 'spoke'); }
 /* ---------- 词序对比打分（听写 / 跟读打分共用） ---------- */
 function normWords(s) { return (s.match(/[A-Za-z']+/g) || []).map(w => w.toLowerCase()); }
 function lcsMatch(target, user) {
@@ -1202,7 +1203,7 @@ function playListen() {
   };
   u.onend = () => {
     if (u._stopped) return;
-    heardOne();
+    heardOne(idx);
     clearSpeakHighlight();
     if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false };
     if (state.idx === idx) render();
@@ -1416,7 +1417,7 @@ function azStart(blob, text, idx, job) {
   a.onloadedmetadata = () => { starts = azStarts(text); };
   a.onended = () => {
     if (job._stopped) return;
-    heardOne();
+    heardOne(idx);
     azTimerStop(); azActive = false; clearSpeakHighlight();
     if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false };
     if (state.idx === idx) render();
@@ -2298,7 +2299,7 @@ function openHelp() {
       li('各组件版权归原作者所有。')) +
     sec('免责声明',
       li('软件不提供书籍，请只导入你有权使用的书（如公版书、你自己购买的电子书）。') +
-      li('顶部的“已读 X 句 · 已听 X 遍 · 连续 X 天”是你所有书合起来的学习记录：<b>已读</b>是你点“🎙 跟读”自己读过的句数（同一句读几遍只算一句）；<b>已听</b>是朗读完整放完的遍数，中途停掉的不算。') +
+      li('顶部的“已读 X 句 · 已听 X 句 · 连续 X 天”是你所有书合起来的学习记录：<b>已读</b>是你点“🎙 跟读”自己读过的句数（同一句读几遍只算一句）；<b>已听</b>是你完整听过的句数（同一句听几遍只算一句，中途停掉的不算）。') +
       li('语法讲解由规则自动生成，翻译来自机器翻译或书里自带的译文，仅供学习参考，可能有误。'))
   );
 }
@@ -2733,7 +2734,7 @@ function pgPlayOne(idx, job) {
     pgHlStop();
     if (blob) {
       const a = azSetSrc(blob); const starts = tokStarts(text, pos);
-      a.onended = () => { pgHlStop(); if (job === pgPlayJob) heardOne(); res(true); }; a.onerror = () => { pgHlStop(); res(true); };
+      a.onended = () => { pgHlStop(); if (job === pgPlayJob) heardOne(idx); res(true); }; a.onerror = () => { pgHlStop(); res(true); };
       a.play().then(() => {
         if (job !== pgPlayJob) return;
         pgHlTimer = setInterval(() => {
@@ -2766,7 +2767,7 @@ function pgPlayOne(idx, job) {
           let k = pos.findIndex(p => ev.charIndex >= p.start && ev.charIndex < p.end); if (k < 0) k = pos.findIndex(p => p.start >= ev.charIndex);
           if (k >= 0) pgHlSet(idx, k);
         };
-        u.onend = () => { pgHlStop(); if (job === pgPlayJob) heardOne(); res(true); }; u.onerror = () => { pgHlStop(); res(true); };
+        u.onend = () => { pgHlStop(); if (job === pgPlayJob) heardOne(idx); res(true); }; u.onerror = () => { pgHlStop(); res(true); };
         speechSynthesis.cancel(); speechSynthesis.speak(u);
       } catch (e) { res(true); }
     }
