@@ -194,7 +194,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-111';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-112';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2022,46 +2022,78 @@ function houseSvg(c, lit, w, h) {                  // 一座小房子：屋顶 c
     '<rect x="14" y="70" width="11" height="10" rx="2" fill="' + L + '" stroke="' + c + '" stroke-width="1.3"/><rect x="51" y="70" width="11" height="10" rx="2" fill="' + L + '" stroke="' + c + '" stroke-width="1.3"/>' +
     '<path d="M2 89.5 H74" stroke="#8fbf7a" stroke-width="3" stroke-linecap="round"/></svg>';
 }
-function storyBuddy(it, have) {                    // 故事小屋里每个故事是一只可爱的小动物（猫咪最多）：按故事固定选，举着写着故事名的小牌子；已经领取的会眯眼笑
+/* 故事小屋的小伙伴：35 种原创 Q 版小动物 / 小人儿（猫咪 5 种，十二生肖都有）。每个故事按 id 固定分到一种 */
+const BD_D = 'rgba(70,45,30,.88)', BD_PINK = '#f9c9d2';
+const bdCatEars = c => '<path d="M18 23 L20 4 L34 14 Z M58 23 L56 4 L42 14 Z" fill="' + c + '"/><path d="M21.5 17 L22.5 9 L29 13.5 Z M54.5 17 L53.5 9 L47 13.5 Z" fill="' + BD_PINK + '"/>';
+const bdRound = (c, r, inner, y) => { y = y || 14; return '<circle cx="19" cy="' + y + '" r="' + r + '" fill="' + c + '"/><circle cx="57" cy="' + y + '" r="' + r + '" fill="' + c + '"/>' + (inner ? '<circle cx="19" cy="' + y + '" r="' + (r / 2) + '" fill="' + inner + '"/><circle cx="57" cy="' + y + '" r="' + (r / 2) + '" fill="' + inner + '"/>' : ''); };
+const bdPoint = (c, tip) => '<path d="M17 25 L19 3 L35 13 Z M59 25 L57 3 L41 13 Z" fill="' + c + '"/>' + (tip ? '<path d="M18.2 12 L19 3 L25.5 7 Z M57.8 12 L57 3 L50.5 7 Z" fill="' + tip + '"/>' : '<path d="M21 18 L21.8 9 L28 13 Z M55 18 L54.2 9 L48 13 Z" fill="' + BD_PINK + '"/>');
+const bdWhisk = w => '<path d="M14 36 h7 M14 40 l7 -1.5 M62 36 h-7 M62 40 l-7 -1.5" stroke="' + (w ? 'rgba(255,255,255,.65)' : 'rgba(70,45,30,.35)') + '" stroke-width="1" stroke-linecap="round"/>';
+const BD_CATM = '<path d="M36.6 37.4 h2.8 l-1.4 1.6 Z" fill="#f08a9b"/><path d="M34.5 40 q1.8 2.2 3.5 0 q1.7 2.2 3.5 0" stroke="' + BD_D + '" stroke-width="1.4" fill="none" stroke-linecap="round"/>';
+const BD_NOSE = '<ellipse cx="38" cy="38" rx="2.6" ry="1.9" fill="' + BD_D + '"/><path d="M35 41 q3 2.6 6 0" stroke="' + BD_D + '" stroke-width="1.4" fill="none" stroke-linecap="round"/>';
+const BD_BEAK = '<path d="M35 38 L41 38 L38 42 Z" fill="#f2a33a"/>';
+const BD_SNOUT = c => '<ellipse cx="38" cy="40" rx="7" ry="5" fill="' + c + '"/>' + BD_NOSE.replace('cy="38"', 'cy="38.5"');
+const BUDDIES = [
+  { n: '橘猫', c: '#f5b36b', cat: 1, b: c => bdCatEars(c), f: () => bdWhisk() + '<path d="M33 13 q5 4 10 0" stroke="#e08d3c" stroke-width="2.4" fill="none" stroke-linecap="round"/>', m: BD_CATM },
+  { n: '虎斑猫', c: '#c9a27a', cat: 1, b: c => bdCatEars(c), f: () => bdWhisk() + '<path d="M31 13 q2 5 0 9 M38 11 v9 M45 13 q-2 5 0 9" stroke="#8a6a4a" stroke-width="2.4" fill="none" stroke-linecap="round"/>', m: BD_CATM },
+  { n: '小黑猫', c: '#4a4550', cat: 1, eye: 'cat', b: c => bdCatEars(c), f: () => bdWhisk(1), m: BD_CATM.replace(BD_D, '#fff') },
+  { n: '三花猫', c: '#fbf4ea', cat: 1, b: c => bdCatEars(c), f: () => '<path d="M17 28 a21 21 0 0 1 13 -16 q4 9 -4 16 Z" fill="#f2a65a"/><path d="M59 26 a21 21 0 0 0 -11 -14 q-3 8 3 14 Z" fill="#4a4550"/>' + bdWhisk(), m: BD_CATM },
+  { n: '白猫', c: '#ffffff', cat: 1, eye: 'blue', b: c => bdCatEars(c), f: () => bdWhisk(), m: BD_CATM },
+  { n: '小狗', c: '#e8c79e', f: () => '<ellipse cx="18" cy="30" rx="6" ry="12" transform="rotate(15 18 30)" fill="#a87b4f"/><ellipse cx="58" cy="30" rx="6" ry="12" transform="rotate(-15 58 30)" fill="#a87b4f"/><ellipse cx="46" cy="31" rx="6" ry="5" fill="#a87b4f" opacity=".5"/>', m: BD_NOSE },
+  { n: '小鸡', c: '#ffd95e', b: () => '<path d="M36 8 q2 -7 6 -6 q-3 2 -2 6 Z" fill="#f2b33a"/>', m: BD_BEAK },
+  { n: '小鸭', c: '#fff1a8', b: () => '<path d="M34 9 q1 -7 5 -7 q-1 3 1 6 Z" fill="#f7d65a"/>', m: '<ellipse cx="38" cy="40" rx="7" ry="3.2" fill="#f59a3a"/><path d="M32 40 h12" stroke="#d97b22" stroke-width=".8"/>' },
+  { n: '小熊', c: '#c49a6c', b: c => bdRound(c, 8, '#e8c9a5'), m: BD_SNOUT('#e8c9a5') },
+  { n: '熊猫', c: '#ffffff', eye: 'white', b: () => bdRound('#3b3640', 7.5), f: () => '<ellipse cx="29" cy="33" rx="5.5" ry="6.5" transform="rotate(-20 29 33)" fill="#3b3640"/><ellipse cx="47" cy="33" rx="5.5" ry="6.5" transform="rotate(20 47 33)" fill="#3b3640"/>', m: BD_NOSE, body: '#3b3640' },
+  { n: '考拉', c: '#b7bcc6', b: () => '<circle cx="16" cy="20" r="10" fill="#b7bcc6"/><circle cx="60" cy="20" r="10" fill="#b7bcc6"/><circle cx="16" cy="20" r="6" fill="#eef0f4"/><circle cx="60" cy="20" r="6" fill="#eef0f4"/>', m: '<ellipse cx="38" cy="38" rx="4.5" ry="5.5" fill="#4a4550"/><path d="M35 44.5 q3 2 6 0" stroke="' + BD_D + '" stroke-width="1.3" fill="none" stroke-linecap="round"/>' },
+  { n: '小象', c: '#b9c7dc', b: () => '<ellipse cx="14" cy="32" rx="10" ry="13" fill="#a3b4cd"/><ellipse cx="62" cy="32" rx="10" ry="13" fill="#a3b4cd"/><ellipse cx="14" cy="32" rx="6" ry="9" fill="#f6d3dc"/><ellipse cx="62" cy="32" rx="6" ry="9" fill="#f6d3dc"/>', m: '<path d="M38 36 q-1 13 7 14" stroke="#9fb0ca" stroke-width="7" fill="none" stroke-linecap="round"/><path d="M38 36 q-1 13 7 14" stroke="#b9c7dc" stroke-width="4.5" fill="none" stroke-linecap="round"/>' },
+  { n: '小兔', c: '#fbe3ec', b: c => '<ellipse cx="28" cy="7" rx="5" ry="13" fill="' + c + '"/><ellipse cx="48" cy="7" rx="5" ry="13" fill="' + c + '"/><ellipse cx="28" cy="8" rx="2.3" ry="9" fill="#f6a7bb"/><ellipse cx="48" cy="8" rx="2.3" ry="9" fill="#f6a7bb"/>', m: BD_CATM },
+  { n: '小松鼠', c: '#d9905a', tail: '<path d="M52 74 q22 -6 14 -30 q-6 -10 -14 -2 q8 2 6 12 q-2 10 -8 14 Z" fill="#c07a45"/>', b: () => bdPoint('#d9905a', '#8a4f25'), f: () => '<ellipse cx="38" cy="41" rx="8" ry="6" fill="#f6dcc4"/>', m: BD_NOSE.replace('rx="2.6" ry="1.9"', 'rx="2" ry="1.5"') },
+  { n: '小老鼠', c: '#c8c8d2', b: c => bdRound(c, 11, BD_PINK), m: BD_CATM, f: () => bdWhisk() },
+  { n: '小浣熊', c: '#9a9aa6', b: () => bdPoint('#9a9aa6', '#4a4550'), f: () => '<path d="M17 34 q10 -9 21 -1 q11 -8 21 1 q-3 7 -10 6 q-7 -1 -11 -4 q-4 3 -11 4 q-7 1 -10 -6 Z" fill="#3e3a44"/><ellipse cx="38" cy="42" rx="7" ry="5" fill="#eeeef2"/>', eye: 'white', m: BD_NOSE },
+  { n: '小老虎', c: '#f6a640', b: c => bdRound(c, 7, '#fff2dc'), f: () => '<path d="M33 15 h10 M34.5 19 h7 M38 13 v8" stroke="#6b4426" stroke-width="2.2" stroke-linecap="round"/><path d="M17.5 30 h6 M17.5 35 h5 M58.5 30 h-6 M58.5 35 h-5" stroke="#6b4426" stroke-width="2" stroke-linecap="round"/><ellipse cx="38" cy="42" rx="8" ry="5.5" fill="#fff2dc"/>', m: BD_CATM },
+  { n: '小狮子', c: '#f3c46b', b: () => '<circle cx="38" cy="32" r="28" fill="#c9782f"/><path d="M38 4 l5 6 7 -3 1 8 8 1 -2 7 6 5 -6 5 3 7 -8 1 -1 8 -7 -3 -5 6 -5 -6 -7 3 -1 -8 -8 -1 3 -7 -6 -5 6 -5 -2 -7 8 -1 1 -8 7 3 Z" fill="#d98a3a"/>', f: () => '<ellipse cx="38" cy="42" rx="8" ry="5.5" fill="#fbe2b0"/>', m: BD_CATM },
+  { n: '小狼', c: '#a3a8b8', b: () => bdPoint('#a3a8b8', '#5d6070'), f: () => '<path d="M27 43 q11 12 22 0 q-4 -6 -11 -6 q-7 0 -11 6 Z" fill="#eef0f5"/>', m: BD_NOSE },
+  { n: '小狐狸', c: '#f08a3c', b: () => bdPoint('#f08a3c', '#4a3228'), f: () => '<path d="M17 34 q8 2 13 10 q-7 2 -13 -10 Z M59 34 q-8 2 -13 10 q7 2 13 -10 Z" fill="#fff6ec"/><path d="M28 44 q10 9 20 0 q-5 -5 -10 -5 q-5 0 -10 5 Z" fill="#fff6ec"/>', m: BD_NOSE },
+  { n: '小红帽', c: '#ffe0c7', body: '#e04848', b: () => '<path d="M38 5 q26 0 27 30 q0 16 -6 22 L17 57 q-6 -6 -6 -22 q1 -30 27 -30 Z" fill="#e04848"/>', f: () => '<path d="M17 30 q2 -17 21 -18 q19 1 21 18 q-6 -9 -21 -9 q-15 0 -21 9 Z" fill="#8a4f2a"/><path d="M14 33 q3 -24 24 -25 q21 1 24 25" stroke="#c43b3b" stroke-width="3" fill="none"/>', m: '<path d="M35 40 q3 3 6 0" stroke="#d0605a" stroke-width="1.6" fill="none" stroke-linecap="round"/>', human: 1 },
+  { n: '小王子', c: '#ffe0c7', body: '#6f9fd8', f: () => '<path d="M17 30 q0 -19 21 -19 q21 0 21 19 q-5 -7 -10 -7 q-3 4 -8 2 q-5 3 -10 -1 q-5 -1 -14 6 Z" fill="#f2c25a"/><path d="M28 13 l2 -9 4 6 4 -8 4 8 4 -6 2 9 Z" fill="#ffcf3d" stroke="#e0a91a" stroke-width="1"/><circle cx="38" cy="5" r="1.4" fill="#ff7a8a"/>', m: '<path d="M35 40 q3 3 6 0" stroke="#d0605a" stroke-width="1.6" fill="none" stroke-linecap="round"/>', human: 1 },
+  { n: '小袋鼠', c: '#d9a77a', b: () => '<ellipse cx="25" cy="8" rx="5" ry="12" transform="rotate(-18 25 8)" fill="#d9a77a"/><ellipse cx="51" cy="8" rx="5" ry="12" transform="rotate(18 51 8)" fill="#d9a77a"/><ellipse cx="25" cy="9" rx="2.4" ry="8" transform="rotate(-18 25 9)" fill="#f2cfae"/><ellipse cx="51" cy="9" rx="2.4" ry="8" transform="rotate(18 51 9)" fill="#f2cfae"/>', f: () => '<ellipse cx="38" cy="42" rx="7" ry="5" fill="#f2cfae"/>', m: BD_NOSE },
+  { n: '小鹿', c: '#c98b56', b: () => '<path d="M24 14 q-3 -8 -9 -10 M20 8 q-6 0 -8 4 M52 14 q3 -8 9 -10 M56 8 q6 0 8 4" stroke="#8a5a32" stroke-width="2.8" fill="none" stroke-linecap="round"/><ellipse cx="17" cy="22" rx="7" ry="4" transform="rotate(-25 17 22)" fill="#c98b56"/><ellipse cx="59" cy="22" rx="7" ry="4" transform="rotate(25 59 22)" fill="#c98b56"/>', f: () => '<circle cx="30" cy="17" r="1.8" fill="#fff4e6"/><circle cx="45" cy="15" r="1.6" fill="#fff4e6"/><circle cx="39" cy="20" r="1.3" fill="#fff4e6"/><ellipse cx="38" cy="42" rx="7" ry="5" fill="#f2dcc4"/>', m: BD_NOSE },
+  { n: '小牛', c: '#ffffff', b: () => '<path d="M22 14 q-6 -4 -6 -11 q4 5 10 7 Z M54 14 q6 -4 6 -11 q-4 5 -10 7 Z" fill="#f2d39a"/><ellipse cx="15" cy="24" rx="7" ry="4" transform="rotate(-20 15 24)" fill="#ffffff" stroke="rgba(0,0,0,.12)"/><ellipse cx="61" cy="24" rx="7" ry="4" transform="rotate(20 61 24)" fill="#ffffff" stroke="rgba(0,0,0,.12)"/>', f: () => '<path d="M44 13 q10 2 12 12 q-8 2 -12 -4 Z" fill="#3e3a44"/><ellipse cx="38" cy="43" rx="10" ry="6" fill="#f7b6c2"/><circle cx="34.5" cy="43" r="1.3" fill="#a5566a"/><circle cx="41.5" cy="43" r="1.3" fill="#a5566a"/>', m: '' },
+  { n: '小龙', c: '#8fd19e', tail: '<path d="M54 72 q18 2 14 -16" stroke="#6fbf82" stroke-width="5" fill="none" stroke-linecap="round"/><path d="M66 58 l3 -5 2 5 Z" fill="#ffd25e"/>', b: () => '<path d="M26 14 l-4 -12 9 7 Z M50 14 l4 -12 -9 7 Z" fill="#ffd25e"/><path d="M38 8 l3 -6 3 6 M32 9 l3 -6 3 6" fill="#6fbf82"/>', f: () => '<ellipse cx="38" cy="42" rx="9" ry="5.5" fill="#d6f2cf"/><circle cx="35" cy="41" r="1" fill="#4c8a5c"/><circle cx="41" cy="41" r="1" fill="#4c8a5c"/>', m: '' },
+  { n: '小蛇', c: '#9ad66b', b: () => '', f: () => '<circle cx="31" cy="20" r="2.2" fill="#c9ef9a"/><circle cx="44" cy="17" r="1.8" fill="#c9ef9a"/><circle cx="50" cy="24" r="1.6" fill="#c9ef9a"/>', m: '<path d="M34.5 39 q3.5 3 7 0" stroke="' + BD_D + '" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M38 41 v5 l-2 2 M38 46 l2 2" stroke="#e8505b" stroke-width="1.3" fill="none" stroke-linecap="round"/>', body: '#7cc455' },
+  { n: '小马', c: '#c58a5a', b: () => '<path d="M22 16 L23 2 L33 11 Z M54 16 L53 2 L43 11 Z" fill="#c58a5a"/>', f: () => '<path d="M28 12 q6 -6 12 -2 q4 -4 9 1 q-6 0 -8 6 q-3 -4 -7 -1 q-3 -4 -6 -4 Z" fill="#6b3f22"/><ellipse cx="38" cy="43" rx="9" ry="6" fill="#ecc9a3"/><circle cx="35" cy="43" r="1.2" fill="#6b3f22"/><circle cx="41" cy="43" r="1.2" fill="#6b3f22"/>', m: '' },
+  { n: '小羊', c: '#fffaf2', b: () => '<path d="M17 24 q-8 -2 -6 -10 q4 -6 10 -2 M59 24 q8 -2 6 -10 q-4 -6 -10 -2" stroke="#d9b98a" stroke-width="4" fill="none" stroke-linecap="round"/>', f: () => '<circle cx="28" cy="15" r="6" fill="#f2ece2"/><circle cx="37" cy="12" r="6.5" fill="#f2ece2"/><circle cx="46" cy="15" r="6" fill="#f2ece2"/><circle cx="32" cy="19" r="5" fill="#f2ece2"/><circle cx="42" cy="19" r="5" fill="#f2ece2"/>', m: BD_CATM },
+  { n: '小猴', c: '#a8744a', b: c => bdRound(c, 7, '#f2d2b0', 30).replace(/cx="19"/g, 'cx="15"').replace(/cx="57"/g, 'cx="61"'), f: () => '<path d="M38 22 q-12 -4 -14 10 q-1 14 14 16 q15 -2 14 -16 q-2 -14 -14 -10 Z" fill="#f2d2b0"/>', m: '<path d="M34.5 41 q3.5 3 7 0" stroke="' + BD_D + '" stroke-width="1.5" fill="none" stroke-linecap="round"/><circle cx="36.5" cy="38" r=".9" fill="' + BD_D + '"/><circle cx="39.5" cy="38" r=".9" fill="' + BD_D + '"/>' },
+  { n: '小公鸡', c: '#ffffff', b: () => '<path d="M30 12 q-2 -8 4 -9 q1 -5 6 -3 q4 -3 6 2 q5 0 3 7 Z" fill="#e8463e"/>', m: BD_BEAK + '<path d="M38 42 q-3 6 0 8 q3 -2 0 -8" fill="#e8463e"/>' },
+  { n: '小猪', c: '#f7b8c4', b: () => '<path d="M18 20 L22 8 L31 15 Z M58 20 L54 8 L45 15 Z" fill="#f29bae"/>', m: '<ellipse cx="38" cy="40" rx="6" ry="4" fill="#f29bae"/><circle cx="36" cy="40" r="1" fill="' + BD_D + '"/><circle cx="40" cy="40" r="1" fill="' + BD_D + '"/>' },
+  { n: '小青蛙', c: '#9fd88a', b: c => '<circle cx="27" cy="15" r="8" fill="' + c + '"/><circle cx="49" cy="15" r="8" fill="' + c + '"/>', eye: 'frog', m: '<path d="M30 40 q8 6 16 0" stroke="' + BD_D + '" stroke-width="1.5" fill="none" stroke-linecap="round"/>' },
+  { n: '小企鹅', c: '#3b3f4f', eye: 'white', f: () => '<path d="M38 18 q-14 -1 -16 14 q0 16 16 17 q16 -1 16 -17 q-2 -15 -16 -14 Z" fill="#ffffff"/>', m: BD_BEAK, body: '#3b3f4f' },
+  { n: '小恐龙', c: '#7fc8b8', tail: '<path d="M54 72 q20 0 16 -16" stroke="#7fc8b8" stroke-width="6" fill="none" stroke-linecap="round"/>', b: () => '<path d="M22 16 l2 -9 6 6 Z M31 11 l4 -9 4 8 Z M42 10 l5 -8 2 9 Z M52 14 l7 -6 -1 9 Z" fill="#f2a65a"/>', f: () => '<ellipse cx="38" cy="43" rx="9" ry="5" fill="#d9f2ea"/>', m: '<path d="M33 40 q5 4 10 0" stroke="' + BD_D + '" stroke-width="1.5" fill="none" stroke-linecap="round"/>' },
+  { n: '小鳄鱼', c: '#78b85a', b: c => '<circle cx="28" cy="15" r="7.5" fill="' + c + '"/><circle cx="48" cy="15" r="7.5" fill="' + c + '"/>', eye: 'frog', f: () => '<ellipse cx="38" cy="42" rx="14" ry="7" fill="#8fcb6f"/><circle cx="34" cy="38" r="1" fill="#3f6b2e"/><circle cx="42" cy="38" r="1" fill="#3f6b2e"/><circle cx="30" cy="26" r="1.8" fill="#5f9c45"/><circle cx="46" cy="24" r="1.6" fill="#5f9c45"/>', m: '<path d="M27 44 q11 5 22 0" stroke="' + BD_D + '" stroke-width="1.4" fill="none" stroke-linecap="round"/><path d="M30 45 l1.5 2.5 1.5 -2 M44 45 l1.5 2.5 1.5 -2" fill="#fff" stroke="#fff" stroke-width=".8"/>' },
+  { n: '小猫头鹰', c: '#b98b61', b: () => '<path d="M19 18 L18 4 L29 12 Z M57 18 L58 4 L47 12 Z" fill="#8a5f3c"/>', eye: 'owl', m: BD_BEAK }
+];
+function storyBuddy(it, have) {                    // 故事小屋里每个故事是一只可爱的小动物（或小人儿），举着写着故事名的牌子；已经领取的会眯眼笑
   let h = 0; const k = 'story-' + it.id; for (let i = 0; i < k.length; i++) h = (h * 33 + k.charCodeAt(i)) >>> 0;
-  const P = ['#f6c28b', '#f4a7b9', '#a8d8b9', '#a7c7e7', '#d7b8f0', '#f7d97a', '#d8bfa4', '#9fd3d1'];
-  // 0 橘猫 1 虎斑猫 2 小黑猫 3 三花猫 4 白猫 5 小熊 6 小兔 7 小鸡 8 熊猫 9 小猪 10 小青蛙 11 小狗 12 小老鼠
-  const kind = (h >>> 3) % 13, D = 'rgba(70,45,30,.88)', pink = '#f9c9d2';
-  const C = [ '#f5b36b', '#c9a27a', '#4a4550', '#fbf4ea', '#ffffff', P[h % 8], P[(h >>> 1) % 8], '#ffd95e', '#ffffff', '#f7b8c4', '#9fd88a', '#e8c79e', '#c8c8d2'][kind];
-  const catEars = c => '<path d="M18 23 L20 4 L34 14 Z M58 23 L56 4 L42 14 Z" fill="' + c + '"/><path d="M21.5 17 L22.5 9 L29 13.5 Z M54.5 17 L53.5 9 L47 13.5 Z" fill="' + pink + '"/>';
-  const roundEars = (c, r, inner) => '<circle cx="19" cy="14" r="' + r + '" fill="' + c + '"/><circle cx="57" cy="14" r="' + r + '" fill="' + c + '"/>' + (inner ? '<circle cx="19" cy="14" r="' + (r / 2) + '" fill="' + inner + '"/><circle cx="57" cy="14" r="' + (r / 2) + '" fill="' + inner + '"/>' : '');
-  let back = '', front = '', eyeC = D, mouth = '<path d="M34.5 39 q1.8 2.2 3.5 0 q1.7 2.2 3.5 0" stroke="' + D + '" stroke-width="1.5" fill="none" stroke-linecap="round"/>', whisk = '';
-  const cat = kind <= 4;
-  if (cat) {
-    back = catEars(C);
-    whisk = '<path d="M14 36 h7 M14 40 l7 -1.5 M62 36 h-7 M62 40 l-7 -1.5" stroke="' + (kind === 2 ? 'rgba(255,255,255,.6)' : 'rgba(70,45,30,.35)') + '" stroke-width="1" stroke-linecap="round"/>';
-    mouth = '<path d="M36.6 37.4 h2.8 l-1.4 1.6 Z" fill="#f08a9b"/><path d="M34.5 40 q1.8 2.2 3.5 0 q1.7 2.2 3.5 0" stroke="' + (kind === 2 ? '#fff' : D) + '" stroke-width="1.4" fill="none" stroke-linecap="round"/>';
-    if (kind === 1) front = '<path d="M31 13 q2 5 0 9 M38 11 v9 M45 13 q-2 5 0 9" stroke="#8a6a4a" stroke-width="2.4" fill="none" stroke-linecap="round"/>';
-    if (kind === 2) eyeC = '#ffd23f';
-    if (kind === 3) front = '<path d="M17 28 a21 21 0 0 1 13 -16 q4 9 -4 16 Z" fill="#f2a65a"/><path d="M59 26 a21 21 0 0 0 -11 -14 q-3 8 3 14 Z" fill="#4a4550"/>';
-    if (kind === 4) front = '<ellipse cx="38" cy="45" rx="9" ry="5" fill="#fde8ee" opacity=".7"/>';
-  } else if (kind === 5) back = roundEars(C, 8, pink);
-  else if (kind === 6) back = '<ellipse cx="28" cy="7" rx="5" ry="13" fill="' + C + '"/><ellipse cx="48" cy="7" rx="5" ry="13" fill="' + C + '"/><ellipse cx="28" cy="8" rx="2.3" ry="9" fill="' + pink + '"/><ellipse cx="48" cy="8" rx="2.3" ry="9" fill="' + pink + '"/>';
-  else if (kind === 7) { back = '<path d="M36 8 q2 -7 6 -6 q-3 2 -2 6 Z" fill="#f2b33a"/>'; mouth = '<path d="M35 38 L41 38 L38 42 Z" fill="#f2a33a"/>'; }
-  else if (kind === 8) { back = roundEars('#3b3640', 7.5); front = '<ellipse cx="29" cy="33" rx="5.5" ry="6.5" transform="rotate(-20 29 33)" fill="#3b3640"/><ellipse cx="47" cy="33" rx="5.5" ry="6.5" transform="rotate(20 47 33)" fill="#3b3640"/>'; eyeC = '#fff'; }
-  else if (kind === 9) { back = '<path d="M18 20 L22 8 L31 15 Z M58 20 L54 8 L45 15 Z" fill="#f29bae"/>'; mouth = '<ellipse cx="38" cy="40" rx="6" ry="4" fill="#f29bae"/><circle cx="36" cy="40" r="1" fill="' + D + '"/><circle cx="40" cy="40" r="1" fill="' + D + '"/>'; }
-  else if (kind === 10) back = '<circle cx="27" cy="15" r="8" fill="' + C + '"/><circle cx="49" cy="15" r="8" fill="' + C + '"/>';
-  else if (kind === 11) { front = '<ellipse cx="18" cy="30" rx="6" ry="12" transform="rotate(15 18 30)" fill="#a87b4f"/><ellipse cx="58" cy="30" rx="6" ry="12" transform="rotate(-15 58 30)" fill="#a87b4f"/>'; mouth = '<ellipse cx="38" cy="38" rx="3" ry="2.2" fill="' + D + '"/><path d="M35 41 q3 3 6 0" stroke="' + D + '" stroke-width="1.4" fill="none" stroke-linecap="round"/>'; }
-  else if (kind === 12) back = roundEars(C, 11, pink);
-  const eyes = kind === 10 ? (have ? '<path d="M24 15 q3 -3 6 0 M46 15 q3 -3 6 0" stroke="' + D + '" stroke-width="2" fill="none" stroke-linecap="round"/>' : '<circle cx="27" cy="15" r="3.4" fill="' + D + '"/><circle cx="49" cy="15" r="3.4" fill="' + D + '"/><circle cx="28" cy="14" r="1.2" fill="#fff"/><circle cx="50" cy="14" r="1.2" fill="#fff"/>')
-    : have ? '<path d="M27 33 q3 -3 6 0 M43 33 q3 -3 6 0" stroke="' + eyeC + '" stroke-width="2" fill="none" stroke-linecap="round"/>'
-    : '<circle cx="30" cy="33" r="3.3" fill="' + eyeC + '"/><circle cx="46" cy="33" r="3.3" fill="' + eyeC + '"/>' + (eyeC === '#ffd23f' ? '<ellipse cx="30" cy="33" rx="1" ry="2.6" fill="#222"/><ellipse cx="46" cy="33" rx="1" ry="2.6" fill="#222"/>' : eyeC === '#fff' ? '<circle cx="30" cy="33" r="1.6" fill="#222"/><circle cx="46" cy="33" r="1.6" fill="#222"/>' : '<circle cx="31.2" cy="31.8" r="1.2" fill="#fff"/><circle cx="47.2" cy="31.8" r="1.2" fill="#fff"/>');
-  const line = C === '#ffffff' || C === '#fbf4ea' ? ' stroke="rgba(0,0,0,.12)"' : '';
+  const B = BUDDIES[(h >>> 3) % BUDDIES.length], C = B.c, D = BD_D, body = B.body || C;
+  const ln = c => c === '#ffffff' || c === '#fbf4ea' || c === '#fffaf2' || c === '#ffe0c7' ? ' stroke="rgba(0,0,0,.12)"' : '';
+  const L1 = ln(C), L2 = ln(body);
+  let eyes;
+  if (have) eyes = B.eye === 'frog' ? '<path d="M24 15 q3 -3 6 0 M46 15 q3 -3 6 0" stroke="' + D + '" stroke-width="2" fill="none" stroke-linecap="round"/>'
+    : '<path d="M27 33 q3 -3 6 0 M43 33 q3 -3 6 0" stroke="' + (B.eye === 'cat' || C === '#4a4550' || C === '#3b3f4f' ? '#fff' : D) + '" stroke-width="2" fill="none" stroke-linecap="round"/>';
+  else if (B.eye === 'frog') eyes = '<circle cx="27" cy="15" r="3.4" fill="' + D + '"/><circle cx="49" cy="15" r="3.4" fill="' + D + '"/><circle cx="28" cy="14" r="1.2" fill="#fff"/><circle cx="50" cy="14" r="1.2" fill="#fff"/>';
+  else if (B.eye === 'cat') eyes = '<circle cx="30" cy="33" r="3.4" fill="#ffd23f"/><circle cx="46" cy="33" r="3.4" fill="#ffd23f"/><ellipse cx="30" cy="33" rx="1" ry="2.6" fill="#222"/><ellipse cx="46" cy="33" rx="1" ry="2.6" fill="#222"/>';
+  else if (B.eye === 'owl') eyes = '<circle cx="29" cy="32" r="7" fill="#fff4e0"/><circle cx="47" cy="32" r="7" fill="#fff4e0"/><circle cx="29" cy="32" r="3.3" fill="' + D + '"/><circle cx="47" cy="32" r="3.3" fill="' + D + '"/><circle cx="30" cy="31" r="1.1" fill="#fff"/><circle cx="48" cy="31" r="1.1" fill="#fff"/>';
+  else if (B.eye === 'white') eyes = '<circle cx="30" cy="33" r="3.3" fill="#fff"/><circle cx="46" cy="33" r="3.3" fill="#fff"/><circle cx="30" cy="33" r="1.7" fill="#222"/><circle cx="46" cy="33" r="1.7" fill="#222"/>';
+  else { const ec = B.eye === 'blue' ? '#5a9bd8' : D; eyes = '<circle cx="30" cy="33" r="3.3" fill="' + ec + '"/><circle cx="46" cy="33" r="3.3" fill="' + ec + '"/><circle cx="31.2" cy="31.8" r="1.2" fill="#fff"/><circle cx="47.2" cy="31.8" r="1.2" fill="#fff"/>'; }
   return '<div style="flex:none;position:relative;width:76px;height:92px" title="' + esc(it.title) + '">' +
-    '<svg width="76" height="92" viewBox="0 0 76 92" aria-hidden="true">' + back +
-      '<ellipse cx="38" cy="60" rx="20" ry="17" fill="' + C + '"' + line + '/>' +
-      (cat ? '<path d="M56 70 q14 -2 10 -16" stroke="' + C + '" stroke-width="5" fill="none" stroke-linecap="round"/>' : '') +
-      '<circle cx="38" cy="32" r="21" fill="' + C + '"' + line + '/>' + front + whisk +
-      eyes + '<ellipse cx="24" cy="39" rx="3.6" ry="2.2" fill="#f58a9a" opacity=".5"/><ellipse cx="52" cy="39" rx="3.6" ry="2.2" fill="#f58a9a" opacity=".5"/>' + mouth +
-      '<ellipse cx="29" cy="88" rx="7" ry="3.2" fill="' + C + '"' + line + '/><ellipse cx="47" cy="88" rx="7" ry="3.2" fill="' + C + '"' + line + '/>' +
+    '<svg width="76" height="92" viewBox="0 0 76 92" aria-hidden="true">' + (B.b ? B.b(C) : '') +
+      (B.tail || (B.cat ? '<path d="M56 70 q14 -2 10 -16" stroke="' + C + '" stroke-width="5" fill="none" stroke-linecap="round"/>' : '')) +
+      '<ellipse cx="38" cy="60" rx="20" ry="17" fill="' + body + '"' + L2 + '/>' +
+      '<circle cx="38" cy="32" r="21" fill="' + C + '"' + L1 + '/>' + (B.f ? B.f(C) : '') +
+      eyes + '<ellipse cx="24" cy="39" rx="3.6" ry="2.2" fill="#f58a9a" opacity=".5"/><ellipse cx="52" cy="39" rx="3.6" ry="2.2" fill="#f58a9a" opacity=".5"/>' + (B.m != null ? B.m : BD_CATM) +
+      '<ellipse cx="29" cy="88" rx="7" ry="3.2" fill="' + body + '"' + L2 + '/><ellipse cx="47" cy="88" rx="7" ry="3.2" fill="' + body + '"' + L2 + '/>' +
       '<rect x="7" y="56" width="62" height="26" rx="6" fill="#fffaf0" stroke="#c99a5b" stroke-width="1.6"/>' +
-      '<circle cx="9" cy="66" r="5" fill="' + C + '"' + line + '/><circle cx="67" cy="66" r="5" fill="' + C + '"' + line + '/>' +
-      (have ? '<path d="M64 6 l1.5 3.5 3.5 1.5 -3.5 1.5 -1.5 3.5 -1.5 -3.5 -3.5 -1.5 3.5 -1.5 Z" fill="#ffd25e"/>' : '') +
+      '<circle cx="9" cy="66" r="5" fill="' + (B.human ? C : body) + '"' + (B.human ? L1 : L2) + '/><circle cx="67" cy="66" r="5" fill="' + (B.human ? C : body) + '"' + (B.human ? L1 : L2) + '/>' +
+      (have ? '<path d="M66 4 l1.5 3.5 3.5 1.5 -3.5 1.5 -1.5 3.5 -1.5 -3.5 -3.5 -1.5 3.5 -1.5 Z" fill="#ffd25e"/>' : '') +
     '</svg>' +
     '<div style="position:absolute;left:10px;top:57px;width:56px;height:24px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:9.5px;line-height:1.1;color:#5a4630;font-weight:700;overflow:hidden;word-break:break-word"><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">' + esc(it.titleZh || it.title) + '</span></div>' +
   '</div>';
