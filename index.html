@@ -184,7 +184,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.16-95';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.16-96';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1595,6 +1595,46 @@ async function devUnlist(id) {
   if (r.ok) { storyCat.items = storyCat.items.filter(x => x.id !== id); catCacheSet(storyCat); renderStoryCity(''); setScStatus('已下架'); } else setScStatus('下架失败：' + r.msg);
 }
 function devSlug(t) { return String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40); }
+/* 上架：清理文件里混进来的网页样式、自动识别书名 / 中文名 / 等级 */
+function devClean(raw) {
+  let s = String(raw).replace(/\r/g, '').replace(/^﻿/, '');
+  const hasHtml = /<(style|script|html|head|body|div|p|h1|br)\b/i.test(s);
+  const title = ((s.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '').trim();
+  const h1 = ((s.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i) || [])[1] || '').replace(/<[^>]+>/g, '').trim();
+  s = s.replace(/<!--[\s\S]*?-->/g, '').replace(/<(style|script|head)\b[\s\S]*?<\/\1>/gi, '\n');
+  if (hasHtml) s = s.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|h[1-6]|li|tr|section|article)>/gi, '\n\n');
+  s = s.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  // 去掉没有标签包着的 CSS 段落（比如 body { background: … }）
+  s = s.split(/\n\s*\n/).filter(p => !(/[{}]/.test(p) && (p.match(/[a-z-]+\s*:\s*[^;{}]+;/gi) || []).length >= 2 && !/[一-鿿]/.test(p))).join('\n\n');
+  return { text: s.replace(/\n{3,}/g, '\n\n').trim(), htmlTitle: h1 || title };
+}
+function devMeta(text, fileName, htmlTitle) {
+  const head = [htmlTitle || ''].concat(text.split('\n').map(x => x.replace(/^\s{0,3}#{1,6}\s+/, '').replace(/[*_`]+/g, '').trim()).filter(Boolean).slice(0, 6)).filter(x => x && x.length <= 90);
+  let en = '', zh = '';
+  for (const l of head) {
+    if (!en) { const m = l.match(/《\s*([A-Za-z][^《》]*?)\s*》/) || l.match(/[（(]\s*([A-Za-z][A-Za-z0-9 ,.'’:&!?-]*?)\s*[）)]/); if (m) en = m[1]; }
+    if (!en && !/[一-鿿]/.test(l) && /^[A-Za-z0-9 ,.'’:&!?-]{2,60}$/.test(l) && !/[.!?]$/.test(l.replace(/\.\.\.$/, '')) && l.split(/\s+/).length <= 10) en = l;
+    if (!en && /[\u4e00-\u9fff]/.test(l)) { const m = l.match(/^([A-Za-z][A-Za-z0-9 ,.'’:&!?-]*[A-Za-z0-9!?])\s*[\u4e00-\u9fff《（(]/) || l.match(/[\u4e00-\u9fff》）)]\s*([A-Za-z][A-Za-z0-9 ,.'’:&!?-]*[A-Za-z0-9!?])$/); if (m && m[1].split(/\s+/).length <= 10) en = m[1]; }
+    if (!zh && /[一-鿿]/.test(l)) {
+      let z = (l.match(/《([^《》]*[一-鿿][^《》]*)》/) || [])[1] || l.replace(/[（(][^）)]*[）)]/g, '').replace(/[A-Za-z][A-Za-z0-9 ,.'’:&!?-]*/g, '');
+      z = z.replace(/(中英|英汉|汉英)?(双语|对照)[^，,。]*$/, '').replace(/^[\s#：:·\-—]+|[\s：:·\-—]+$/g, '').trim();
+      if (z && z.length <= 20 && !/[，。！？；：]/.test(z)) zh = z;
+    }
+  }
+  if (!en) en = String(fileName || '').replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').replace(/[一-鿿（）()《》]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!zh) { const fz = String(fileName || '').replace(/\.[^.]+$/, '').match(/[\u4e00-\u9fff][\u4e00-\u9fff\s·：]*/); if (fz) zh = fz[0].trim().slice(0, 20); }
+  return { en: en.slice(0, 80), zh };
+}
+function devLevel(sents) {                           // 估等级：用平均句长 + 音节数算出美国年级（Flesch-Kincaid），再对应到 CEFR
+  const syl = w => { w = w.toLowerCase().replace(/[^a-z]/g, ''); if (w.length <= 3) return 1; w = w.replace(/(?:[^laeiouy]es|ed|[^laeiouy]e)$/, '').replace(/^y/, ''); const m = w.match(/[aeiouy]{1,2}/g); return m ? m.length : 1; };
+  let W = 0, S = 0, Y = 0;
+  const pick = sents.length > 3000 ? sents.filter((_, i) => i % Math.ceil(sents.length / 3000) === 0) : sents;
+  for (const s of pick) { const ws = s.match(/[A-Za-z]+(?:'[A-Za-z]+)?/g); if (!ws || ws.length < 2) continue; S++; W += ws.length; for (const w of ws) Y += syl(w); }
+  if (!S || !W) return { label: '', grade: 0 };
+  const g = 0.39 * (W / S) + 11.8 * (Y / W) - 15.59;
+  const L = g < 2.5 ? 'A1 入门' : g < 4.5 ? 'A2 初级' : g < 6.5 ? 'B1 中级' : g < 9.5 ? 'B2 中高级' : g < 12.5 ? 'C1 高级' : 'C2 精通';
+  return { label: L, grade: Math.round(g * 10) / 10, wps: Math.round(W / S * 10) / 10 };
+}
 function devParse(text) {                           // 解析中英对照文本：句子 + 前两句的中文（做试读）
   const pb = parseBlockSegs(text); const allSegs = []; let off = 0;
   for (const sg of pb.segs) { if (sg.lang === 'en') { allSegs.push({ lang: 'en', idxs: Array.from({ length: sg.n }, (_, k) => off + k) }); off += sg.n; } else allSegs.push(sg); }
@@ -1647,14 +1687,17 @@ let devNew = null;
 async function devNewFile(ev) {
   const file = ev.target.files[0]; ev.target.value = ''; if (!file) return;
   try {
-    let text = await readAsText(file); if (/\.(md|markdown)$/i.test(file.name)) text = mdToText(text);
+    document.getElementById('dnInfo').textContent = '正在读取…';
+    const cl = devClean(await readAsText(file)); let text = cl.text;
+    const meta = devMeta(text, file.name, cl.htmlTitle);
+    if (/\.(md|markdown)$/i.test(file.name)) text = mdToText(text);
     const d = devParse(text); if (!d.sents.length) throw new Error('没有识别到英文句子');
-    const lines = text.split(/\n\s*\n/).map(x => x.trim()).filter(Boolean);
-    const title = /[㐀-鿿]/.test(lines[0] || '') ? '' : (lines[0] || '').slice(0, 80), zh = (lines.slice(0, 3).find(x => /[㐀-鿿]/.test(x) && x.length <= 30)) || '';
+    const title = meta.en, zh = meta.zh, lv = devLevel(d.sents);
     devNew = { text, d };
     document.getElementById('dnTitle').value = title; document.getElementById('dnZh').value = zh;
+    if (lv.label) document.getElementById('dnLevel').value = lv.label;
     const chars = d.sents.reduce((m, x) => m + x.length, 0);
-    document.getElementById('dnInfo').textContent = '《' + (title || file.name) + '》共 ' + d.sents.length + ' 句，约 ' + chars + ' 个字符' + (d.preview.length ? '，已自动取前两句做试读' : '，没识别到中文对照，试读为空') + '。本月免费额度这台设备上约已用 ' + azUsed() + ' / ' + AZ_FREE + '。';
+    document.getElementById('dnInfo').textContent = '《' + (title || file.name) + '》共 ' + d.sents.length + ' 句，约 ' + chars + ' 个字符' + (d.preview.length ? '，已自动取前两句做试读' : '，没识别到中文对照，试读为空') + (lv.label ? '。自动评测等级：' + lv.label + '（平均每句 ' + lv.wps + ' 词，' + (lv.grade < 1 ? '低于美国 1 年级' : '约美国 ' + Math.round(lv.grade) + ' 年级') + '难度，可以手动改）' : '') + '。本月免费额度这台设备上约已用 ' + azUsed() + ' / ' + AZ_FREE + '。';
     document.getElementById('dnGo').disabled = false;
   } catch (e) { document.getElementById('dnInfo').textContent = '读取失败：' + (e && e.message ? e.message : '未知错误'); }
 }
