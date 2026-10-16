@@ -194,7 +194,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-109';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-110';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2022,9 +2022,27 @@ function houseSvg(c, lit, w, h) {                  // 一座小房子：屋顶 c
     '<rect x="14" y="70" width="11" height="10" rx="2" fill="' + L + '" stroke="' + c + '" stroke-width="1.3"/><rect x="51" y="70" width="11" height="10" rx="2" fill="' + L + '" stroke="' + c + '" stroke-width="1.3"/>' +
     '<path d="M2 89.5 H74" stroke="#8fbf7a" stroke-width="3" stroke-linecap="round"/></svg>';
 }
-function storyHouse(it, have) {                    // 故事小屋里每个故事是一座小房子：屋顶颜色按故事区分，门牌上写名字；已经领取的，窗户亮着灯
-  return '<div style="flex:none;position:relative;width:76px;height:92px" title="' + esc(it.title) + '">' + houseSvg(coverColor('story-' + it.id), have, 76, 92) +
-    '<div style="position:absolute;left:12px;top:40px;width:52px;height:27px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:9.5px;line-height:1.15;color:#5a4630;font-weight:600;overflow:hidden;word-break:break-word"><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">' + esc(it.titleZh || it.title) + '</span></div>' +
+function storyBuddy(it, have) {                    // 故事小屋里每个故事是一个可爱的小伙伴：按故事固定选动物和颜色，举着写着故事名的小牌子；已经领取的会眨眼笑
+  let h = 0; const k = 'story-' + it.id; for (let i = 0; i < k.length; i++) h = (h * 33 + k.charCodeAt(i)) >>> 0;
+  const C = ['#f6c28b', '#f4a7b9', '#a8d8b9', '#a7c7e7', '#d7b8f0', '#f7d97a', '#d8bfa4', '#9fd3d1'][h % 8], kind = (h >>> 3) % 4;
+  const D = 'rgba(70,45,30,.85)', ear = kind === 0 ? '<path d="M17 22 L20 5 L32 15 Z M59 22 L56 5 L44 15 Z" fill="' + C + '"/><path d="M21 17 L22 10 L28 14 Z M55 17 L54 10 L48 14 Z" fill="#f9d6dc"/>'
+    : kind === 1 ? '<circle cx="19" cy="13" r="8" fill="' + C + '"/><circle cx="57" cy="13" r="8" fill="' + C + '"/><circle cx="19" cy="13" r="4" fill="#f9d6dc"/><circle cx="57" cy="13" r="4" fill="#f9d6dc"/>'
+    : kind === 2 ? '<ellipse cx="28" cy="7" rx="5" ry="13" fill="' + C + '"/><ellipse cx="48" cy="7" rx="5" ry="13" fill="' + C + '"/><ellipse cx="28" cy="8" rx="2.3" ry="9" fill="#f9d6dc"/><ellipse cx="48" cy="8" rx="2.3" ry="9" fill="#f9d6dc"/>'
+    : '<path d="M36 7 q2 -6 6 -5 q-3 2 -2 6 Z" fill="' + C + '"/>';
+  const eyes = have ? '<path d="M27 33 q3 -3 6 0 M43 33 q3 -3 6 0" stroke="' + D + '" stroke-width="2" fill="none" stroke-linecap="round"/>'
+    : '<circle cx="30" cy="33" r="3.3" fill="' + D + '"/><circle cx="46" cy="33" r="3.3" fill="' + D + '"/><circle cx="31.2" cy="31.8" r="1.2" fill="#fff"/><circle cx="47.2" cy="31.8" r="1.2" fill="#fff"/>';
+  const mouth = kind === 3 ? '<path d="M35 38 L41 38 L38 42 Z" fill="#f2a33a"/>' : '<path d="M34.5 39 q1.8 2.2 3.5 0 q1.7 2.2 3.5 0" stroke="' + D + '" stroke-width="1.5" fill="none" stroke-linecap="round"/>';
+  return '<div style="flex:none;position:relative;width:76px;height:92px" title="' + esc(it.title) + '">' +
+    '<svg width="76" height="92" viewBox="0 0 76 92" aria-hidden="true">' + ear +
+      '<ellipse cx="38" cy="60" rx="20" ry="17" fill="' + C + '"/>' +
+      '<circle cx="38" cy="32" r="21" fill="' + C + '"/>' +
+      eyes + '<ellipse cx="24" cy="39" rx="3.6" ry="2.2" fill="#f58a9a" opacity=".55"/><ellipse cx="52" cy="39" rx="3.6" ry="2.2" fill="#f58a9a" opacity=".55"/>' + mouth +
+      '<ellipse cx="29" cy="88" rx="7" ry="3.2" fill="' + C + '"/><ellipse cx="47" cy="88" rx="7" ry="3.2" fill="' + C + '"/>' +
+      '<rect x="7" y="56" width="62" height="26" rx="6" fill="#fffaf0" stroke="#c99a5b" stroke-width="1.6"/>' +
+      '<circle cx="9" cy="66" r="5" fill="' + C + '"/><circle cx="67" cy="66" r="5" fill="' + C + '"/>' +
+      (have ? '<path d="M60 10 l1.5 3.5 3.5 1.5 -3.5 1.5 -1.5 3.5 -1.5 -3.5 -3.5 -1.5 3.5 -1.5 Z" fill="#ffd25e"/>' : '') +
+    '</svg>' +
+    '<div style="position:absolute;left:10px;top:57px;width:56px;height:24px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:9.5px;line-height:1.1;color:#5a4630;font-weight:700;overflow:hidden;word-break:break-word"><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">' + esc(it.titleZh || it.title) + '</span></div>' +
   '</div>';
 }
 function renderStoryCity(err) {
@@ -2036,7 +2054,7 @@ function renderStoryCity(err) {
     const have = owned.has('story-' + it.id), free = !it.price;
     const meta = [freeNow(it) ? '限时免费 · 到' + fmtDay(it.freeUntil - 1) : '', it.level, it.count ? it.count + ' 句' : '', it.voice ? '🎧 含自然语音' : ''].filter(Boolean).join(' · ');
     const prev = (it.preview || []).map(p => '<div style="margin:6px 0"><div>' + esc(p.en || '') + '</div><div class="note">' + esc(p.zh || '') + '</div></div>').join('');
-    return '<div class="card" style="display:flex;gap:12px;margin-bottom:10px;padding:12px">' + storyHouse(it, have) +
+    return '<div class="card" style="display:flex;gap:12px;margin-bottom:10px;padding:12px">' + storyBuddy(it, have) +
       '<div style="flex:1;min-width:0"><div style="font-size:16px;color:var(--ink)">' + esc(it.title) + (it.titleZh ? ' <span class="note">' + esc(it.titleZh) + '</span>' : '') + '</div>' +
       '<div class="note">' + esc(meta) + '</div>' + (it.desc ? '<div class="note" style="margin-top:4px;color:var(--ink)">' + esc(it.desc) + '</div>' : '') +
       '<div class="row" style="margin-top:8px;gap:8px">' +
