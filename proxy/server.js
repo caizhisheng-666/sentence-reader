@@ -291,6 +291,25 @@ async function shopRoutes(req, res) {
       const j = shopRead(); const k = j.items.findIndex(x => x.id === it.id); if (k >= 0) j.items[k] = it; else j.items.push(it);
       j.removed = (j.removed || []).filter(x => x !== it.id); shopWrite(j); return out(200, { ok: true, count: j.items.length });
     }
+    m = /^\/admin\/price\/([a-z0-9][a-z0-9-]{0,59})$/.exec(url);
+    if (req.method === 'POST' && m) {                  // 改价格：免费 ⇄ 收费，把这本书的文字和语音在公开目录和私有目录之间搬一下
+      const id = m[1], b = JSON.parse(await readBody(req, 1000)), j = shopRead(), k = j.items.findIndex(x => x.id === id);
+      if (k < 0) return out(404, { error: 'story-not-found' });
+      const it = j.items[k], np = Math.round((+b.price || 0) * 100) / 100;
+      if (!(np >= 0 && np < 100000)) return out(400, { error: 'bad-price' });
+      const toPriv = np > 0 && !it.price, toFree = np === 0 && !!it.price;
+      if (toPriv || toFree) {
+        if (it.file && !/^api:files\//.test(it.file)) return out(400, { error: 'static-file' });
+        const from = toPriv ? SHOP_FILES : SHOP_PRIV, to = toPriv ? SHOP_PRIV : SHOP_FILES, names = [id + '.srbook', id + '.voice.zip', id];
+        if (!fs.existsSync(path.join(from, id + '.srbook'))) return out(404, { error: 'file-not-found' });
+        if (names.some(n => fs.existsSync(path.join(to, n)))) return out(409, { error: 'target-exists' });
+        fs.mkdirSync(to, { recursive: true });
+        for (const n of names) if (fs.existsSync(path.join(from, n))) fs.renameSync(path.join(from, n), path.join(to, n));
+        if (toPriv) delete it.file; else it.file = 'api:files/' + id + '.srbook';
+      }
+      if (np > 0) it.price = np; else delete it.price;
+      shopWrite(j); return out(200, { ok: true, price: np, moved: toPriv ? 'private' : toFree ? 'public' : '' });
+    }
     m = /^\/admin\/split\/([a-z0-9][a-z0-9-]{0,59})$/.exec(url);
     if (req.method === 'POST' && m) {                  // 旧格式（语音打包在故事里）→ 故事只留文字，语音拆成一句一个文件
       const priv = !fs.existsSync(path.join(SHOP_FILES, m[1] + '.srbook')), dir = priv ? SHOP_PRIV : SHOP_FILES, f = path.join(dir, m[1] + '.srbook');

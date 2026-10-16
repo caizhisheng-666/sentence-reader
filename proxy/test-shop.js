@@ -89,6 +89,17 @@ const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-toke
   r = await call('/admin/codes/' + cs[0], { m: 'DELETE', h: A }); assert.equal(r.s, 200);
   r = await call('/pfiles/' + rd.tk + '/story.srbook'); assert.equal(r.s, 404);   // 撤销后买家凭证失效
   r = await call('/redeem', { m: 'POST', h: O, body: JSON.stringify({ code: cs[0] }) }); assert.equal(r.s, 404);
+  // 改价格：收费 → 免费 → 收费，文件在两个目录间搬
+  r = await call('/admin/price/pay1', { m: 'POST', h: { Origin: 'https://ok.example' }, body: '{"price":0}' }); assert.equal(r.s, 401);
+  r = await call('/admin/price/pay1', { m: 'POST', h: A, body: '{"price":0}' }); assert.equal(r.s, 200); assert.equal(JSON.parse(r.b).moved, 'public');
+  r = await call('/files/pay1.srbook'); assert.equal(r.s, 200);
+  r = await call('/files/pay1/' + HP + '.mp3'); assert.equal(r.b, 'PAID-AUDIO');
+  r = await call('/catalog'); let pq = JSON.parse(r.b).items.find(x => x.id === 'pay1'); assert.equal(pq.price, undefined); assert.equal(pq.file, 'api:files/pay1.srbook');
+  r = await call('/admin/price/pay1', { m: 'POST', h: A, body: '{"price":19.9}' }); assert.equal(JSON.parse(r.b).moved, 'private');
+  r = await call('/files/pay1.srbook'); assert.equal(r.s, 404);
+  r = await call('/catalog'); pq = JSON.parse(r.b).items.find(x => x.id === 'pay1'); assert.equal(pq.price, 19.9); assert.equal(pq.file, undefined);
+  r = await call('/admin/price/pay1', { m: 'POST', h: A, body: '{"price":29}' }); assert.equal(JSON.parse(r.b).moved, '');
+  r = await call('/admin/price/nope', { m: 'POST', h: A, body: '{"price":1}' }); assert.equal(r.s, 404);
   r = await call('/admin/item/pay1', { m: 'DELETE', h: A }); assert.equal(r.s, 200);
   r = await call('/admin/codes', { m: 'POST', h: A, body: JSON.stringify({ story: 'pay1', n: 1 }) }); assert.equal(r.s, 404);
   for (let i = 0; i < 9; i++) r = await call('/admin/item', { m: 'POST', h: { Origin: 'https://ok.example', Authorization: 'Bearer nope', 'Content-Type': 'application/json' }, body: '{}' });

@@ -184,7 +184,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.16-100';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.16-101';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1830,9 +1830,9 @@ function devEditInfo(id) {
     '<div class="note">英文标题</div><input id="deTitle" value="' + esc(it.title) + '" style="' + F + '">' +
     '<div class="note">中文名</div><input id="deZh" value="' + esc(it.titleZh || '') + '" style="' + F + '">' +
     '<div class="note">等级</div><input id="deLevel" value="' + esc(it.level || '') + '" style="' + F + '">' +
-    (it.price ? '<div class="note">购买说明（买家点“购买”时看到，比如“闲鱼搜 喵喵书店，拍下后自动发兑换码”）</div><input id="deBuy" value="' + esc(it.buy || '') + '" style="' + F + '"><div class="note">购买链接（闲鱼商品页，https 开头，可空）</div><input id="deBuyUrl" value="' + esc(it.buyUrl || '') + '" style="' + F + '">' : '') +
-    (it.price ? '<div class="note">价格（元）</div><input id="dePrice" inputmode="decimal" value="' + esc(String(it.price)) + '" style="' + F + '">'
-      : '<div class="note" style="margin:4px 0 8px">价格：免费。想改成收费，请下架后重新上架（免费和收费的文件放的地方不一样）。</div>') +
+    ('<div class="note">购买说明（买家点“购买”时看到，比如“闲鱼搜 喵喵书店，拍下后自动发兑换码”）</div><input id="deBuy" value="' + esc(it.buy || '') + '" style="' + F + '"><div class="note">购买链接（闲鱼商品页，https 开头，可空）</div><input id="deBuyUrl" value="' + esc(it.buyUrl || '') + '" style="' + F + '">') +
+    '<div class="note">价格（元，填 0 就是免费）</div><input id="dePrice" inputmode="decimal" value="' + esc(String(it.price || 0)) + '" style="' + F + '">' +
+    '<div class="note" style="margin:0 0 8px">免费 ⇄ 收费会自动把这本书的文字和语音在服务器上搬一下，不用重新上架。已经免费拿走的人，之后在线听语音可能取不到，需要重新兑换。</div>' +
     '<div class="row" style="margin-top:6px"><button onclick="devEditInfoSave(\'' + esc(id) + '\')">保存</button><button class="ghost" onclick="openStoryCity()">返回</button></div>' +
     '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>');
 }
@@ -1845,7 +1845,19 @@ async function devEditInfoSave(id) {
   if (zh) entry.titleZh = zh; else delete entry.titleZh;
   if (level) entry.level = level; else delete entry.level;
   if (!it.titleZh && !it.desc || it.desc === (it.titleZh ? it.titleZh + '。' : '')) { if (zh) entry.desc = zh + '。'; else delete entry.desc; }
-  if (it.price) { const pr = Math.max(0, parseFloat(document.getElementById('dePrice').value) || 0); if (!pr) { setScStatus('收费故事的价格要大于 0。想改成免费，请下架后重新上架。'); return; } entry.price = pr; const bu = g('deBuyUrl'); if (bu && !/^https:\/\//.test(bu)) { setScStatus('购买链接要以 https:// 开头'); return; } if (g('deBuy')) entry.buy = g('deBuy'); else delete entry.buy; if (bu) entry.buyUrl = bu; else delete entry.buyUrl; }
+  {
+    const pr = Math.max(0, Math.round((parseFloat(document.getElementById('dePrice').value) || 0) * 100) / 100), sw = (pr > 0) !== !!it.price;
+    if (sw && !it.price && !it.file) { setScStatus('这本书的文件不在服务器上，不能直接改价格'); return; }
+    if (sw && !confirm(pr > 0 ? '改成收费（¥' + pr + '）吗？这本书会从公开目录搬到私有目录，只有兑换码买家能下载。' : '改成免费吗？这本书会放到公开目录，任何人都能下载。')) return;
+    if (pr !== (it.price || 0)) {
+      setScStatus('正在改价格…');
+      const pj = await devAdmin('/admin/price/' + it.id, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ price: pr }) });
+      if (!pj.ok) { setScStatus('改价格失败：' + pj.msg); return; }
+      if (pr > 0) { entry.price = pr; delete entry.file; } else { delete entry.price; entry.file = 'api:files/' + it.id + '.srbook'; }
+    }
+    const bu = g('deBuyUrl'); if (bu && !/^https:\/\//.test(bu)) { setScStatus('购买链接要以 https:// 开头'); return; }
+    if (g('deBuy')) entry.buy = g('deBuy'); else delete entry.buy; if (bu) entry.buyUrl = bu; else delete entry.buyUrl;
+  }
   setScStatus('正在保存…');
   const pub = await devPublish(entry, null);
   if (pub !== true) { setScStatus('保存失败：' + pub); return; }
