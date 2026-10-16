@@ -173,7 +173,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 </head>
 <body>
 <div id="app"><div id="loading">加载中…</div></div>
-<div id="overlay" onclick="if(event.target.id==='overlay')closePop()"><div id="pop" role="dialog" aria-modal="true"></div></div>
+<div id="overlay" onpointerdown="window.__ovDown=(event.target.id==='overlay')" onpointerup="window.__ovUp=(event.target.id==='overlay')" onclick="if(event.target.id==='overlay'&&window.__ovDown&&window.__ovUp)closePop();window.__ovDown=window.__ovUp=false"><div id="pop" role="dialog" aria-modal="true"></div></div>
 <div id="wordpop" class="wordpop" role="dialog" aria-live="polite" hidden><div class="wp-arrow"></div><div id="wpBody"></div></div>
 <div id="fsModal" class="fs-modal" role="dialog" aria-modal="true" hidden>
   <div class="fs-topbar"><button class="iconbtn" onclick="closeFullscreen()">← 返回</button><span id="fsTitle"></span></div>
@@ -184,7 +184,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.16-96';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.16-97';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
