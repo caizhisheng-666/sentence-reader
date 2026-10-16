@@ -138,6 +138,14 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .wordpop.above .wp-arrow{bottom:-7px;border-left:none;border-top:none}
 #pop{background:var(--card);border-radius:16px 16px 0 0;padding:22px;width:100%;max-width:680px;max-height:86vh;overflow-y:auto;padding-bottom:calc(22px + env(safe-area-inset-bottom,0px))}
 .dentry{padding:10px 0;border-bottom:1px solid var(--line)}
+.ctxm{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--soft)}
+.ctxm .ctxl{font-size:12px;color:var(--sub)}
+.ctxm .ctxv{font-size:20px;font-weight:600;color:var(--accent);margin-top:2px;line-height:1.4}
+.ctxm .ctxv .pos{font-size:13px;font-weight:400;color:var(--sub);margin-right:4px}
+.ctxall{margin-top:8px}
+.ctxall>summary{cursor:pointer;font-size:13px;color:var(--accent);padding:6px 0;list-style:none}
+.ctxall>summary::-webkit-details-marker{display:none}
+.ctxall[open]>summary{color:var(--sub)}
 .dhead{font-size:22px;font-weight:700;color:var(--accent)}
 .ph{font-size:14px;color:var(--sub);font-weight:400;margin-left:6px}
 .src{font-size:11px;color:#fff;background:var(--accent2);border-radius:6px;padding:2px 6px;margin-left:6px;font-weight:400;vertical-align:middle}
@@ -176,7 +184,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.15-93';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.16-94';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2143,18 +2151,60 @@ async function wordClick(i, el) {
     return;
   }
   if (curWord !== clean) return;
-  let html = head;
+  let html = head, ent = '';
   if (!res.length) html += '<div class="note" style="margin-top:10px">词典里没有找到这个词，可能是人名、地名或较生僻的词。' + (navigator.onLine ? '' : '（当前离线）') + '</div>';
   res.forEach(r => {
-    html += '<div class="dentry"><div><b>' + esc(r.head) + '</b>' + (r.p ? '<span class="ph">/' + esc(r.p) + '/</span>' : '') + '<span class="src">' + r.src + '</span></div>' +
+    ent += '<div class="dentry"><div><b>' + esc(r.head) + '</b>' + (r.p ? '<span class="ph">/' + esc(r.p) + '/</span>' : '') + '<span class="src">' + r.src + '</span></div>' +
       (r.note ? '<div class="note">' + esc(r.note) + '</div>' : '') +
       (r.t ? '<div class="zhdef">' + fmt(r.t) + '</div>' : '') +
       (r.d ? '<div class="endef">' + fmt(r.d) + '</div>' : '') + '</div>';
     if (!curWordZh) curWordZh = r.t || r.d || '';
   });
+  const cz = ctxZh(lastWordSentIdx >= 0 ? lastWordSentIdx : (state ? state.idx : -1));
+  const hit = ctxMatch(res, cz.zh);
+  if (hit.length) {
+    const sure = hit[0].n >= 2;
+    html += '<div class="ctxm"><div class="ctxl">' + (sure ? '本句意思' : '本句可能是') + ' · 根据' + cz.src + '</div><div class="ctxv">' +
+      hit.map(h => esc(h.s)).join('<span class="pos">　/　</span>') + '</div></div>' +
+      '<details class="ctxall" ontoggle="this.firstChild.textContent = this.open ? \'▾ 收起全部释义\' : \'▸ 查看全部释义\'; if (lastWordEl) positionWordPop(lastWordEl.getBoundingClientRect())"><summary>▸ 查看全部释义</summary>' + ent + '</details>';
+  } else html += ent;
   if (!dictInfo || !dictInfo.count) html += '<div class="note" style="margin-top:12px">现在用的是内置基础词典（常用词）。完整离线词典还没就绪，' + '<button class="link" onclick="closeWordPop();openDictSettings()">查看词典状态</button></div>';
   document.getElementById('wpBody').innerHTML = html;
   positionWordPop(rect);
+}
+/* ---------- 本句意思：用这句的中文译文（书中译文优先，其次机器翻译）对照词典释义，挑出这句里用到的那个意思 ---------- */
+function ctxZh(idx) {
+  if (!state || idx < 0) return { zh: '', src: '' };
+  if (state.zh && state.zh[idx]) return { zh: state.zh[idx], src: '书中译文' };
+  const c = state.cache && state.cache[idx];
+  return (c && c.translation) ? { zh: c.translation, src: '机器翻译' } : { zh: '', src: '' };
+}
+function ctxMatch(res, zh) {
+  if (!zh) return [];
+  const z = zh.replace(/\s+/g, ''), hits = [], seen = new Set();
+  res.forEach(r => {
+    if (!r.t || r.src === '在线翻译') return;
+    r.t.split('\n').forEach(line => {
+      line = line.trim();
+      if (!line || /^\[/.test(line)) return;                       // [化] [医] 这类专业释义不参与
+      const m = line.match(/^((?:[a-z]+\.\s*(?:&\s*)?)+)?\s*(.*)$/i);
+      const pos = (m[1] || '').trim(), body = m[2] || '';
+      body.split(/[,，;；、]/).forEach(sv => {
+        const s = sv.replace(/[（(][^）)]*[）)]/g, '').replace(/[\[【][^\]】]*[\]】]/g, '').replace(/[…．.\s"“”]/g, '').trim();
+        if (!s || !/^[一-鿿]+$/.test(s) || seen.has(s)) return;
+        const vars = [s];
+        if (s.length > 1 && /[的地得]$/.test(s)) vars.push(s.slice(0, -1));
+        if (s.length > 2 && /^[使被]/.test(s)) vars.push(s.slice(1));
+        if (vars[vars.length - 1].length >= 3) { const b = vars[vars.length - 1]; for (let i = 0; i + 2 <= b.length; i++) vars.push(b.slice(i, i + 2)); }   // 长释义拆成两个字再找：慢慢地 → 慢慢
+        for (const v of vars) if (v && z.includes(v)) { seen.add(s); hits.push({ s, pos, n: v.length, full: v === s || v.length >= s.length - 1, head: r.head }); break; }
+      });
+    });
+  });
+  hits.sort((a, b) => (b.full - a.full) || (b.n - a.n));
+  const out = [];
+  for (const h of hits) if (!out.some(o => o.s.includes(h.s) || h.s.includes(o.s))) out.push(h);   // 稻草 / 稻草的 只留一个
+  const long = out.filter(h => h.n >= 2);
+  return long.length ? long.slice(0, 2) : out.slice(0, 1);       // 只有单个字对上时只给一个，免得乱
 }
 function retryWordLookup() { if (lastWordEl && lastWordIdx >= 0) wordClick(lastWordIdx, lastWordEl); }
 /* ---------- 本站词典文件：dict.tsv.gz（和网页放在同一个地方，不依赖任何外部网站） ---------- */
