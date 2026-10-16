@@ -297,9 +297,17 @@ async function shopRoutes(req, res) {
       while (made.length < n) { const c = genCode(); if (j.codes[c]) continue; j.codes[c] = { story: it.id, at: new Date().toISOString(), uses: 0 }; made.push(fmtCode(c)); }
       codesWrite(j); return out(200, { ok: true, codes: made });
     }
+    if (req.method === 'POST' && url === '/admin/codes/issue') {      // 发货：取出下一个没用过、也没发出去过的码，并标记为“已发出”
+      const b = JSON.parse(await readBody(req, 1000)), j = codesRead();
+      if (b.undo) { const c = normCode(b.undo), r = j.codes[c]; if (!r) return out(404, { error: 'not-found' }); delete r.issued; codesWrite(j); return out(200, { ok: true }); }
+      const ent = Object.entries(j.codes).filter(([, r]) => r.story === b.story && !r.free && !r.revoked && !r.uses && !r.issued).sort((a, c) => String(a[1].at).localeCompare(String(c[1].at)));
+      if (!ent.length) return out(404, { error: 'none-left' });
+      ent[0][1].issued = new Date().toISOString(); codesWrite(j);
+      return out(200, { ok: true, code: fmtCode(ent[0][0]), left: ent.length - 1 });
+    }
     if (req.method === 'GET' && url === '/admin/codes') {
       const q = new URL(req.url, 'http://x').searchParams.get('story') || '', j = codesRead();
-      const list = Object.entries(j.codes).filter(([, r]) => !r.free && (!q || r.story === q)).map(([c, r]) => ({ code: fmtCode(c), story: r.story, at: r.at, uses: r.uses || 0, revoked: !!r.revoked })).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 1000);
+      const list = Object.entries(j.codes).filter(([, r]) => !r.free && (!q || r.story === q)).map(([c, r]) => ({ code: fmtCode(c), story: r.story, at: r.at, uses: r.uses || 0, revoked: !!r.revoked, issued: !!r.issued })).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 1000);
       return out(200, { codes: list, max: CODE_MAX_USES });
     }
     m = /^\/admin\/codes\/([A-Za-z0-9-]{12,20})$/.exec(url);

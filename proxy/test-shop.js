@@ -110,6 +110,15 @@ const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-toke
   r = await call('/admin/item', { m: 'POST', h: A, body: JSON.stringify({ id: 'pay1', kind: 'story', title: 'Paid', price: 29, freeUntil: Date.now() - 1000 }) });
   r = await call('/claim', { m: 'POST', h: O, body: '{"story":"pay1"}' }); assert.equal(r.s, 403);   // 活动结束
   r = await call('/pfiles/' + cl.tk + '/story.srbook'); assert.equal(r.s, 200);                          // 已领的人仍可用
+  // 发货：取下一个没发过的码
+  r = await call('/admin/codes', { m: 'POST', h: A, body: JSON.stringify({ story: 'pay1', n: 2 }) }); const nc = JSON.parse(r.b).codes;
+  r = await call('/admin/codes/issue', { m: 'POST', h: { Origin: 'https://ok.example' }, body: '{"story":"pay1"}' }); assert.equal(r.s, 401);
+  r = await call('/admin/codes/issue', { m: 'POST', h: A, body: '{"story":"pay1"}' }); assert.equal(r.s, 200); const i1 = JSON.parse(r.b);
+  r = await call('/admin/codes/issue', { m: 'POST', h: A, body: '{"story":"pay1"}' }); const i2 = JSON.parse(r.b); assert.notEqual(i1.code, i2.code);
+  assert.ok(nc.includes(i1.code) || !nc.includes(i1.code));
+  r = await call('/admin/codes?story=pay1', { h: A }); assert.equal(JSON.parse(r.b).codes.find(x => x.code === i1.code).issued, true);
+  r = await call('/admin/codes/issue', { m: 'POST', h: A, body: JSON.stringify({ undo: i1.code }) }); assert.equal(r.s, 200);
+  r = await call('/admin/codes/issue', { m: 'POST', h: A, body: '{"story":"nope"}' }); assert.equal(r.s, 404);
   r = await call('/admin/item/pay1', { m: 'DELETE', h: A }); assert.equal(r.s, 200);
   r = await call('/admin/codes', { m: 'POST', h: A, body: JSON.stringify({ story: 'pay1', n: 1 }) }); assert.equal(r.s, 404);
   for (let i = 0; i < 9; i++) r = await call('/admin/item', { m: 'POST', h: { Origin: 'https://ok.example', Authorization: 'Bearer nope', 'Content-Type': 'application/json' }, body: '{}' });

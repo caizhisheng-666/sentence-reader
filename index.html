@@ -184,7 +184,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.16-103';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-104';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1604,12 +1604,27 @@ async function devCodes(id) {
   const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it) return;
   showPop('<h3 style="margin:0 0 6px">🎟 《' + esc(it.title) + '》兑换码</h3><div id="dcBody" class="note">读取中…</div><div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div><div class="row" style="margin-top:8px"><button class="ghost" onclick="openStoryCity()">返回</button></div>');
   const r = await devAdmin('/admin/codes?story=' + encodeURIComponent(id), {}); if (!r.ok) { setScStatus(r.msg); return; }
-  const j = await r.res.json(), L = j.codes || [], un = L.filter(c => !c.uses && !c.revoked);
+  const j = await r.res.json(), L = j.codes || [], un = L.filter(c => !c.uses && !c.revoked && !c.issued);
   const F = 'padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--pop);color:var(--ink);font-size:15px;width:64px';
-  document.getElementById('dcBody').innerHTML = '<div style="color:var(--ink)">共 ' + L.length + ' 个，未使用 ' + un.length + ' 个</div>' +
+  const tpl = devTplGet();
+  document.getElementById('dcBody').innerHTML = '<div style="color:var(--ink)">共 ' + L.length + ' 个，可发货 ' + un.length + ' 个，已发出 ' + L.filter(c => c.issued && !c.uses && !c.revoked).length + ' 个</div>' +
+    '<div class="row" style="margin-top:8px"><button onclick="devIssue(\'' + esc(id) + '\')">📋 发货：复制下一个码 + 话术</button></div>' +
+    '<div class="note" style="margin-top:6px">话术（{码} 会换成兑换码，{书名} 换成书名；改完自动保存）</div><textarea id="dcTpl" rows="5" oninput="devTplSet(this.value)" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--pop);color:var(--ink);font-size:14px;margin:4px 0 8px">' + esc(tpl) + '</textarea>' +
     '<div class="row" style="margin-top:8px;gap:8px"><input id="dcN" value="10" inputmode="numeric" style="' + F + '"><button class="sm" onclick="devCodesMake(\'' + esc(id) + '\')">生成</button>' + (un.length ? '<button class="ghost sm" onclick="devCodesCopy(\'' + esc(id) + '\')">复制全部未使用的</button>' : '') + '</div>' +
-    '<div style="max-height:40vh;overflow:auto;margin-top:8px;font-family:monospace;font-size:14px;line-height:1.9">' + L.map(c => '<div style="color:' + (c.revoked ? '#999;text-decoration:line-through' : c.uses ? '#999' : 'var(--ink)') + '">' + esc(c.code) + ' <span class="note">' + (c.revoked ? '已作废' : c.uses ? '已用 ' + c.uses + '/' + j.max : '未使用') + '</span>' + (c.revoked ? '' : ' <a href="#" style="font-size:12px" onclick="devCodeRevoke(\'' + esc(id) + '\',\'' + esc(c.code) + '\');return false">作废</a>') + '</div>').join('') + '</div>';
+    '<div style="max-height:40vh;overflow:auto;margin-top:8px;font-family:monospace;font-size:14px;line-height:1.9">' + L.map(c => '<div style="color:' + (c.revoked ? '#999;text-decoration:line-through' : c.uses || c.issued ? '#999' : 'var(--ink)') + '">' + esc(c.code) + ' <span class="note">' + (c.revoked ? '已作废' : c.uses ? '已用 ' + c.uses + '/' + j.max : c.issued ? '已发出' : '未发') + '</span>' + (c.revoked ? '' : ' <a href="#" style="font-size:12px" onclick="devCodeRevoke(\'' + esc(id) + '\',\'' + esc(c.code) + '\');return false">作废</a>') + '</div>').join('') + '</div>';
   window._dcUn = un.map(c => c.code);
+}
+const DEV_TPL = '感谢购买《{书名}》！你的兑换码：{码}\n使用方法：打开「一句一读」→ 故事城 → 点“我有兑换码”→ 输入即可。\n每个码最多可在 3 台设备上使用。';
+function devTplGet() { try { return localStorage.getItem('sr_dev_tpl') || DEV_TPL; } catch (e) { return DEV_TPL; } }
+function devTplSet(v) { try { localStorage.setItem('sr_dev_tpl', v); } catch (e) {} }
+async function devIssue(id) {                         // 闲鱼聊天里发货：取出下一个没发过的码，连话术一起复制
+  const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it) return;
+  const r = await devAdmin('/admin/codes/issue', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ story: id }) });
+  if (!r.ok) { setScStatus(/404/.test(r.msg) ? '没有可发的码了，请先生成一批。' : '失败：' + r.msg); return; }
+  const j = await r.res.json(), tx = (document.getElementById('dcTpl') ? document.getElementById('dcTpl').value : devTplGet()).replace(/\{码\}/g, j.code).replace(/\{书名\}/g, it.title);
+  let ok = false; try { await navigator.clipboard.writeText(tx); ok = true; } catch (e) {}
+  await devCodes(id);
+  setScStatus(ok ? '已复制（' + j.code + '），去闲鱼聊天里粘贴发给买家。还剩 ' + j.left + ' 个可发。' : '复制没成功，请手动复制：' + j.code);
 }
 async function devCodesMake(id) {
   const n = Math.max(1, Math.min(200, parseInt(document.getElementById('dcN').value) || 1));
