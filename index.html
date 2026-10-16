@@ -173,7 +173,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 </head>
 <body>
 <div id="app"><div id="loading">加载中…</div></div>
-<div id="overlay" onclick="if(event.target.id==='overlay')closePop()"><div id="pop" role="dialog" aria-modal="true"></div></div>
+<div id="overlay" onpointerdown="window.__ovDown=(event.target.id==='overlay')" onpointerup="window.__ovUp=(event.target.id==='overlay')" onclick="if(event.target.id==='overlay'&&window.__ovDown&&window.__ovUp)closePop();window.__ovDown=window.__ovUp=false"><div id="pop" role="dialog" aria-modal="true"></div></div>
 <div id="wordpop" class="wordpop" role="dialog" aria-live="polite" hidden><div class="wp-arrow"></div><div id="wpBody"></div></div>
 <div id="fsModal" class="fs-modal" role="dialog" aria-modal="true" hidden>
   <div class="fs-topbar"><button class="iconbtn" onclick="closeFullscreen()">← 返回</button><span id="fsTitle"></span></div>
@@ -184,7 +184,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.16-96';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.16-99';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1598,13 +1598,6 @@ async function devPublish(entry, file) {            // file = {name, blob, priv}
   const r = await devAdmin('/admin/item', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entry) });
   return r.ok ? true : r.msg;
 }
-async function devSplit(id) {                        // 旧格式（语音打包在故事里，几十 MB）→ 服务器上拆成文字 + 一句一个语音
-  setScStatus('正在转换…');
-  const r = await devAdmin('/admin/split/' + id, { method: 'POST' });
-  if (!r.ok) { setScStatus('转换失败：' + r.msg); return; }
-  const j = await r.res.json().catch(() => ({}));
-  setScStatus(j.already ? '这本已经是新格式了，不用转换。' : '转换完成：语音拆成 ' + j.clips + ' 句，故事文件只剩 ' + Math.max(1, Math.round((j.bytes || 0) / 1024)) + ' KB，用户获取时马上就能进书架。');
-}
 async function devUnlist(id) {
   if (!confirm('把这个商品从故事城下架吗？（不会删除买家手里已有的）')) return;
   const r = await devAdmin('/admin/item/' + id, { method: 'DELETE' });
@@ -1932,7 +1925,6 @@ function renderStoryCity(err) {
         : '<button class="sm" onclick="scBuy(\'' + it.id + '\')">¥' + esc(String(it.price)) + ' 购买</button>') +
       (prev ? '<button class="ghost sm" onclick="scToggle(\'' + it.id + '\')">试读</button>' : '') +
       (azReady() ? '<button class="ghost sm" onclick="devEditInfo(\'' + it.id + '\')">✏️ 改信息</button><button class="ghost sm" onclick="devEditText(\'' + it.id + '\')">✏️ 改内容</button><button class="ghost sm" onclick="devGenVoice(\'' + it.id + '\')">🎙 ' + (it.voice ? '补语音' : '生成语音') + '</button>' : '') +
-      (azReady() && it.voice && /^api:files\//.test(it.file || '') ? '<button class="ghost sm" onclick="devSplit(\'' + it.id + '\')">⚡ 转成按句取语音</button>' : '') +
       (azReady() ? '<button class="ghost sm" onclick="devUnlist(\'' + it.id + '\')">下架</button>' : '') + '</div>' +
       (prev ? '<div id="scPrev-' + it.id + '" style="display:none;margin-top:8px">' + prev + '</div>' : '') + '</div></div>';
   }).join('');
