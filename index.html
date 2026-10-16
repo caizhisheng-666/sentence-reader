@@ -184,7 +184,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.16-99';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.16-100';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1510,7 +1510,8 @@ async function fetchProgress(url, onPct) {          // 下载并报告进度（�
   const out = new Uint8Array(got); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; }
   return out.buffer;
 }
-const voiceUrlOf = it => shopUrl(String(it.file).replace(/\.srbook$/, '.voice.zip'));      // 语音单独放在“故事名.voice.zip”
+const tkOf = id => (shelfGet().find(x => x.id === 'story-' + id) || {}).tk || '';        // 买家兑换后拿到的凭证
+const voiceUrlOf = it => tkOf(it.id) ? shopUrl('api:pfiles/' + tkOf(it.id) + '/voice.zip') : shopUrl(String(it.file).replace(/\.srbook$/, '.voice.zip'));      // 语音单独放在“故事名.voice.zip”
 const voiceDl = {};                                  // 正在后台下载语音的故事：id → 百分比
 async function updateStory(id) {                   // 买家书架里的故事有新版：下载新文字，读到哪句、学习进度都保留
   const bid = 'story-' + id; let old = null; try { old = await idbGet('books', bid); } catch (e) {}
@@ -1527,14 +1528,15 @@ async function updateStory(id) {                   // 买家书架里的故事�
     toast('《' + ((storyCat.items.find(x => x.id === id) || {}).title || '') + '》已更新，读到哪里都还记着。', 4000);
   } catch (e) {}
 }
-async function getStory(id) {
-  const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it || !it.file) return;
+async function getStory(id, tk0) {
+  const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it) return;
+  const tk = tk0 || tkOf(id); if (!it.file && !tk) return;
   try {
     setScStatus('正在下载《' + it.title + '》…');
-    const buf = await fetchProgress(shopUrl(it.file), p => setScStatus('正在下载《' + it.title + '》' + p + '%…'));
+    const buf = await fetchProgress(shopUrl(tk ? 'api:pfiles/' + tk + '/story.srbook' : it.file), p => setScStatus('正在下载《' + it.title + '》' + p + '%…'));
     await loadLibs();
-    const r = await installStory(await JSZip.loadAsync(buf), it.title, it.voice && /^api:files\//.test(it.file) ? { natSrc: 'api:files/' + it.id + '/' } : null);
-    { const l = shelfGet(), e = l.find(x => x.id === 'story-' + it.id); if (e) { e.ver = it.ver || r.ver || 1; shelfSet(l); } }
+    const r = await installStory(await JSZip.loadAsync(buf), it.title, it.voice && tk ? { natSrc: 'api:pfiles/' + tk + '/' } : it.voice && /^api:files\//.test(it.file) ? { natSrc: 'api:files/' + it.id + '/' } : null);
+    { const l = shelfGet(), e = l.find(x => x.id === 'story-' + it.id); if (e) { e.ver = it.ver || r.ver || 1; if (tk) e.tk = tk; shelfSet(l); } }
     if (it.voice && !r.clips) toast('《' + it.title + '》已加入书架。自然语音读到哪句取哪句，不用等整本下载；想离线听，可以在故事城里点“下载全部语音”。', 5000);
   } catch (e) { setScStatus('获取失败：' + (e && e.message ? e.message : '未知错误') + '。请检查网络后重试。'); }
 }
@@ -1597,6 +1599,29 @@ async function devPublish(entry, file) {            // file = {name, blob, priv}
   }
   const r = await devAdmin('/admin/item', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entry) });
   return r.ok ? true : r.msg;
+}
+async function devCodes(id) {
+  const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it) return;
+  showPop('<h3 style="margin:0 0 6px">🎟 《' + esc(it.title) + '》兑换码</h3><div id="dcBody" class="note">读取中…</div><div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div><div class="row" style="margin-top:8px"><button class="ghost" onclick="openStoryCity()">返回</button></div>');
+  const r = await devAdmin('/admin/codes?story=' + encodeURIComponent(id), {}); if (!r.ok) { setScStatus(r.msg); return; }
+  const j = await r.res.json(), L = j.codes || [], un = L.filter(c => !c.uses && !c.revoked);
+  const F = 'padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--pop);color:var(--ink);font-size:15px;width:64px';
+  document.getElementById('dcBody').innerHTML = '<div style="color:var(--ink)">共 ' + L.length + ' 个，未使用 ' + un.length + ' 个</div>' +
+    '<div class="row" style="margin-top:8px;gap:8px"><input id="dcN" value="10" inputmode="numeric" style="' + F + '"><button class="sm" onclick="devCodesMake(\'' + esc(id) + '\')">生成</button>' + (un.length ? '<button class="ghost sm" onclick="devCodesCopy(\'' + esc(id) + '\')">复制全部未使用的</button>' : '') + '</div>' +
+    '<div style="max-height:40vh;overflow:auto;margin-top:8px;font-family:monospace;font-size:14px;line-height:1.9">' + L.map(c => '<div style="color:' + (c.revoked ? '#999;text-decoration:line-through' : c.uses ? '#999' : 'var(--ink)') + '">' + esc(c.code) + ' <span class="note">' + (c.revoked ? '已作废' : c.uses ? '已用 ' + c.uses + '/' + j.max : '未使用') + '</span>' + (c.revoked ? '' : ' <a href="#" style="font-size:12px" onclick="devCodeRevoke(\'' + esc(id) + '\',\'' + esc(c.code) + '\');return false">作废</a>') + '</div>').join('') + '</div>';
+  window._dcUn = un.map(c => c.code);
+}
+async function devCodesMake(id) {
+  const n = Math.max(1, Math.min(200, parseInt(document.getElementById('dcN').value) || 1));
+  setScStatus('正在生成…');
+  const r = await devAdmin('/admin/codes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ story: id, n }) }); if (!r.ok) { setScStatus('生成失败：' + r.msg); return; }
+  const j = await r.res.json(); await devCodes(id);
+  try { await navigator.clipboard.writeText(j.codes.join('\n')); setScStatus('已生成 ' + j.codes.length + ' 个，并复制到剪贴板（一行一个），可以直接粘贴到闲管家的卡密库。'); } catch (e) { setScStatus('已生成 ' + j.codes.length + ' 个。点“复制全部未使用的”拿走。'); }
+}
+async function devCodesCopy(id) { try { await navigator.clipboard.writeText((window._dcUn || []).join('\n')); setScStatus('已复制 ' + (window._dcUn || []).length + ' 个'); } catch (e) { setScStatus('复制失败，请手动选中'); } }
+async function devCodeRevoke(id, code) {
+  if (!confirm('作废 ' + code + '？用过它的买家也会失去这本书的语音/更新权限（已下载的文字还在）。')) return;
+  const r = await devAdmin('/admin/codes/' + code, { method: 'DELETE' }); if (!r.ok) { setScStatus('失败：' + r.msg); return; } await devCodes(id); setScStatus('已作废');
 }
 async function devUnlist(id) {
   if (!confirm('把这个商品从故事城下架吗？（不会删除买家手里已有的）')) return;
@@ -1805,6 +1830,7 @@ function devEditInfo(id) {
     '<div class="note">英文标题</div><input id="deTitle" value="' + esc(it.title) + '" style="' + F + '">' +
     '<div class="note">中文名</div><input id="deZh" value="' + esc(it.titleZh || '') + '" style="' + F + '">' +
     '<div class="note">等级</div><input id="deLevel" value="' + esc(it.level || '') + '" style="' + F + '">' +
+    (it.price ? '<div class="note">购买说明（买家点“购买”时看到，比如“闲鱼搜 喵喵书店，拍下后自动发兑换码”）</div><input id="deBuy" value="' + esc(it.buy || '') + '" style="' + F + '"><div class="note">购买链接（闲鱼商品页，https 开头，可空）</div><input id="deBuyUrl" value="' + esc(it.buyUrl || '') + '" style="' + F + '">' : '') +
     (it.price ? '<div class="note">价格（元）</div><input id="dePrice" inputmode="decimal" value="' + esc(String(it.price)) + '" style="' + F + '">'
       : '<div class="note" style="margin:4px 0 8px">价格：免费。想改成收费，请下架后重新上架（免费和收费的文件放的地方不一样）。</div>') +
     '<div class="row" style="margin-top:6px"><button onclick="devEditInfoSave(\'' + esc(id) + '\')">保存</button><button class="ghost" onclick="openStoryCity()">返回</button></div>' +
@@ -1819,7 +1845,7 @@ async function devEditInfoSave(id) {
   if (zh) entry.titleZh = zh; else delete entry.titleZh;
   if (level) entry.level = level; else delete entry.level;
   if (!it.titleZh && !it.desc || it.desc === (it.titleZh ? it.titleZh + '。' : '')) { if (zh) entry.desc = zh + '。'; else delete entry.desc; }
-  if (it.price) { const pr = Math.max(0, parseFloat(document.getElementById('dePrice').value) || 0); if (!pr) { setScStatus('收费故事的价格要大于 0。想改成免费，请下架后重新上架。'); return; } entry.price = pr; }
+  if (it.price) { const pr = Math.max(0, parseFloat(document.getElementById('dePrice').value) || 0); if (!pr) { setScStatus('收费故事的价格要大于 0。想改成免费，请下架后重新上架。'); return; } entry.price = pr; const bu = g('deBuyUrl'); if (bu && !/^https:\/\//.test(bu)) { setScStatus('购买链接要以 https:// 开头'); return; } if (g('deBuy')) entry.buy = g('deBuy'); else delete entry.buy; if (bu) entry.buyUrl = bu; else delete entry.buyUrl; }
   setScStatus('正在保存…');
   const pub = await devPublish(entry, null);
   if (pub !== true) { setScStatus('保存失败：' + pub); return; }
@@ -1901,9 +1927,32 @@ function scToggle(id) { const el = document.getElementById('scPrev-' + id); if (
 function scBuy(id) {
   const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it) return;
   showPop('<h3 style="margin:0 0 6px">《' + esc(it.title) + '》</h3>' +
-    '<div class="note" style="font-size:14px;color:var(--ink)">价格：¥' + esc(String(it.price)) + (it.voice ? '（含自然语音）' : '') + '<br>' + esc((storyCat && storyCat.buy) || '请联系店主购买，付款后会发给你一个故事包文件。') + '</div>' +
-    '<div class="note" style="margin-top:10px">在线购买功能还在准备中。</div>' +
-    '<div class="row" style="margin-top:12px"><button class="ghost" onclick="openStoryCity()">返回故事城</button></div>');
+    '<div class="note" style="font-size:14px;color:var(--ink)">价格：¥' + esc(String(it.price)) + (it.voice ? '（含自然语音）' : '') + '<br>' + esc(it.buy || (storyCat && storyCat.buy) || '付款后店主会发给你一个兑换码。') + '</div>' +
+    (it.buyUrl ? '<div class="row" style="margin-top:10px"><button onclick="window.open(\'' + esc(it.buyUrl) + '\',\'_blank\',\'noopener\')">去购买</button></div>' : '') +
+    '<div class="note" style="margin-top:12px">已经买了？输入收到的兑换码：</div>' +
+    '<div class="row" style="margin-top:6px"><input id="rdCode" placeholder="XXXX-XXXX-XXXX" autocapitalize="characters" autocomplete="off" style="flex:1;min-width:0;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--pop);color:var(--ink);font-size:16px;letter-spacing:1px"><button onclick="redeemGo()">兑换</button></div>' +
+    '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>' +
+    '<div class="row" style="margin-top:8px"><button class="ghost" onclick="openStoryCity()">返回故事城</button></div>');
+}
+function redeemPop() {
+  showPop('<h3 style="margin:0 0 6px">🎟 输入兑换码</h3><div class="note">在店铺付款后收到的兑换码，每个码最多可在 3 台设备上使用。</div>' +
+    '<div class="row" style="margin-top:10px"><input id="rdCode" placeholder="XXXX-XXXX-XXXX" autocapitalize="characters" autocomplete="off" style="flex:1;min-width:0;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--pop);color:var(--ink);font-size:16px;letter-spacing:1px"><button onclick="redeemGo()">兑换</button></div>' +
+    '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div><div class="row" style="margin-top:8px"><button class="ghost" onclick="openStoryCity()">返回故事城</button></div>');
+}
+let redeemBusy = false;
+async function redeemGo() {
+  if (redeemBusy) return; const code = (document.getElementById('rdCode').value || '').trim(); if (!code) { setScStatus('请先输入兑换码'); return; }
+  redeemBusy = true; setScStatus('正在核对兑换码…');
+  try {
+    const r = await fetchT(SHOP_BASE + '/redeem', 12000, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { setScStatus(j.error === 'bad-code' ? '兑换码不对或已作废，请核对后再试。' : j.error === 'used-up' ? '这个兑换码已经在 3 台设备上用过了。' : j.error === 'too-many-failures' ? '试错次数太多，请 10 分钟后再试。' : j.error === 'story-gone' ? '这本故事已下架，请联系店主。' : '兑换失败（' + (j.error || 'HTTP ' + r.status) + '）'); redeemBusy = false; return; }
+    storyCat = storyCat || { items: [] }; storyCat.items = storyCat.items || [];
+    const k = storyCat.items.findIndex(x => x.id === j.item.id); if (k >= 0) storyCat.items[k] = j.item; else storyCat.items.push(j.item);
+    redeemBusy = false;
+    await getStory(j.item.id, j.tk);
+    if (document.getElementById('scList') || document.getElementById('scStatus')) { toast('兑换成功，《' + j.item.title + '》已加入书架', 3500); renderStoryCity(''); }
+  } catch (e) { setScStatus('网络不通，兑换没成功，请稍后再试。'); redeemBusy = false; }
 }
 function renderStoryCity(err) {
   const items = ((storyCat && storyCat.items) || []).filter(x => x.kind !== 'voice');     // 语音不单独卖，买故事自带语音
@@ -1919,16 +1968,17 @@ function renderStoryCity(err) {
       '<div class="note">' + esc(meta) + '</div>' + (it.desc ? '<div class="note" style="margin-top:4px;color:var(--ink)">' + esc(it.desc) + '</div>' : '') +
       '<div class="row" style="margin-top:8px;gap:8px">' +
       (have ? '<button class="sm" onclick="closePop();openBook(\'story-' + it.id + '\')">已在书架 · 打开</button>' +
-          (it.file && it.ver && ((shelfGet().find(x => x.id === 'story-' + it.id) || {}).ver || 1) < it.ver ? '<button class="sm" onclick="updateStory(\'' + it.id + '\')">🔄 有更新，点击更新</button>' : '') +
-          (it.voice && it.file && !(shelfGet().find(x => x.id === 'story-' + it.id) || {}).nv ? (voiceDl[it.id] != null ? '<span class="note" id="scVoice-' + it.id + '">语音下载中 ' + voiceDl[it.id] + '%</span>' : '<button class="ghost sm" onclick="getStoryVoice(storyCat.items.find(x => x.id === \'' + it.id + '\'))">⬇ 下载全部语音（离线听）</button>') : '')
+          ((it.file || tkOf(it.id)) && it.ver && ((shelfGet().find(x => x.id === 'story-' + it.id) || {}).ver || 1) < it.ver ? '<button class="sm" onclick="updateStory(\'' + it.id + '\')">🔄 有更新，点击更新</button>' : '') +
+          (it.voice && (it.file || tkOf(it.id)) && !(shelfGet().find(x => x.id === 'story-' + it.id) || {}).nv ? (voiceDl[it.id] != null ? '<span class="note" id="scVoice-' + it.id + '">语音下载中 ' + voiceDl[it.id] + '%</span>' : '<button class="ghost sm" onclick="getStoryVoice(storyCat.items.find(x => x.id === \'' + it.id + '\'))">⬇ 下载全部语音（离线听）</button>') : '')
         : free ? '<button class="sm" onclick="getStory(\'' + it.id + '\')">免费获取</button>'
         : '<button class="sm" onclick="scBuy(\'' + it.id + '\')">¥' + esc(String(it.price)) + ' 购买</button>') +
       (prev ? '<button class="ghost sm" onclick="scToggle(\'' + it.id + '\')">试读</button>' : '') +
-      (azReady() ? '<button class="ghost sm" onclick="devEditInfo(\'' + it.id + '\')">✏️ 改信息</button><button class="ghost sm" onclick="devEditText(\'' + it.id + '\')">✏️ 改内容</button><button class="ghost sm" onclick="devGenVoice(\'' + it.id + '\')">🎙 ' + (it.voice ? '补语音' : '生成语音') + '</button>' : '') +
+      (azReady() ? '<button class="ghost sm" onclick="devEditInfo(\'' + it.id + '\')">✏️ 改信息</button><button class="ghost sm" onclick="devEditText(\'' + it.id + '\')">✏️ 改内容</button>' + (it.price ? '<button class="ghost sm" onclick="devCodes(\'' + it.id + '\')">🎟 兑换码</button>' : '') + '<button class="ghost sm" onclick="devGenVoice(\'' + it.id + '\')">🎙 ' + (it.voice ? '补语音' : '生成语音') + '</button>' : '') +
       (azReady() ? '<button class="ghost sm" onclick="devUnlist(\'' + it.id + '\')">下架</button>' : '') + '</div>' +
       (prev ? '<div id="scPrev-' + it.id + '" style="display:none;margin-top:8px">' + prev + '</div>' : '') + '</div></div>';
   }).join('');
   if (!items.length) h += '<div class="note">暂时还没有故事上架。</div>';
+  h += '<div class="row" style="margin-top:6px"><button class="ghost sm" onclick="redeemPop()">🎟 我有兑换码</button></div>';
   h += (azReady() ? '<div class="row" style="margin-top:6px"><button class="sm" onclick="devNewStoryPop()">＋ 上架新故事（开发者）</button></div>' : '') +
     '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>';
   showPop(h);
