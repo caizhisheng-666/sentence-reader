@@ -133,6 +133,7 @@ function cleanItem(b) {
   if (Number.isFinite(+b.count) && +b.count > 0) o.count = Math.round(+b.count);
   if (Number.isFinite(+b.price) && +b.price > 0 && +b.price < 100000) o.price = Math.round(+b.price * 100) / 100;
   if (b.voice === true) o.voice = true;
+  if (Number.isFinite(+b.ver) && +b.ver >= 1 && +b.ver < 100000) o.ver = Math.round(+b.ver);      // 内容更新次数：买家书架里的版本比它小，就提示“有更新”
   if (typeof b.file === 'string' && /^(api:files\/[A-Za-z0-9._-]{1,90}|stories\/[A-Za-z0-9._-]{1,90})$/.test(b.file)) o.file = b.file;
   if (Array.isArray(b.preview)) o.preview = b.preview.slice(0, 5).map(p => ({ en: String((p && p.en) || '').slice(0, 300), zh: String((p && p.zh) || '').slice(0, 300) }));
   return o;
@@ -178,6 +179,14 @@ function extractClips(id, entries, priv) {          // 语音拆成 files/<故�
   let n = 0; for (const e of entries) { const m = CLIP_RE.exec(e.name); if (m) { fs.writeFileSync(path.join(dir, m[1] + '.mp3'), e.data); n++; } }
   return n;
 }
+function rebuildVoiceZip(id, priv) {                // 增量补了几句语音以后，把“下载全部语音”的总包重新按目录里所有语音打一遍，免得总包只剩新补的几句
+  const dir = path.join(priv ? SHOP_PRIV : SHOP_FILES, id); if (!fs.existsSync(dir)) return 0;
+  const files = fs.readdirSync(dir).filter(f => /^[0-9a-f]{16,64}\.mp3$/.test(f));
+  const ents = files.map(f => ({ name: 'clips/' + f, data: fs.readFileSync(path.join(dir, f)) }));
+  const target = path.join(priv ? SHOP_PRIV : SHOP_FILES, id + '.voice.zip'), tmp = target + '.tmp';
+  fs.writeFileSync(tmp, zipStore([{ name: 'manifest.json', data: Buffer.from(JSON.stringify({ format: 'sr-voicepack', v: 1, id: 'story-' + id, count: files.length })) }, ...ents]));
+  fs.renameSync(tmp, target); return files.length;
+}
 function readBody(req, limit) {
   return new Promise((ok, no) => { let raw = '', n = 0; req.on('data', c => { n += c.length; if (n <= limit) raw += c; }); req.on('end', () => n > limit ? no(new Error('too-big')) : ok(raw)); req.on('error', no); });
 }
@@ -210,6 +219,11 @@ async function shopRoutes(req, res) {
       const f = path.join(SHOP_PRIV, m[1]); if (!fs.existsSync(f)) return out(404, { error: 'not-found' });
       const h2 = { 'Content-Type': 'application/zip', 'Content-Length': fs.statSync(f).size }; if (okO) { h2['Access-Control-Allow-Origin'] = okO; h2.Vary = 'Origin'; }
       res.writeHead(200, h2); fs.createReadStream(f).pipe(res); return true;
+    }
+    m = /^\/admin\/clips\/([a-z0-9][a-z0-9-]{0,59})$/.exec(url);
+    if (req.method === 'GET' && m) {                   // 这本书服务器上已经有哪些句子的语音（补语音时只做缺的）
+      const have = new Set(); for (const base of [SHOP_FILES, SHOP_PRIV]) { try { for (const f of fs.readdirSync(path.join(base, m[1]))) { const h = /^([0-9a-f]{16,64})\.mp3$/.exec(f); if (h) have.add(h[1]); } } catch (e) {} }
+      return out(200, { have: [...have] });
     }
     if (req.method === 'POST' && url === '/admin/item') {
       const it = cleanItem(JSON.parse(await readBody(req, 20000))); if (!it) return out(400, { error: 'bad-item' });
@@ -244,7 +258,7 @@ async function shopRoutes(req, res) {
       if (bad) return out(413, { error: 'too-big' });
       fs.renameSync(tmp, path.join(dir, m[1]));
       const vm = /^([a-z0-9][a-z0-9-]{0,59})\.voice\.zip$/.exec(m[1]);
-      let clips = 0; if (vm) { try { clips = extractClips(vm[1], unzipBuf(fs.readFileSync(path.join(dir, m[1]))), priv); } catch (e) { return out(400, { error: 'bad-voice-zip' }); } }
+      let clips = 0; if (vm) { try { clips = extractClips(vm[1], unzipBuf(fs.readFileSync(path.join(dir, m[1]))), priv); rebuildVoiceZip(vm[1], priv); } catch (e) { return out(400, { error: 'bad-voice-zip' }); } }
       return out(200, { ok: true, bytes: n, clips });
     }
   } catch (e) { return out(e.message === 'too-big' ? 413 : 400, { error: e.message === 'too-big' ? 'too-big' : 'bad-request' }); }

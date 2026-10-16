@@ -1499,7 +1499,7 @@ async function installStory(zip, fallbackName, opts) {
   if (!names.length && opts && opts.natSrc) { importNatVoice = man.voice || 'natural'; importNatSrc = opts.natSrc; }   // 语音在服务器上按句子放着：读到哪句取哪句
   setScStatus('正在加入书架…');
   await importBook(text);
-  return { clips: names.length, voice: man.voice || '' };
+  return { clips: names.length, voice: man.voice || '', ver: man.ver || 1 };
 }
 async function fetchProgress(url, onPct) {          // 下载并报告进度（百分比）
   const r = await fetch(url + (url.includes('?') ? '&' : '?') + 't=' + Date.now(), { cache: 'no-store' }); if (!r.ok) throw new Error('下载失败（HTTP ' + r.status + '）');
@@ -1512,6 +1512,21 @@ async function fetchProgress(url, onPct) {          // 下载并报告进度（�
 }
 const voiceUrlOf = it => shopUrl(String(it.file).replace(/\.srbook$/, '.voice.zip'));      // 语音单独放在“故事名.voice.zip”
 const voiceDl = {};                                  // 正在后台下载语音的故事：id → 百分比
+async function updateStory(id) {                   // 买家书架里的故事有新版：下载新文字，读到哪句、学习进度都保留
+  const bid = 'story-' + id; let old = null; try { old = await idbGet('books', bid); } catch (e) {}
+  const e0 = shelfGet().find(x => x.id === bid), oldIdx = e0 && typeof e0.idx === 'number' ? e0.idx : (old && old.idx) || 0;
+  await getStory(id);
+  try {
+    const b = await idbGet('books', bid);
+    if (b && Array.isArray(b.sentences)) {
+      b.idx = Math.max(0, Math.min(oldIdx, b.sentences.length - 1)); if (old && old.prog) b.prog = old.prog;
+      await idbPut('books', b, bid);
+      const l = shelfGet(), e = l.find(x => x.id === bid); if (e) { e.idx = b.idx; shelfSet(l); }
+    }
+    if (document.getElementById('scList')) renderStoryCity('');
+    toast('《' + ((storyCat.items.find(x => x.id === id) || {}).title || '') + '》已更新，读到哪里都还记着。', 4000);
+  } catch (e) {}
+}
 async function getStory(id) {
   const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it || !it.file) return;
   try {
@@ -1519,6 +1534,7 @@ async function getStory(id) {
     const buf = await fetchProgress(shopUrl(it.file), p => setScStatus('正在下载《' + it.title + '》' + p + '%…'));
     await loadLibs();
     const r = await installStory(await JSZip.loadAsync(buf), it.title, it.voice && /^api:files\//.test(it.file) ? { natSrc: 'api:files/' + it.id + '/' } : null);
+    { const l = shelfGet(), e = l.find(x => x.id === 'story-' + it.id); if (e) { e.ver = it.ver || r.ver || 1; shelfSet(l); } }
     if (it.voice && !r.clips) toast('《' + it.title + '》已加入书架。自然语音读到哪句取哪句，不用等整本下载；想离线听，可以在故事城里点“下载全部语音”。', 5000);
   } catch (e) { setScStatus('获取失败：' + (e && e.message ? e.message : '未知错误') + '。请检查网络后重试。'); }
 }
@@ -1732,32 +1748,160 @@ async function devNewGo() {
   } catch (e) { setScStatus((e && e.message ? e.message : '未知错误') + '（修好后再点“开始上架”，已合成的语音不会重复收费）'); document.getElementById('dnGo') && (document.getElementById('dnGo').disabled = false); }
   devGenBusy = false;
 }
-async function devGenVoice(id) {                      // 已上架的故事补做语音：语音打包进故事，原地更新（价格不变）
+/* ---------- 修改已上架的书：改信息 / 改内容（只补缺的语音） / 补语音 ---------- */
+async function devLoadStory(it) {                    // 读出已上架故事的 manifest + 正文（免费的走公开地址，收费的走后台私有地址）
+  let zbuf;
+  if (it.file) { const r = await fetch(shopUrl(it.file) + '?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) throw new Error('读取失败（HTTP ' + r.status + '）'); zbuf = await r.arrayBuffer(); }
+  else { const r = await devAdmin('/admin/private/' + it.id + '.srbook', { method: 'GET' }); if (!r.ok) throw new Error('读取收费故事失败：' + r.msg); zbuf = await r.res.arrayBuffer(); }
+  await loadLibs();
+  const z = await JSZip.loadAsync(zbuf);
+  return { man: JSON.parse(await z.file('manifest.json').async('string')), text: await z.file('book.txt').async('string') };
+}
+async function devHaveClips(id) {                    // 服务器上这本书已经有哪些句子的语音
+  const r = await devAdmin('/admin/clips/' + id, { method: 'GET' });
+  if (!r.ok) throw new Error('查询服务器语音失败：' + r.msg);
+  return new Set((await r.res.json()).have || []);
+}
+async function devUploadClips(it, voice, clips) {   // 只把这几句语音传上去；服务器会自动合进“下载全部语音”的总包
+  const vp = await devPackVoice(it.id, it.title, voice, clips);
+  await vpImportClips(vp.z, [...clips.keys()].map(k => 'clips/' + k + '.mp3'), { id: 'story-' + it.id, title: it.title }, it.title, null);
+  setScStatus('正在上传 ' + clips.size + ' 句语音（' + (vp.blob.size / 1048576).toFixed(1) + ' MB）…');
+  const up = await devAdmin('/admin/file/' + it.id + '.voice.zip' + (it.price ? '?private=1' : ''), { method: 'PUT', body: vp.blob });
+  if (!up.ok) throw new Error('语音上传失败：' + up.msg);
+}
+async function devNeedSynth(sents, have) {           // 这些句子里，服务器上还没有语音的（按句子去重）
+  const seen = new Set(), out = [];
+  for (const t of sents) { const k = await vpKey(t); if (seen.has(k)) continue; seen.add(k); if (!have.has(k)) out.push(String(t).trim()); }
+  return out;
+}
+function devAzConfirm(chars) {
+  return !(azUsed() + chars > AZ_FREE) || confirm('要合成约 ' + chars + ' 字符，加上本月已记录的 ' + azUsed() + '，会超出 ' + AZ_FREE + ' 免费额度。\n\n· 定价层是 F0：超出的会失败，不收费\n· 定价层是 S0、还在免费试用：从试用额度里扣，不收费\n· 已升级即用即付且是 S0：会向微软付费\n\n继续吗？');
+}
+async function devGenVoice(id) {                      // 已上架的故事补语音：服务器上已有的句子不动，只合成、只上传缺的
   if (!azReady()) { setScStatus('请先在“帮助”里解锁开发者模式'); return; }
   const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it) return;
   if (devGenBusy) { setScStatus('正在生成中，请等它做完'); return; }
   devGenBusy = true;
   try {
     setScStatus('正在读取《' + it.title + '》…');
-    let zbuf;
-    if (it.file) { const r = await fetch(shopUrl(it.file) + '?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) throw new Error('读取失败（HTTP ' + r.status + '）'); zbuf = await r.arrayBuffer(); }
-    else { const r = await devAdmin('/admin/private/' + it.id + '.srbook', { method: 'GET' }); if (!r.ok) throw new Error('读取收费故事失败：' + r.msg); zbuf = await r.res.arrayBuffer(); }
-    await loadLibs();
-    const old = await JSZip.loadAsync(zbuf);
-    const man = JSON.parse(await old.file('manifest.json').async('string')), text = await old.file('book.txt').async('string');
-    const { clips, voice } = await devSynth(devParse(text).sents);
-    setScStatus('正在打包并更新…');
-    const pk = await devPackStory(Object.assign({}, man, { voice }), text, null);
-    const vp = await devPackVoice(it.id, it.title, voice, clips);
-    await vpImportClips(vp.z, [...clips.keys()].map(k => 'clips/' + k + '.mp3'), { id: 'story-' + it.id, title: it.title }, it.title, null);
-    setScStatus('正在上传语音（' + (vp.blob.size / 1048576).toFixed(1) + ' MB）…');
-    const up = await devAdmin('/admin/file/' + it.id + '.voice.zip' + (it.price ? '?private=1' : ''), { method: 'PUT', body: vp.blob });
-    if (!up.ok) throw new Error('语音上传失败：' + up.msg);
-    const entry = Object.assign({}, it, { voice: true }); delete entry.kind; entry.kind = 'story';
+    const { man, text } = await devLoadStory(it);
+    const sents = devParse(text).sents, have = await devHaveClips(it.id), need = await devNeedSynth(sents, have);
+    if (!need.length && it.voice) { setScStatus('《' + it.title + '》的语音已经齐全（' + sents.length + ' 句），不用再做。'); devGenBusy = false; return; }
+    if (need.length) {
+      if (!devAzConfirm(need.reduce((m, x) => m + x.length, 0))) { devGenBusy = false; setScStatus('已取消'); return; }
+      setScStatus('还缺 ' + need.length + ' 句语音，正在合成…');
+      const { clips, voice } = await devSynth(need);
+      await devUploadClips(it, voice, clips);
+      man.voice = voice;
+    }
+    if (!it.voice) {
+      setScStatus('正在更新故事信息…');
+      const pk = await devPackStory(Object.assign({}, man, { voice: man.voice || azCfg().voice }), text, null);
+      const entry = Object.assign({}, it, { voice: true, kind: 'story' });
+      const pub = await devPublish(entry, { name: it.id + '.srbook', blob: pk.blob, priv: !!it.price });
+      if (pub !== true) throw new Error('更新失败：' + pub);
+    }
+    await openStoryCity(true); setScStatus('完成：补了 ' + need.length + ' 句语音，《' + it.title + '》现在共 ' + sents.length + ' 句都有自然语音。');
+  } catch (e) { setScStatus('生成失败：' + (e && e.message ? e.message : '未知错误') + '（再点一次会接着做，已经传上去的不重复）'); }
+  devGenBusy = false;
+}
+function devEditInfo(id) {
+  const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it) return;
+  const F = 'width:100%;box-sizing:border-box;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--pop);color:var(--ink);font-size:15px;margin:4px 0 8px';
+  showPop('<h3 style="margin:0 0 6px">✏️ 修改信息</h3>' +
+    '<div class="note">英文标题</div><input id="deTitle" value="' + esc(it.title) + '" style="' + F + '">' +
+    '<div class="note">中文名</div><input id="deZh" value="' + esc(it.titleZh || '') + '" style="' + F + '">' +
+    '<div class="note">等级</div><input id="deLevel" value="' + esc(it.level || '') + '" style="' + F + '">' +
+    (it.price ? '<div class="note">价格（元）</div><input id="dePrice" inputmode="decimal" value="' + esc(String(it.price)) + '" style="' + F + '">'
+      : '<div class="note" style="margin:4px 0 8px">价格：免费。想改成收费，请下架后重新上架（免费和收费的文件放的地方不一样）。</div>') +
+    '<div class="row" style="margin-top:6px"><button onclick="devEditInfoSave(\'' + esc(id) + '\')">保存</button><button class="ghost" onclick="openStoryCity()">返回</button></div>' +
+    '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>');
+}
+async function devEditInfoSave(id) {
+  const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it) return;
+  const g = k => document.getElementById(k).value.trim();
+  const title = g('deTitle'), zh = g('deZh'), level = g('deLevel');
+  if (!title) { setScStatus('英文标题不能为空'); return; }
+  const entry = Object.assign({}, it, { kind: 'story', title });
+  if (zh) entry.titleZh = zh; else delete entry.titleZh;
+  if (level) entry.level = level; else delete entry.level;
+  if (!it.titleZh && !it.desc || it.desc === (it.titleZh ? it.titleZh + '。' : '')) { if (zh) entry.desc = zh + '。'; else delete entry.desc; }
+  if (it.price) { const pr = Math.max(0, parseFloat(document.getElementById('dePrice').value) || 0); if (!pr) { setScStatus('收费故事的价格要大于 0。想改成免费，请下架后重新上架。'); return; } entry.price = pr; }
+  setScStatus('正在保存…');
+  const pub = await devPublish(entry, null);
+  if (pub !== true) { setScStatus('保存失败：' + pub); return; }
+  await openStoryCity(true); setScStatus('已保存。');
+}
+let devEd = null;
+async function devEditText(id) {
+  const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it) return;
+  showPop('<h3 style="margin:0 0 6px">✏️ 修改内容</h3><div id="scStatus" class="note" style="min-height:20px">正在读取《' + esc(it.title) + '》…</div>');
+  try {
+    const { man, text } = await devLoadStory(it);
+    const parts = text.split(/(\n\s*\n)/), idxs = []; parts.forEach((x, i) => { if (i % 2 === 0 && x.trim()) idxs.push(i); });
+    devEd = { it, man, text, parts, idxs, edits: {}, open: -1, q: '' };
+    devEdRender();
+  } catch (e) { setScStatus('读取失败：' + (e && e.message ? e.message : '未知错误')); }
+}
+function devEdBlock(n) { const d = devEd; return d.edits[n] != null ? d.edits[n] : d.parts[d.idxs[n]].trim(); }
+function devEdRender() {
+  const d = devEd; if (!d) return;
+  const q = d.q.trim().toLowerCase(), list = [];
+  for (let n = 0; n < d.idxs.length && list.length < 30; n++) { const t = devEdBlock(n); if (!q || t.toLowerCase().includes(q) || d.open === n) list.push(n); }
+  const F = 'width:100%;box-sizing:border-box;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--pop);color:var(--ink);font-size:15px;margin:4px 0';
+  const nEdit = Object.keys(d.edits).length;
+  const keepQ = document.getElementById('edQ') === document.activeElement;
+  showPop('<h3 style="margin:0 0 6px">✏️ 修改《' + esc(d.it.title) + '》的内容</h3>' +
+    '<div class="note" style="margin-bottom:6px">共 ' + d.idxs.length + ' 段（英文、中文各算一段）。搜一个词找到要改的那段，点“改”。' + (d.it.voice ? '改了英文，只重新合成改动的那几句语音。' : '') + '</div>' +
+    '<input id="edQ" placeholder="搜索（英文或中文）" value="' + esc(d.q) + '" oninput="devEd.q=this.value;devEdRender()" style="' + F + '">' +
+    '<div style="max-height:46vh;overflow-y:auto;margin:6px 0">' + (list.map(n => {
+      const t = devEdBlock(n), isEn = !/[㐀-鿿]/.test(t);
+      return '<div class="card" style="padding:10px;margin-bottom:8px;' + (d.edits[n] != null ? 'border:1px solid var(--accent)' : '') + '"><div class="note">第 ' + (n + 1) + ' 段 · ' + (isEn ? '英文' : '中文') + (d.edits[n] != null ? ' · 已改' : '') + '</div>' +
+        (d.open === n ? '<textarea id="edTa" rows="5" style="' + F + ';font-family:inherit">' + esc(t) + '</textarea><div class="row"><button class="sm" onclick="devEdOk(' + n + ')">确定</button><button class="ghost sm" onclick="devEd.open=-1;devEdRender()">取消</button></div>'
+          : '<div style="white-space:pre-wrap;margin:4px 0">' + esc(t) + '</div><button class="ghost sm" onclick="devEd.open=' + n + ';devEdRender()">改</button>') + '</div>';
+    }).join('') || '<div class="note">没有找到。</div>') + '</div>' +
+    '<div class="row" style="margin-top:6px"><button onclick="devEditSave()" ' + (nEdit ? '' : 'disabled') + '>保存并更新（已改 ' + nEdit + ' 段）</button><button class="ghost" onclick="devEd=null;openStoryCity()">返回</button></div>' +
+    '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>');
+  if (keepQ) { const e = document.getElementById('edQ'); if (e) { e.focus(); e.setSelectionRange(e.value.length, e.value.length); } }
+  if (d.open >= 0) { const ta = document.getElementById('edTa'); if (ta) ta.focus(); }
+}
+function devEdOk(n) {
+  const d = devEd, v = document.getElementById('edTa').value.trim();
+  if (!v) { setScStatus('这一段不能清空'); return; }
+  if (v === d.parts[d.idxs[n]].trim()) delete d.edits[n]; else d.edits[n] = v;
+  d.open = -1; devEdRender();
+}
+async function devEditSave() {
+  const d = devEd; if (!d || devGenBusy) return;
+  const it = d.it, parts = d.parts.slice();
+  for (const [n, v] of Object.entries(d.edits)) parts[d.idxs[+n]] = v;
+  const newText = parts.join('');
+  devGenBusy = true;
+  try {
+    const oldS = devParse(d.text).sents, nw = devParse(newText), newS = nw.sents;
+    if (!newS.length) throw new Error('改完以后没有英文句子了，请检查');
+    const oldKeys = new Set(); for (const t of oldS) oldKeys.add(await vpKey(t));
+    const changed = []; const seen = new Set();
+    for (const t of newS) { const k = await vpKey(t); if (!oldKeys.has(k) && !seen.has(k)) { seen.add(k); changed.push(String(t).trim()); } }
+    let voice = d.man.voice || '';
+    if (it.voice && changed.length) {
+      const have = await devHaveClips(it.id), need = await devNeedSynth(changed, have);
+      if (need.length) {
+        if (!devAzConfirm(need.reduce((m, x) => m + x.length, 0))) { devGenBusy = false; setScStatus('已取消'); return; }
+        setScStatus('英文改了 ' + changed.length + ' 句，正在重新合成语音…');
+        const r = await devSynth(need); voice = r.voice;
+        await devUploadClips(it, voice, r.clips);
+      }
+    }
+    setScStatus('正在更新故事…');
+    const ver = (it.ver || 1) + 1;
+    const pk = await devPackStory(Object.assign({}, d.man, { count: newS.length, ver, voice }), newText, null);
+    const entry = Object.assign({}, it, { kind: 'story', count: newS.length, ver, preview: nw.preview });
     const pub = await devPublish(entry, { name: it.id + '.srbook', blob: pk.blob, priv: !!it.price });
     if (pub !== true) throw new Error('更新失败：' + pub);
-    await openStoryCity(true); setScStatus('完成：自然语音已打包进《' + it.title + '》，买家获取后自带语音。');
-  } catch (e) { setScStatus('生成失败：' + (e && e.message ? e.message : '未知错误')); }
+    devEd = null; await openStoryCity(true);
+    setScStatus('已更新《' + it.title + '》（第 ' + ver + ' 版）。改了 ' + Object.keys(d.edits).length + ' 段' + (it.voice ? '，重新合成语音 ' + changed.length + ' 句' : '') + '。买家下次打开故事城会看到“有更新”。');
+  } catch (e) { setScStatus('保存失败：' + (e && e.message ? e.message : '未知错误') + '（改的内容还在，修好后再点保存）'); }
   devGenBusy = false;
 }
 function scToggle(id) { const el = document.getElementById('scPrev-' + id); if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none'; }
@@ -1782,11 +1926,12 @@ function renderStoryCity(err) {
       '<div class="note">' + esc(meta) + '</div>' + (it.desc ? '<div class="note" style="margin-top:4px;color:var(--ink)">' + esc(it.desc) + '</div>' : '') +
       '<div class="row" style="margin-top:8px;gap:8px">' +
       (have ? '<button class="sm" onclick="closePop();openBook(\'story-' + it.id + '\')">已在书架 · 打开</button>' +
+          (it.file && it.ver && ((shelfGet().find(x => x.id === 'story-' + it.id) || {}).ver || 1) < it.ver ? '<button class="sm" onclick="updateStory(\'' + it.id + '\')">🔄 有更新，点击更新</button>' : '') +
           (it.voice && it.file && !(shelfGet().find(x => x.id === 'story-' + it.id) || {}).nv ? (voiceDl[it.id] != null ? '<span class="note" id="scVoice-' + it.id + '">语音下载中 ' + voiceDl[it.id] + '%</span>' : '<button class="ghost sm" onclick="getStoryVoice(storyCat.items.find(x => x.id === \'' + it.id + '\'))">⬇ 下载全部语音（离线听）</button>') : '')
         : free ? '<button class="sm" onclick="getStory(\'' + it.id + '\')">免费获取</button>'
         : '<button class="sm" onclick="scBuy(\'' + it.id + '\')">¥' + esc(String(it.price)) + ' 购买</button>') +
       (prev ? '<button class="ghost sm" onclick="scToggle(\'' + it.id + '\')">试读</button>' : '') +
-      (it.file && azReady() ? '<button class="ghost sm" onclick="devGenVoice(\'' + it.id + '\')">🎙 生成语音</button>' : '') +
+      (azReady() ? '<button class="ghost sm" onclick="devEditInfo(\'' + it.id + '\')">✏️ 改信息</button><button class="ghost sm" onclick="devEditText(\'' + it.id + '\')">✏️ 改内容</button><button class="ghost sm" onclick="devGenVoice(\'' + it.id + '\')">🎙 ' + (it.voice ? '补语音' : '生成语音') + '</button>' : '') +
       (azReady() && it.voice && /^api:files\//.test(it.file || '') ? '<button class="ghost sm" onclick="devSplit(\'' + it.id + '\')">⚡ 转成按句取语音</button>' : '') +
       (azReady() ? '<button class="ghost sm" onclick="devUnlist(\'' + it.id + '\')">下架</button>' : '') + '</div>' +
       (prev ? '<div id="scPrev-' + it.id + '" style="display:none;margin-top:8px">' + prev + '</div>' : '') + '</div></div>';
