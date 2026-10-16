@@ -184,7 +184,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-104';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-105';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2752,7 +2752,9 @@ async function parseEpub(buf) {
 
 /* ---------- 更多格式：Markdown / Word(.docx) / Kindle(.mobi .azw3 .azw) ---------- */
 function mdToText(s) {
-  return s.replace(/\r/g, '').replace(/^```.*$/gm, '').replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+  s = s.replace(/\r/g, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/^(\s{0,3}#{1,6}\s+.*)$/gm, h => h.replace(/[（(]([^()（）A-Za-z]*[\u3400-\u9fff][^()（）A-Za-z]*)[)）]/g, ' $1 ').replace(/\s[·•|]\s/g, ' '));   // 标题里括号中的中文译名（如“Before Breakfast（早饭之前）”）别被当成注释删掉，否则整章会错位一句
+  return s.replace(/^```.*$/gm, '').replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
     .replace(/^\s{0,3}#{1,6}\s+/gm, '').replace(/^\s{0,3}>\s?/gm, '').replace(/^\s*([-*+]|\d+\.)\s+/gm, '')
     .replace(/^\s*([-*_]\s*){3,}$/gm, '').replace(/(\*\*|__)(.+?)\1/g, '$2').replace(/\*(.+?)\*/g, '$1')
     .replace(/(^|\W)_(.+?)_(?=\W|$)/g, '$1$2').replace(/`([^`]+)`/g, '$1').replace(/<[^>]+>/g, '');
