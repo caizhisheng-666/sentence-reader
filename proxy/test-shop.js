@@ -100,6 +100,16 @@ const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-toke
   r = await call('/catalog'); pq = JSON.parse(r.b).items.find(x => x.id === 'pay1'); assert.equal(pq.price, 19.9); assert.equal(pq.file, undefined);
   r = await call('/admin/price/pay1', { m: 'POST', h: A, body: '{"price":29}' }); assert.equal(JSON.parse(r.b).moved, '');
   r = await call('/admin/price/nope', { m: 'POST', h: A, body: '{"price":1}' }); assert.equal(r.s, 404);
+  // 限时免费
+  r = await call('/claim', { m: 'POST', h: O, body: '{"story":"pay1"}' }); assert.equal(r.s, 403);
+  r = await call('/admin/item', { m: 'POST', h: A, body: JSON.stringify({ id: 'pay1', kind: 'story', title: 'Paid', price: 29, freeUntil: Date.now() + 86400000 }) }); assert.equal(r.s, 200);
+  r = await call('/claim', { m: 'POST', h: { 'Content-Type': 'application/json' }, body: '{"story":"pay1"}' }); assert.equal(r.s, 403);
+  r = await call('/claim', { m: 'POST', h: O, body: '{"story":"pay1"}' }); assert.equal(r.s, 200); const cl = JSON.parse(r.b); assert.ok(/^[0-9a-f]{32}$/.test(cl.tk));
+  r = await call('/pfiles/' + cl.tk + '/story.srbook'); assert.equal(r.s, 200);
+  r = await call('/admin/codes?story=pay1', { h: A }); assert.equal(JSON.parse(r.b).codes.length, 3);   // 领取记录不混进兑换码列表
+  r = await call('/admin/item', { m: 'POST', h: A, body: JSON.stringify({ id: 'pay1', kind: 'story', title: 'Paid', price: 29, freeUntil: Date.now() - 1000 }) });
+  r = await call('/claim', { m: 'POST', h: O, body: '{"story":"pay1"}' }); assert.equal(r.s, 403);   // 活动结束
+  r = await call('/pfiles/' + cl.tk + '/story.srbook'); assert.equal(r.s, 200);                          // 已领的人仍可用
   r = await call('/admin/item/pay1', { m: 'DELETE', h: A }); assert.equal(r.s, 200);
   r = await call('/admin/codes', { m: 'POST', h: A, body: JSON.stringify({ story: 'pay1', n: 1 }) }); assert.equal(r.s, 404);
   for (let i = 0; i < 9; i++) r = await call('/admin/item', { m: 'POST', h: { Origin: 'https://ok.example', Authorization: 'Bearer nope', 'Content-Type': 'application/json' }, body: '{}' });

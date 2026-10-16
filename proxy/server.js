@@ -133,6 +133,7 @@ function cleanItem(b) {
   if (Number.isFinite(+b.count) && +b.count > 0) o.count = Math.round(+b.count);
   if (Number.isFinite(+b.price) && +b.price > 0 && +b.price < 100000) o.price = Math.round(+b.price * 100) / 100;
   if (typeof b.buyUrl === 'string' && /^https:\/\/[^\s<>"']{4,300}$/.test(b.buyUrl)) o.buyUrl = b.buyUrl;      // 购买链接（比如闲鱼商品页），只收 https
+  if (Number.isFinite(+b.freeUntil) && +b.freeUntil > 1e12 && +b.freeUntil < 4e12) o.freeUntil = Math.round(+b.freeUntil);      // 限时免费截止时间（毫秒时间戳）
   if (b.voice === true) o.voice = true;
   if (Number.isFinite(+b.ver) && +b.ver >= 1 && +b.ver < 100000) o.ver = Math.round(+b.ver);      // 内容更新次数：买家书架里的版本比它小，就提示“有更新”
   if (typeof b.file === 'string' && /^(api:files\/[A-Za-z0-9._-]{1,90}|stories\/[A-Za-z0-9._-]{1,90})$/.test(b.file)) o.file = b.file;
@@ -201,6 +202,12 @@ function redeemLimited(ip, fail) {
   if (fail) { arr.push(now); redeemFails.set(ip, arr); if (redeemFails.size > 5000) for (const [k, v] of redeemFails) if (!v.length || now - v[v.length - 1] > 600000) redeemFails.delete(k); }
   return arr.length >= 10;
 }
+const claimLog = new Map();
+function claimLimited(ip) {                       // 限时免费：同一个网络 1 小时最多领 10 次
+  const now = Date.now(), arr = (claimLog.get(ip) || []).filter(t => now - t < 3600000); arr.push(now); claimLog.set(ip, arr);
+  if (claimLog.size > 5000) for (const [k, v] of claimLog) if (now - v[v.length - 1] > 3600000) claimLog.delete(k);
+  return arr.length > 10;
+}
 let tkCache = { m: 0, map: new Map() };
 function tokenLookup(tk) {                        // 买家凭证 → 他买的那本故事（兑换码被撤销就失效）
   if (!/^[0-9a-f]{32}$/.test(tk)) return null;
@@ -243,6 +250,20 @@ async function shopRoutes(req, res) {
     rec.uses = (rec.uses || 0) + 1; rec.lastAt = new Date().toISOString(); if (!rec.tk) rec.tk = crypto.randomBytes(16).toString('hex');
     codesWrite(j); return out0(200, { ok: true, tk: rec.tk, item, left: CODE_MAX_USES - rec.uses });
   }
+  if (req.method === 'POST' && url === '/claim') {   // 限时免费领取：活动期间不用兑换码，领到的买家永久拥有
+    const origin0 = req.headers.origin, okO0 = origin0 && ALLOW.includes(origin0) ? origin0 : null;
+    const hd0 = { 'Content-Type': 'application/json; charset=utf-8' }; if (okO0) { hd0['Access-Control-Allow-Origin'] = okO0; hd0.Vary = 'Origin'; }
+    const out0 = (c, o) => { res.writeHead(c, hd0); res.end(JSON.stringify(o)); return true; };
+    if (!okO0) return out0(403, { error: 'origin-not-allowed' });
+    if (claimLimited(ip)) return out0(429, { error: 'too-many' });
+    let b; try { b = JSON.parse(await readBody(req, 2000)); } catch (e) { return out0(400, { error: 'bad-request' }); }
+    const item = shopRead().items.find(x => x.id === String((b && b.story) || ''));
+    if (!item || !item.price) return out0(404, { error: 'story-not-found' });
+    if (!item.freeUntil || item.freeUntil < Date.now()) return out0(403, { error: 'not-free' });
+    const j = codesRead(); let key; do { key = 'F' + genCode().slice(1); } while (j.codes[key]);
+    const tk = crypto.randomBytes(16).toString('hex'); j.codes[key] = { story: item.id, at: new Date().toISOString(), uses: 1, free: true, tk }; codesWrite(j);
+    return out0(200, { ok: true, tk, item });
+  }
   let m = /^\/files\/([A-Za-z0-9._-]{1,90})$/.exec(url);
   if (req.method === 'GET' && m) {
     const f = path.join(SHOP_FILES, m[1]);
@@ -278,7 +299,7 @@ async function shopRoutes(req, res) {
     }
     if (req.method === 'GET' && url === '/admin/codes') {
       const q = new URL(req.url, 'http://x').searchParams.get('story') || '', j = codesRead();
-      const list = Object.entries(j.codes).filter(([, r]) => !q || r.story === q).map(([c, r]) => ({ code: fmtCode(c), story: r.story, at: r.at, uses: r.uses || 0, revoked: !!r.revoked })).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 1000);
+      const list = Object.entries(j.codes).filter(([, r]) => !r.free && (!q || r.story === q)).map(([c, r]) => ({ code: fmtCode(c), story: r.story, at: r.at, uses: r.uses || 0, revoked: !!r.revoked })).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 1000);
       return out(200, { codes: list, max: CODE_MAX_USES });
     }
     m = /^\/admin\/codes\/([A-Za-z0-9-]{12,20})$/.exec(url);

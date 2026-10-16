@@ -184,7 +184,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.16-101';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.16-102';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1832,6 +1832,7 @@ function devEditInfo(id) {
     '<div class="note">等级</div><input id="deLevel" value="' + esc(it.level || '') + '" style="' + F + '">' +
     ('<div class="note">购买说明（买家点“购买”时看到，比如“闲鱼搜 喵喵书店，拍下后自动发兑换码”）</div><input id="deBuy" value="' + esc(it.buy || '') + '" style="' + F + '"><div class="note">购买链接（闲鱼商品页，https 开头，可空）</div><input id="deBuyUrl" value="' + esc(it.buyUrl || '') + '" style="' + F + '">') +
     '<div class="note">价格（元，填 0 就是免费）</div><input id="dePrice" inputmode="decimal" value="' + esc(String(it.price || 0)) + '" style="' + F + '">' +
+    '<div class="note">限时免费到（日期，如 2026-10-31；留空=不做活动；过了这天自动恢复原价）</div><input id="deFree" placeholder="2026-10-31" value="' + (it.freeUntil && it.freeUntil > Date.now() ? esc(new Date(it.freeUntil - 86400000).toISOString().slice(0, 10)) : '') + '" style="' + F + '">' +
     '<div class="note" style="margin:0 0 8px">免费 ⇄ 收费会自动把这本书的文字和语音在服务器上搬一下，不用重新上架。已经免费拿走的人，之后在线听语音可能取不到，需要重新兑换。</div>' +
     '<div class="row" style="margin-top:6px"><button onclick="devEditInfoSave(\'' + esc(id) + '\')">保存</button><button class="ghost" onclick="openStoryCity()">返回</button></div>' +
     '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>');
@@ -1855,6 +1856,8 @@ async function devEditInfoSave(id) {
       if (!pj.ok) { setScStatus('改价格失败：' + pj.msg); return; }
       if (pr > 0) { entry.price = pr; delete entry.file; } else { delete entry.price; entry.file = 'api:files/' + it.id + '.srbook'; }
     }
+    const fr = g('deFree');
+    if (fr && pr > 0) { const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(fr); if (!m) { setScStatus('日期格式不对，请写成 2026-10-31'); return; } const t = new Date(+m[1], +m[2] - 1, +m[3] + 1).getTime(); if (!(t > Date.now())) { setScStatus('这个日期已经过了'); return; } entry.freeUntil = t; } else delete entry.freeUntil;
     const bu = g('deBuyUrl'); if (bu && !/^https:\/\//.test(bu)) { setScStatus('购买链接要以 https:// 开头'); return; }
     if (g('deBuy')) entry.buy = g('deBuy'); else delete entry.buy; if (bu) entry.buyUrl = bu; else delete entry.buyUrl;
   }
@@ -1946,6 +1949,20 @@ function scBuy(id) {
     '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>' +
     '<div class="row" style="margin-top:8px"><button class="ghost" onclick="openStoryCity()">返回故事城</button></div>');
 }
+const fmtDay = ms => { const d = new Date(ms); return (d.getMonth() + 1) + '月' + d.getDate() + '日'; };
+const freeNow = it => !!(it && it.price && it.freeUntil && it.freeUntil > Date.now());
+let claimBusy = false;
+async function claimFree(id) {
+  if (claimBusy) return; claimBusy = true; setScStatus('正在领取…');
+  try {
+    const r = await fetchT(SHOP_BASE + '/claim', 12000, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ story: id }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { setScStatus(j.error === 'not-free' ? '限时免费已经结束了。' : j.error === 'too-many' ? '领取太频繁，请稍后再试。' : '领取失败（' + (j.error || 'HTTP ' + r.status) + '）'); claimBusy = false; return; }
+    const k = storyCat.items.findIndex(x => x.id === j.item.id); if (k >= 0) storyCat.items[k] = j.item;
+    claimBusy = false; await getStory(j.item.id, j.tk);
+    if (document.getElementById('scList') || document.getElementById('scStatus')) { toast('领取成功，《' + j.item.title + '》永久归你了', 3500); renderStoryCity(''); }
+  } catch (e) { setScStatus('网络不通，领取没成功，请稍后再试。'); claimBusy = false; }
+}
 function redeemPop() {
   showPop('<h3 style="margin:0 0 6px">🎟 输入兑换码</h3><div class="note">在店铺付款后收到的兑换码，每个码最多可在 3 台设备上使用。</div>' +
     '<div class="row" style="margin-top:10px"><input id="rdCode" placeholder="XXXX-XXXX-XXXX" autocapitalize="characters" autocomplete="off" style="flex:1;min-width:0;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--pop);color:var(--ink);font-size:16px;letter-spacing:1px"><button onclick="redeemGo()">兑换</button></div>' +
@@ -1973,7 +1990,7 @@ function renderStoryCity(err) {
   if (err) h += '<div class="note" style="color:#b94a48;margin-bottom:8px">' + esc(err) + '</div>';
   h += items.map(it => {
     const have = owned.has('story-' + it.id), free = !it.price;
-    const meta = [it.level, it.count ? it.count + ' 句' : '', it.voice ? '🎧 含自然语音' : ''].filter(Boolean).join(' · ');
+    const meta = [freeNow(it) ? '限时免费 · 到' + fmtDay(it.freeUntil - 1) : '', it.level, it.count ? it.count + ' 句' : '', it.voice ? '🎧 含自然语音' : ''].filter(Boolean).join(' · ');
     const prev = (it.preview || []).map(p => '<div style="margin:6px 0"><div>' + esc(p.en || '') + '</div><div class="note">' + esc(p.zh || '') + '</div></div>').join('');
     return '<div class="card" style="display:flex;gap:12px;margin-bottom:10px;padding:12px"><div style="flex:none;width:58px;height:78px;border-radius:6px;background:' + coverColor('story-' + it.id) + ';color:#fff;font-size:12px;padding:6px;overflow:hidden;line-height:1.3">' + esc(it.title) + '</div>' +
       '<div style="flex:1;min-width:0"><div style="font-size:16px;color:var(--ink)">' + esc(it.title) + (it.titleZh ? ' <span class="note">' + esc(it.titleZh) + '</span>' : '') + '</div>' +
@@ -1983,6 +2000,7 @@ function renderStoryCity(err) {
           ((it.file || tkOf(it.id)) && it.ver && ((shelfGet().find(x => x.id === 'story-' + it.id) || {}).ver || 1) < it.ver ? '<button class="sm" onclick="updateStory(\'' + it.id + '\')">🔄 有更新，点击更新</button>' : '') +
           (it.voice && (it.file || tkOf(it.id)) && !(shelfGet().find(x => x.id === 'story-' + it.id) || {}).nv ? (voiceDl[it.id] != null ? '<span class="note" id="scVoice-' + it.id + '">语音下载中 ' + voiceDl[it.id] + '%</span>' : '<button class="ghost sm" onclick="getStoryVoice(storyCat.items.find(x => x.id === \'' + it.id + '\'))">⬇ 下载全部语音（离线听）</button>') : '')
         : free ? '<button class="sm" onclick="getStory(\'' + it.id + '\')">免费获取</button>'
+        : freeNow(it) ? '<button class="sm" onclick="claimFree(\'' + it.id + '\')">🎁 限时免费领取</button><button class="ghost sm" onclick="scBuy(\'' + it.id + '\')">¥' + esc(String(it.price)) + '</button>'
         : '<button class="sm" onclick="scBuy(\'' + it.id + '\')">¥' + esc(String(it.price)) + ' 购买</button>') +
       (prev ? '<button class="ghost sm" onclick="scToggle(\'' + it.id + '\')">试读</button>' : '') +
       (azReady() ? '<button class="ghost sm" onclick="devEditInfo(\'' + it.id + '\')">✏️ 改信息</button><button class="ghost sm" onclick="devEditText(\'' + it.id + '\')">✏️ 改内容</button>' + (it.price ? '<button class="ghost sm" onclick="devCodes(\'' + it.id + '\')">🎟 兑换码</button>' : '') + '<button class="ghost sm" onclick="devGenVoice(\'' + it.id + '\')">🎙 ' + (it.voice ? '补语音' : '生成语音') + '</button>' : '') +
