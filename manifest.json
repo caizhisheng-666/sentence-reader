@@ -1,6 +1,6 @@
 {
-  "name": "一句一句读 · 句子驱动英语学习",
-  "short_name": "一句一句读",
+  "name": "一句一读 · 句子驱动英语学习",
+  "short_name": "一句一读",
   "description": "导入电子书，一句一句精读，闯关学英语",
   "start_url": "./index.html",
   "scope": "./",
