@@ -197,7 +197,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-115';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-116';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -386,10 +386,10 @@ function shelfHtml() {
   const sel = shelfSel;
   const sh = statsHtml();
   let html = '<div class="shelfbar"><h2>我的故事</h2>' + (l.length ? '<button class="link shsel" onclick="toggleShelfSel()">' + (sel ? '取消' : '选择') + '</button>' : '') + '</div>' +
-    '<div class="shacts"><button onclick="openStoryCity()">🏡 去故事小屋</button><button class="ghost" onclick="openImportPop()">＋ 导入故事</button></div>';
+    '<div class="shacts"><button onclick="openStoryCity()">📚 学习材料</button><button class="ghost" onclick="openImportPop()">＋ 导入故事</button></div>';
   if (sh) html += '<div class="levelbar" style="margin:-6px 0 14px"><div id="statsLine">' + sh + '</div></div>';
   if (!l.length) {
-    html += '<div class="card" style="text-align:center;padding:36px 20px"><div style="font-size:38px">🏡</div><div style="margin:10px 0 4px;font-size:17px;color:var(--ink)">还没有故事</div><div class="note">点上面的“去故事小屋”挑一个故事，<br>或“导入故事”添加你自己的英文故事（epub、PDF、文本），也可以粘贴一段英文。</div></div>';
+    html += '<div class="card" style="text-align:center;padding:36px 20px"><div style="font-size:38px">📚</div><div style="margin:10px 0 4px;font-size:17px;color:var(--ink)">还没有故事</div><div class="note">点上面的“学习材料”挑一本材料，<br>或“导入故事”添加你自己的英文故事（epub、PDF、文本），也可以粘贴一段英文。</div></div>';
     return html;
   }
   html += '<div class="shelf">' + l.map(b => {
@@ -1494,9 +1494,9 @@ function azSpeakShort(text) {                     // 单词等短内容
     try { const u = new SpeechSynthesisUtterance(text); applyVoiceSync(u); u.rate = getRate(); speakNow(u); } catch (e) {}
   });
 }
-/* ---------- 故事小屋：书架里的“商店”。故事包 = zip（manifest.json + book.txt 中英对照文本 + 可选 clips/ 语音） ---------- */
+/* ---------- 学习材料：书架里的“商店”。故事包 = zip（manifest.json + book.txt 中英对照文本 + 可选 clips/ 语音） ---------- */
 let storyCat = null, adminTok = '';
-const SHOP_BASE = PROXY_URL.replace(/\/translate$/, '');          // 故事小屋后台和你的翻译中转在同一台服务器上
+const SHOP_BASE = PROXY_URL.replace(/\/translate$/, '');          // 学习材料后台和你的翻译中转在同一台服务器上
 const shopUrl = f => /^api:/.test(f) ? SHOP_BASE + '/' + f.slice(4) : f;
 function setScStatus(m) { const el = document.getElementById('scStatus'); if (el) el.textContent = m; }
 function fixStoryHeadings(t) {                    // 早期上架的 .md 书里，“第一章 · Chapter One”这种双语标题还是一行，会让后面的译文错位：拆成“英文一行 + 中文一行”
@@ -1555,7 +1555,7 @@ async function getStory(id, tk0) {
     const r = await installStory(await JSZip.loadAsync(buf), it.title, it.voice && tk ? { natSrc: 'api:pfiles/' + tk + '/' } : it.voice && /^api:files\//.test(it.file) ? { natSrc: 'api:files/' + it.id + '/' } : null);
     { const l = shelfGet(), e = l.find(x => x.id === 'story-' + it.id); if (e) { e.ver = it.ver || r.ver || 1; if (tk) e.tk = tk; delete e.sample; if (fromSample && e0) e.idx = e0.idx || 0; shelfSet(l); } }
     if (fromSample && oldB) { try { const b = await idbGet('books', bid); if (b) { b.idx = Math.min(oldB.idx || 0, b.sentences.length - 1); if (oldB.prog) b.prog = oldB.prog; await idbPut('books', b, bid); } } catch (e) {} }
-    if (it.voice && !r.clips) toast('《' + it.title + '》已加入“我的故事”。自然语音读到哪句取哪句，不用等整本下载；想离线听，可以在故事小屋里点“下载全部语音”。', 5000);
+    if (it.voice && !r.clips) toast('《' + it.title + '》已加入“我的故事”。自然语音读到哪句取哪句，不用等整本下载；想离线听，可以在学习材料里点“下载全部语音”。', 5000);
   } catch (e) { setScStatus('获取失败：' + (e && e.message ? e.message : '未知错误') + '。请检查网络后重试。'); }
 }
 async function getSample(id) {                     // 收费故事的试读版：免费下载到“我的故事”，读完再决定买不买
@@ -1566,7 +1566,7 @@ async function getSample(id) {                     // 收费故事的试读版�
     await loadLibs();
     const r = await installStory(await JSZip.loadAsync(buf), it.title, it.voice ? { natSrc: 'api:files/' + it.id + '-sample/' } : null);
     { const l = shelfGet(), e = l.find(x => x.id === 'story-' + it.id); if (e) { e.sample = 1; e.ver = 0; shelfSet(l); } }
-    toast('《' + it.title + '》试读版已放进“我的故事”（' + (it.sampleCount || '') + ' 句）。读完喜欢的话，再到故事小屋购买全本，读到哪里会接着往下读。', 5000);
+    toast('《' + it.title + '》试读版已放进“我的故事”（' + (it.sampleCount || '') + ' 句）。读完喜欢的话，再到学习材料购买全本，读到哪里会接着往下读。', 5000);
     if (document.getElementById('scList')) renderStoryCity('');
   } catch (e) { setScStatus('试读版下载失败：' + (e && e.message ? e.message : '未知错误') + '。请检查网络后重试。'); }
 }
@@ -1592,7 +1592,7 @@ async function getStoryVoice(it) {
     if (document.getElementById('scList')) renderStoryCity('');
   } catch (e) {
     delete voiceDl[it.id];
-    toast('《' + it.title + '》的自然语音没下载成功（' + (e && e.message ? e.message : '网络问题') + '），可以在故事小屋里再点“下载语音”', 5000);
+    toast('《' + it.title + '》的自然语音没下载成功（' + (e && e.message ? e.message : '网络问题') + '），可以在学习材料里再点“下载语音”', 5000);
     if (document.getElementById('scList')) renderStoryCity('');
   }
 }
@@ -1612,7 +1612,7 @@ async function admTokSave(t) {
   try { const iv = crypto.getRandomValues(new Uint8Array(12)); const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, azCryptoKey, new TextEncoder().encode(t))); localStorage.setItem('sr_adm_enc', JSON.stringify({ i: u8b64(iv), c: u8b64(ct) })); } catch (e) {}
 }
 async function devAdmin(path, opt) {
-  if (!(await admTokLoad())) { const t = (prompt('第一次上架：输入故事小屋后台口令（服务器上设置的 ADMIN_TOKEN）。输入一次后，会用你的开发者口令加密保存在这台设备里，以后不用再输。') || '').trim(); if (t) await admTokSave(t); }
+  if (!(await admTokLoad())) { const t = (prompt('第一次上架：输入学习材料后台口令（服务器上设置的 ADMIN_TOKEN）。输入一次后，会用你的开发者口令加密保存在这台设备里，以后不用再输。') || '').trim(); if (t) await admTokSave(t); }
   if (!adminTok) return { ok: false, msg: '没有输入后台口令' };
   try {
     const r = await fetch(SHOP_BASE + path, Object.assign({}, opt, { headers: Object.assign({ Authorization: 'Bearer ' + adminTok }, opt.headers || {}) }));
@@ -1645,7 +1645,7 @@ async function devCodes(id) {
     '<div style="max-height:40vh;overflow:auto;margin-top:8px;font-family:monospace;font-size:14px;line-height:1.9">' + L.map(c => '<div style="color:' + (c.revoked ? '#999;text-decoration:line-through' : c.uses || c.issued ? '#999' : 'var(--ink)') + '">' + esc(c.code) + ' <span class="note">' + (c.revoked ? '已作废' : c.uses ? '已用 ' + c.uses + '/' + j.max : c.issued ? '已发出' : '未发') + '</span>' + (c.revoked ? '' : ' <a href="#" style="font-size:12px" onclick="devCodeRevoke(\'' + esc(id) + '\',\'' + esc(c.code) + '\');return false">作废</a>') + '</div>').join('') + '</div>';
   window._dcUn = un.map(c => c.code);
 }
-const DEV_TPL = '感谢购买《{故事名}》！你的兑换码：{码}\n使用方法：打开「一句一读」→ 故事小屋 → 点“我有兑换码”→ 输入即可。\n每个码最多可在 3 台设备上使用。';
+const DEV_TPL = '感谢购买《{故事名}》！你的兑换码：{码}\n使用方法：打开「一句一读」→ 学习材料 → 点“我有兑换码”→ 输入即可。\n每个码最多可在 3 台设备上使用。';
 function devTplGet() { try { return localStorage.getItem('sr_dev_tpl') || DEV_TPL; } catch (e) { return DEV_TPL; } }
 function devTplSet(v) { try { localStorage.setItem('sr_dev_tpl', v); } catch (e) {} }
 async function devIssue(id) {                         // 闲鱼聊天里发货：取出下一个没发过的码，连话术一起复制
@@ -1670,7 +1670,7 @@ async function devCodeRevoke(id, code) {
   const r = await devAdmin('/admin/codes/' + code, { method: 'DELETE' }); if (!r.ok) { setScStatus('失败：' + r.msg); return; } await devCodes(id); setScStatus('已作废');
 }
 async function devUnlist(id) {
-  if (!confirm('把这个商品从故事小屋下架吗？（不会删除买家手里已有的）')) return;
+  if (!confirm('把这个商品从学习材料下架吗？（不会删除买家手里已有的）')) return;
   const r = await devAdmin('/admin/item/' + id, { method: 'DELETE' });
   if (r.ok) { storyCat.items = storyCat.items.filter(x => x.id !== id); catCacheSet(storyCat); renderStoryCity(''); setScStatus('已下架'); } else setScStatus('下架失败：' + r.msg);
 }
@@ -1922,7 +1922,7 @@ function devEditInfo(id) {
     '<div class="note">英文标题</div><input id="deTitle" value="' + esc(it.title) + '" style="' + F + '">' +
     '<div class="note">中文名</div><input id="deZh" value="' + esc(it.titleZh || '') + '" style="' + F + '">' +
     '<div class="note">等级</div><input id="deLevel" value="' + esc(it.level || '') + '" style="' + F + '">' +
-    ('<div class="note">购买说明（买家点“购买”时看到，比如“闲鱼搜 喵喵故事小屋，拍下后自动发兑换码”）</div><input id="deBuy" value="' + esc(it.buy || '') + '" style="' + F + '"><div class="note">购买链接（闲鱼商品页，https 开头，可空）</div><input id="deBuyUrl" value="' + esc(it.buyUrl || '') + '" style="' + F + '">') +
+    ('<div class="note">购买说明（买家点“购买”时看到，比如“闲鱼搜 喵喵英语，拍下后自动发兑换码”）</div><input id="deBuy" value="' + esc(it.buy || '') + '" style="' + F + '"><div class="note">购买链接（闲鱼商品页，https 开头，可空）</div><input id="deBuyUrl" value="' + esc(it.buyUrl || '') + '" style="' + F + '">') +
     '<div class="note">价格（元，填 0 就是免费）</div><input id="dePrice" inputmode="decimal" value="' + esc(String(it.price || 0)) + '" style="' + F + '">' +
     '<div class="note">限时免费到（日期，如 2026-10-31；留空=不做活动；过了这天自动恢复原价）</div><input id="deFree" placeholder="2026-10-31" value="' + (it.freeUntil && it.freeUntil > Date.now() ? esc(new Date(it.freeUntil - 86400000).toISOString().slice(0, 10)) : '') + '" style="' + F + '">' +
     '<div class="note" style="margin:0 0 8px">免费 ⇄ 收费会自动把这个故事的文字和语音在服务器上搬一下，不用重新上架。已经免费拿走的人，之后在线听语音可能取不到，需要重新兑换。</div>' +
@@ -2026,7 +2026,7 @@ async function devEditSave() {
     const pub = await devPublish(entry, { name: it.id + '.srbook', blob: pk.blob, priv: !!it.price });
     if (pub !== true) throw new Error('更新失败：' + pub);
     devEd = null; await openStoryCity(true);
-    setScStatus('已更新《' + it.title + '》（第 ' + ver + ' 版）。改了 ' + Object.keys(d.edits).length + ' 段' + (it.voice ? '，重新合成语音 ' + changed.length + ' 句' : '') + '。买家下次打开故事小屋会看到“有更新”。');
+    setScStatus('已更新《' + it.title + '》（第 ' + ver + ' 版）。改了 ' + Object.keys(d.edits).length + ' 段' + (it.voice ? '，重新合成语音 ' + changed.length + ' 句' : '') + '。买家下次打开学习材料会看到“有更新”。');
   } catch (e) { setScStatus('保存失败：' + (e && e.message ? e.message : '未知错误') + '（改的内容还在，修好后再点保存）'); }
   devGenBusy = false;
 }
@@ -2039,7 +2039,7 @@ function scBuy(id) {
     '<div class="note" style="margin-top:12px">已经买了？输入收到的兑换码：</div>' +
     '<div class="row" style="margin-top:6px"><input id="rdCode" placeholder="XXXX-XXXX-XXXX" autocapitalize="characters" autocomplete="off" style="flex:1;min-width:0;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--pop);color:var(--ink);font-size:16px;letter-spacing:1px"><button onclick="redeemGo()">兑换</button></div>' +
     '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>' +
-    '<div class="row" style="margin-top:8px"><button class="ghost" onclick="openStoryCity()">返回故事小屋</button></div>');
+    '<div class="row" style="margin-top:8px"><button class="ghost" onclick="openStoryCity()">返回学习材料</button></div>');
 }
 const fmtDay = ms => { const d = new Date(ms); return (d.getMonth() + 1) + '月' + d.getDate() + '日'; };
 const freeNow = it => !!(it && it.price && it.freeUntil && it.freeUntil > Date.now());
@@ -2058,7 +2058,7 @@ async function claimFree(id) {
 function redeemPop() {
   showPop('<h3 style="margin:0 0 6px">🎟 输入兑换码</h3><div class="note">在店铺付款后收到的兑换码，每个码最多可在 3 台设备上使用。</div>' +
     '<div class="row" style="margin-top:10px"><input id="rdCode" placeholder="XXXX-XXXX-XXXX" autocapitalize="characters" autocomplete="off" style="flex:1;min-width:0;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--pop);color:var(--ink);font-size:16px;letter-spacing:1px"><button onclick="redeemGo()">兑换</button></div>' +
-    '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div><div class="row" style="margin-top:8px"><button class="ghost" onclick="openStoryCity()">返回故事小屋</button></div>');
+    '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div><div class="row" style="margin-top:8px"><button class="ghost" onclick="openStoryCity()">返回学习材料</button></div>');
 }
 let redeemBusy = false;
 async function redeemGo() {
@@ -2075,7 +2075,7 @@ async function redeemGo() {
     if (document.getElementById('scList') || document.getElementById('scStatus')) { toast('兑换成功，《' + j.item.title + '》已加入“我的故事”', 3500); renderStoryCity(''); }
   } catch (e) { setScStatus('网络不通，兑换没成功，请稍后再试。'); redeemBusy = false; }
 }
-/* 故事小屋的小伙伴：35 种原创 Q 版小动物 / 小人儿（猫咪 5 种，十二生肖都有）。每个故事按 id 固定分到一种 */
+/* 学习材料的小伙伴：35 种原创 Q 版小动物 / 小人儿（猫咪 5 种，十二生肖都有）。每个故事按 id 固定分到一种 */
 const BD_D = 'rgba(70,45,30,.88)', BD_PINK = '#f9c9d2';
 const bdCatEars = c => '<path d="M18 23 L20 4 L34 14 Z M58 23 L56 4 L42 14 Z" fill="' + c + '"/><path d="M21.5 17 L22.5 9 L29 13.5 Z M54.5 17 L53.5 9 L47 13.5 Z" fill="' + BD_PINK + '"/>';
 const bdRound = (c, r, inner, y) => { y = y || 14; return '<circle cx="19" cy="' + y + '" r="' + r + '" fill="' + c + '"/><circle cx="57" cy="' + y + '" r="' + r + '" fill="' + c + '"/>' + (inner ? '<circle cx="19" cy="' + y + '" r="' + (r / 2) + '" fill="' + inner + '"/><circle cx="57" cy="' + y + '" r="' + (r / 2) + '" fill="' + inner + '"/>' : ''); };
@@ -2124,7 +2124,7 @@ const BUDDIES = [
   { n: '小鳄鱼', c: '#78b85a', b: c => '<circle cx="28" cy="15" r="7.5" fill="' + c + '"/><circle cx="48" cy="15" r="7.5" fill="' + c + '"/>', eye: 'frog', f: () => '<ellipse cx="38" cy="42" rx="14" ry="7" fill="#8fcb6f"/><circle cx="34" cy="38" r="1" fill="#3f6b2e"/><circle cx="42" cy="38" r="1" fill="#3f6b2e"/><circle cx="30" cy="26" r="1.8" fill="#5f9c45"/><circle cx="46" cy="24" r="1.6" fill="#5f9c45"/>', m: '<path d="M27 44 q11 5 22 0" stroke="' + BD_D + '" stroke-width="1.4" fill="none" stroke-linecap="round"/><path d="M30 45 l1.5 2.5 1.5 -2 M44 45 l1.5 2.5 1.5 -2" fill="#fff" stroke="#fff" stroke-width=".8"/>' },
   { n: '小猫头鹰', c: '#b98b61', b: () => '<path d="M19 18 L18 4 L29 12 Z M57 18 L58 4 L47 12 Z" fill="#8a5f3c"/>', eye: 'owl', m: BD_BEAK }
 ];
-function buddySvg(k, have, W, H) {                 // 按 key 固定画一只小伙伴（故事小屋和“我的故事”里同一个故事是同一只）；have=眯眼笑+小星星
+function buddySvg(k, have, W, H) {                 // 按 key 固定画一只小伙伴（学习材料和“我的故事”里同一个故事是同一只）；have=眯眼笑+小星星
   let h = 0; for (let i = 0; i < k.length; i++) h = (h * 33 + k.charCodeAt(i)) >>> 0;
   h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d) >>> 0; h ^= h >>> 12; h = Math.imul(h, 0x297a2d39) >>> 0; h = (h ^ (h >>> 15)) >>> 0;     // 打散：名字只差一个字的故事也分到不同的小伙伴
   const B = BUDDIES[h % BUDDIES.length], C = B.c, D = BD_D, body = B.body || C;
@@ -2149,12 +2149,12 @@ function buddySvg(k, have, W, H) {                 // 按 key 固定画一只小
       (have ? '<path d="M66 4 l1.5 3.5 3.5 1.5 -3.5 1.5 -1.5 3.5 -1.5 -3.5 -3.5 -1.5 3.5 -1.5 Z" fill="#ffd25e"/>' : '') +
     '</svg>';
 }
-function storyBuddy(it, have) {                    // 故事小屋里每个故事是一只可爱的小动物（或小人儿），举着写着故事名的牌子；已经领取的会眯眼笑
+function storyBuddy(it, have) {                    // 学习材料里每个故事是一只可爱的小动物（或小人儿），举着写着故事名的牌子；已经领取的会眯眼笑
   return '<div style="flex:none;position:relative;width:76px;height:92px" title="' + esc(it.title) + '">' + buddySvg('story-' + it.id, have, 76, 92) +
     '<div style="position:absolute;left:10px;top:57px;width:56px;height:24px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:9.5px;line-height:1.1;color:#5a4630;font-weight:700;overflow:hidden;word-break:break-word"><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">' + esc(it.titleZh || it.title) + '</span></div>' +
   '</div>';
 }
-let scQ = '', scF = 'all', scLv = '', scN = 20, scObs = null;           // 故事小屋的搜索 / 筛选 / 已显示数量
+let scQ = '', scF = 'all', scLv = '', scN = 20, scObs = null;           // 学习材料的搜索 / 筛选 / 已显示数量
 function scCard(it, owned) {
   const have = owned.has('story-' + it.id), free = !it.price;
   const meta = [freeNow(it) ? '限时免费 · 到' + fmtDay(it.freeUntil - 1) : '', it.level, it.count ? it.count + ' 句' : '', it.voice ? '🎧 含自然语音' : ''].filter(Boolean).join(' · ');
@@ -2195,8 +2195,8 @@ function scFiltered() {
 }
 function scListHtml() {
   const { l, owned } = scFiltered();
-  if (!l.length) return '<div class="note" style="text-align:center;padding:20px 0">' + (scQ || scF !== 'all' || scLv ? '没有找到符合条件的故事，换个条件试试。' : '暂时还没有故事上架。') + '</div>';
-  return l.slice(0, scN).map(it => scCard(it, owned)).join('') + (l.length > scN ? '<div id="scMore" class="note" style="text-align:center;padding:14px 0">往下滑加载更多（还有 ' + (l.length - scN) + ' 个）</div>' : '<div class="note" style="text-align:center;padding:8px 0 4px">共 ' + l.length + ' 个故事</div>');
+  if (!l.length) return '<div class="note" style="text-align:center;padding:20px 0">' + (scQ || scF !== 'all' || scLv ? '这个难度暂时还没有材料。' : '暂时还没有学习材料。') + '</div>';
+  return l.slice(0, scN).map(it => scCard(it, owned)).join('') + (l.length > scN ? '<div id="scMore" class="note" style="text-align:center;padding:14px 0">往下滑加载更多（还有 ' + (l.length - scN) + ' 本）</div>' : '<div class="note" style="text-align:center;padding:8px 0 4px">共 ' + l.length + ' 本材料</div>');
 }
 function scRefresh(reset) {                        // 只刷新列表，搜索框不丢焦点
   if (reset) scN = 20;
@@ -2212,16 +2212,15 @@ function scWatchMore() {
   scObs.observe(m); m.onclick = () => { scN += 20; scRefresh(); };
 }
 function scSetF(f) { scF = f; scRefresh(true); }
-function scSetLv(lv) { scLv = scLv === lv ? '' : lv; scRefresh(true); }
+function scSetLv(lv) { scLv = lv; scRefresh(true); }
 function renderStoryCity(err) {
+  scQ = ''; scF = 'all';                               // 搜索和商城式分类已去掉，只按难度筛
   const total = scFiltered().total, lvs = [...new Set(((storyCat && storyCat.items) || []).map(x => String(x.level || '').slice(0, 2).toUpperCase()).filter(x => /^[ABC][12]$/.test(x)))].sort();
-  let h = '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 6px"><h3 id="scList" style="margin:0">🏡 故事小屋</h3><button class="link" style="font-size:14px" onclick="redeemPop()">🎟 我有兑换码</button></div><div class="note" style="margin-bottom:10px">' + esc((storyCat && storyCat.intro) || '原创中英对照故事，点单词发音，点句子朗读。') + '</div>';
+  let h = '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 6px"><h3 id="scList" style="margin:0">📚 学习材料</h3><button class="link" style="font-size:14px" onclick="redeemPop()">🎟 我有兑换码</button></div><div class="note" style="margin-bottom:10px">' + esc((storyCat && storyCat.intro) || '原创中英对照故事，点单词发音，点句子朗读。') + '</div>';
   if (err) h += '<div class="note" style="color:#b94a48;margin-bottom:8px">' + esc(err) + '</div>';
   if (total > 0) {
     const chip = (attr, val, label, on, fn) => '<button class="scChip' + (on ? ' on' : '') + '" data-' + attr + '="' + val + '" onclick="' + fn + '">' + label + '</button>';
-    h += '<input id="scSearch" type="search" placeholder="🔍 搜索故事名（英文或中文）" value="' + esc(scQ) + '" oninput="scQ=this.value;scRefresh(true)" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--pop);color:var(--ink);font-size:15px;margin-bottom:8px">' +
-      '<div class="scChips">' + chip('f', 'all', '全部', scF === 'all', "scSetF('all')") + chip('f', 'free', '免费', scF === 'free', "scSetF('free')") + chip('f', 'paid', '收费', scF === 'paid', "scSetF('paid')") + chip('f', 'mine', '已领取', scF === 'mine', "scSetF('mine')") + '</div>' +
-      (lvs.length > 1 ? '<div class="scChips">' + lvs.map(lv => chip('lv', lv, lv, scLv === lv, "scSetLv('" + lv + "')")).join('') + '</div>' : '');
+    h += (lvs.length ? '<div class="scChips">' + chip('lv', '', '全部', scLv === '', "scSetLv('')") + lvs.map(lv => chip('lv', lv, lv, scLv === lv, "scSetLv('" + lv + "')")).join('') + '</div>' : '');
   }
   h += '<div id="scItems">' + scListHtml() + '</div>';
   h += (azReady() ? '<div class="row" style="margin-top:6px"><button class="sm" onclick="devNewStoryPop()">＋ 上架新故事（开发者）</button></div>' : '') +
@@ -2256,10 +2255,10 @@ async function openStoryCity(fresh) {               // fresh = 刚上架/修改�
     if (cat && JSON.stringify(cat) !== JSON.stringify(storyCat)) { storyCat = cat; if (document.getElementById('scList') && !devGenBusy) renderStoryCity(''); }
     return;
   }
-  showPop('<h3 style="margin:0 0 6px">🏡 故事小屋</h3><div class="note">正在加载…</div>');
+  showPop('<h3 style="margin:0 0 6px">📚 学习材料</h3><div class="note">正在加载…</div>');
   const cat = await fetchStoryCat();
   if (cat) storyCat = cat;
-  renderStoryCity(cat ? '' : (storyCat ? '没连上网，显示的是上次的目录。' : '故事目录加载失败，请检查网络后再点一次“故事小屋”。'));
+  renderStoryCity(cat ? '' : (storyCat ? '没连上网，显示的是上次的目录。' : '故事目录加载失败，请检查网络后再点一次“学习材料”。'));
 }
 /* ---------- 语音包：买来的“一句一个音频”文件包，导入后每句优先播放包里的声音 ---------- */
 // 包是 zip：manifest.json + clips/<哈希>.mp3，哈希 = SHA-256('vp1\n' + 英文句子)。按句子内容找，不靠序号，切句规则以后改了也不会错位。
