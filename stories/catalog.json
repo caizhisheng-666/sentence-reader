@@ -1,5 +1,5 @@
 {
-  "intro": "原创中英对照小故事，点单词发音，点句子朗读。",
+  "intro": "中英对照学习材料，点单词发音，点句子朗读。",
   "buy": "请联系店主购买，付款后会发给你一个故事包文件。",
   "items": [
     {"id":"lost-kitten","title":"The Lost Kitten","titleZh":"迷路的小猫","level":"A1 入门","count":12,"voice":false,"desc":"雨天捡到一只小猫的温暖小故事。","file":"stories/lost-kitten.srbook",
