@@ -79,9 +79,9 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .bk .cover span{font-weight:600;font-size:14px;line-height:1.4;text-align:center;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
 .bk .cover.house{aspect-ratio:76/92;background:none!important;box-shadow:none;border-radius:8px;padding:0;overflow:visible}
 .bk .cover.house svg{position:absolute;inset:0;width:100%;height:100%}
-.bk .cover.house span{position:absolute;left:17%;top:45%;width:66%;height:28%;display:flex;align-items:center;justify-content:center;color:#5a4630;font-size:12px;line-height:1.15}
-.bk .cover.house span b{font-weight:600;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-.bk .cover.house .done{top:30%;right:-4px;border-radius:8px}
+.bk .cover.house span{position:absolute;left:12%;top:62%;width:76%;height:26%;display:flex;align-items:center;justify-content:center;color:#5a4630;font-size:12px;line-height:1.12;text-align:center}
+.bk .cover.house span b{font-weight:700;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.bk .cover.house .done{top:0;right:-4px;border-radius:8px}
 .shelfbar h2{white-space:nowrap}
 .shelfbar .shsel{font-size:15px;padding:6px 2px}
 .shacts{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 2px 18px}
@@ -194,7 +194,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-112';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-113';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -394,7 +394,7 @@ function shelfHtml() {
     const status = !b.total ? '' : (b.idx >= b.total ? '读完' : ((b.idx || 0) > 0 ? pct + '%' : '未读'));
     const on = sel && sel.has(b.id);
     return '<div class="bk' + (on ? ' on' : '') + '" onclick="shelfTap(\'' + b.id + '\')">' +
-      '<div class="cover house">' + houseSvg(coverColor(b.id), (b.idx || 0) > 0) + '<span><b>' + esc(b.title || '') + '</b></span>' +
+      '<div class="cover house">' + buddySvg(b.id, (b.idx || 0) > 0) + '<span><b>' + esc(b.title || '') + '</b></span>' +
       (b.total && b.idx >= b.total ? '<i class="done">读完</i>' : '') +
       (sel ? '<i class="chk">' + (on ? '✓' : '') + '</i>' : '') + '</div>' +
       '<div class="bs">' + (status && !(b.idx >= b.total) ? status : '&nbsp;') + '</div></div>';
@@ -2010,18 +2010,6 @@ async function redeemGo() {
     if (document.getElementById('scList') || document.getElementById('scStatus')) { toast('兑换成功，《' + j.item.title + '》已加入“我的故事”', 3500); renderStoryCity(''); }
   } catch (e) { setScStatus('网络不通，兑换没成功，请稍后再试。'); redeemBusy = false; }
 }
-function houseSvg(c, lit, w, h) {                  // 一座小房子：屋顶 c 色；lit=窗户亮灯
-  const L = lit ? '#ffd86b' : '#cfe3f2';
-  return '<svg' + (w ? ' width="' + w + '" height="' + h + '"' : '') + ' viewBox="0 0 76 92" aria-hidden="true">' +
-    '<rect x="51" y="9" width="8" height="16" rx="1.5" fill="' + c + '" opacity=".75"/>' +
-    '<circle cx="57" cy="5" r="2.2" fill="#d9d4cc" opacity=".8"/><circle cx="61" cy="2.5" r="1.6" fill="#d9d4cc" opacity=".6"/>' +
-    '<rect x="10" y="37" width="56" height="51" rx="4" fill="#fbf3e4" stroke="rgba(0,0,0,.12)"/>' +
-    '<path d="M3 41 L38 8 L73 41 Z" fill="' + c + '" stroke="' + c + '" stroke-width="3" stroke-linejoin="round"/>' +
-    '<circle cx="38" cy="28" r="6" fill="' + L + '" stroke="#fff" stroke-width="1.6"/><path d="M38 22v12M32 28h12" stroke="#fff" stroke-width="1.2"/>' +
-    '<path d="M31 88 V72 a7 7 0 0 1 14 0 V88 Z" fill="' + c + '"/><circle cx="41.5" cy="80" r="1.1" fill="#fbf3e4"/>' +
-    '<rect x="14" y="70" width="11" height="10" rx="2" fill="' + L + '" stroke="' + c + '" stroke-width="1.3"/><rect x="51" y="70" width="11" height="10" rx="2" fill="' + L + '" stroke="' + c + '" stroke-width="1.3"/>' +
-    '<path d="M2 89.5 H74" stroke="#8fbf7a" stroke-width="3" stroke-linecap="round"/></svg>';
-}
 /* 故事小屋的小伙伴：35 种原创 Q 版小动物 / 小人儿（猫咪 5 种，十二生肖都有）。每个故事按 id 固定分到一种 */
 const BD_D = 'rgba(70,45,30,.88)', BD_PINK = '#f9c9d2';
 const bdCatEars = c => '<path d="M18 23 L20 4 L34 14 Z M58 23 L56 4 L42 14 Z" fill="' + c + '"/><path d="M21.5 17 L22.5 9 L29 13.5 Z M54.5 17 L53.5 9 L47 13.5 Z" fill="' + BD_PINK + '"/>';
@@ -2071,8 +2059,8 @@ const BUDDIES = [
   { n: '小鳄鱼', c: '#78b85a', b: c => '<circle cx="28" cy="15" r="7.5" fill="' + c + '"/><circle cx="48" cy="15" r="7.5" fill="' + c + '"/>', eye: 'frog', f: () => '<ellipse cx="38" cy="42" rx="14" ry="7" fill="#8fcb6f"/><circle cx="34" cy="38" r="1" fill="#3f6b2e"/><circle cx="42" cy="38" r="1" fill="#3f6b2e"/><circle cx="30" cy="26" r="1.8" fill="#5f9c45"/><circle cx="46" cy="24" r="1.6" fill="#5f9c45"/>', m: '<path d="M27 44 q11 5 22 0" stroke="' + BD_D + '" stroke-width="1.4" fill="none" stroke-linecap="round"/><path d="M30 45 l1.5 2.5 1.5 -2 M44 45 l1.5 2.5 1.5 -2" fill="#fff" stroke="#fff" stroke-width=".8"/>' },
   { n: '小猫头鹰', c: '#b98b61', b: () => '<path d="M19 18 L18 4 L29 12 Z M57 18 L58 4 L47 12 Z" fill="#8a5f3c"/>', eye: 'owl', m: BD_BEAK }
 ];
-function storyBuddy(it, have) {                    // 故事小屋里每个故事是一只可爱的小动物（或小人儿），举着写着故事名的牌子；已经领取的会眯眼笑
-  let h = 0; const k = 'story-' + it.id; for (let i = 0; i < k.length; i++) h = (h * 33 + k.charCodeAt(i)) >>> 0;
+function buddySvg(k, have, W, H) {                 // 按 key 固定画一只小伙伴（故事小屋和“我的故事”里同一个故事是同一只）；have=眯眼笑+小星星
+  let h = 0; for (let i = 0; i < k.length; i++) h = (h * 33 + k.charCodeAt(i)) >>> 0;
   const B = BUDDIES[(h >>> 3) % BUDDIES.length], C = B.c, D = BD_D, body = B.body || C;
   const ln = c => c === '#ffffff' || c === '#fbf4ea' || c === '#fffaf2' || c === '#ffe0c7' ? ' stroke="rgba(0,0,0,.12)"' : '';
   const L1 = ln(C), L2 = ln(body);
@@ -2084,8 +2072,7 @@ function storyBuddy(it, have) {                    // 故事小屋里每个故�
   else if (B.eye === 'owl') eyes = '<circle cx="29" cy="32" r="7" fill="#fff4e0"/><circle cx="47" cy="32" r="7" fill="#fff4e0"/><circle cx="29" cy="32" r="3.3" fill="' + D + '"/><circle cx="47" cy="32" r="3.3" fill="' + D + '"/><circle cx="30" cy="31" r="1.1" fill="#fff"/><circle cx="48" cy="31" r="1.1" fill="#fff"/>';
   else if (B.eye === 'white') eyes = '<circle cx="30" cy="33" r="3.3" fill="#fff"/><circle cx="46" cy="33" r="3.3" fill="#fff"/><circle cx="30" cy="33" r="1.7" fill="#222"/><circle cx="46" cy="33" r="1.7" fill="#222"/>';
   else { const ec = B.eye === 'blue' ? '#5a9bd8' : D; eyes = '<circle cx="30" cy="33" r="3.3" fill="' + ec + '"/><circle cx="46" cy="33" r="3.3" fill="' + ec + '"/><circle cx="31.2" cy="31.8" r="1.2" fill="#fff"/><circle cx="47.2" cy="31.8" r="1.2" fill="#fff"/>'; }
-  return '<div style="flex:none;position:relative;width:76px;height:92px" title="' + esc(it.title) + '">' +
-    '<svg width="76" height="92" viewBox="0 0 76 92" aria-hidden="true">' + (B.b ? B.b(C) : '') +
+  return '<svg' + (W ? ' width="' + W + '" height="' + H + '"' : '') + ' viewBox="0 0 76 92" aria-hidden="true">' + (B.b ? B.b(C) : '') +
       (B.tail || (B.cat ? '<path d="M56 70 q14 -2 10 -16" stroke="' + C + '" stroke-width="5" fill="none" stroke-linecap="round"/>' : '')) +
       '<ellipse cx="38" cy="60" rx="20" ry="17" fill="' + body + '"' + L2 + '/>' +
       '<circle cx="38" cy="32" r="21" fill="' + C + '"' + L1 + '/>' + (B.f ? B.f(C) : '') +
@@ -2094,7 +2081,10 @@ function storyBuddy(it, have) {                    // 故事小屋里每个故�
       '<rect x="7" y="56" width="62" height="26" rx="6" fill="#fffaf0" stroke="#c99a5b" stroke-width="1.6"/>' +
       '<circle cx="9" cy="66" r="5" fill="' + (B.human ? C : body) + '"' + (B.human ? L1 : L2) + '/><circle cx="67" cy="66" r="5" fill="' + (B.human ? C : body) + '"' + (B.human ? L1 : L2) + '/>' +
       (have ? '<path d="M66 4 l1.5 3.5 3.5 1.5 -3.5 1.5 -1.5 3.5 -1.5 -3.5 -3.5 -1.5 3.5 -1.5 Z" fill="#ffd25e"/>' : '') +
-    '</svg>' +
+    '</svg>';
+}
+function storyBuddy(it, have) {                    // 故事小屋里每个故事是一只可爱的小动物（或小人儿），举着写着故事名的牌子；已经领取的会眯眼笑
+  return '<div style="flex:none;position:relative;width:76px;height:92px" title="' + esc(it.title) + '">' + buddySvg('story-' + it.id, have, 76, 92) +
     '<div style="position:absolute;left:10px;top:57px;width:56px;height:24px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:9.5px;line-height:1.1;color:#5a4630;font-weight:700;overflow:hidden;word-break:break-word"><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">' + esc(it.titleZh || it.title) + '</span></div>' +
   '</div>';
 }
