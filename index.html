@@ -184,7 +184,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-105';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-106';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1487,12 +1487,15 @@ let storyCat = null, adminTok = '';
 const SHOP_BASE = PROXY_URL.replace(/\/translate$/, '');          // 故事城后台和你的翻译中转在同一台服务器上
 const shopUrl = f => /^api:/.test(f) ? SHOP_BASE + '/' + f.slice(4) : f;
 function setScStatus(m) { const el = document.getElementById('scStatus'); if (el) el.textContent = m; }
+function fixStoryHeadings(t) {                    // 早期上架的 .md 书里，“第一章 · Chapter One”这种双语标题还是一行，会让后面的译文错位：拆成“英文一行 + 中文一行”
+  return String(t).replace(/^[ \t]*([\u3400-\u9fff][\u3400-\u9fff0-9\s]{0,14}?)[ \t]*[·•][ \t]*([A-Z][A-Za-z0-9 ',!?:\-]{1,60}?)[ \t]*(?:[（(]([^()（）A-Za-z]*[\u3400-\u9fff][^()（）A-Za-z]*)[)）])?[ \t]*$/gm, (m, zh, en, zh2) => en.trim() + '\n\n' + zh.trim() + (zh2 ? ' ' + zh2.trim() : ''));
+}
 async function installStory(zip, fallbackName, opts) {
   const mf = zip.file('manifest.json'); if (!mf) throw new Error('这不是故事包文件');
   const man = JSON.parse(await mf.async('string'));
   if (!man || man.format !== 'sr-story' || !man.id) throw new Error('这不是故事包文件');
   const bf = zip.file('book.txt'); if (!bf) throw new Error('故事包里没有正文');
-  const text = await bf.async('string');
+  const text = fixStoryHeadings(await bf.async('string'));
   const names = Object.keys(zip.files).filter(n => /^clips\/[0-9a-f]{16,64}\.mp3$/.test(n));
   if (names.length) await vpImportClips(zip, names, { id: 'story-' + man.id, title: man.title, buyer: man.buyer }, fallbackName, setScStatus);
   importTitle = man.title || fallbackName || ''; importBookId = 'story-' + man.id; importNatVoice = names.length ? (man.voice || 'natural') : '';
@@ -2753,7 +2756,11 @@ async function parseEpub(buf) {
 /* ---------- 更多格式：Markdown / Word(.docx) / Kindle(.mobi .azw3 .azw) ---------- */
 function mdToText(s) {
   s = s.replace(/\r/g, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/^(\s{0,3}#{1,6}\s+.*)$/gm, h => h.replace(/[（(]([^()（）A-Za-z]*[\u3400-\u9fff][^()（）A-Za-z]*)[)）]/g, ' $1 ').replace(/\s[·•|]\s/g, ' '));   // 标题里括号中的中文译名（如“Before Breakfast（早饭之前）”）别被当成注释删掉，否则整章会错位一句
+    .replace(/^(\s{0,3}#{1,6}\s+)(.*)$/gm, (all, hs, body) => {            // 中英双语标题（如“第一章 · Chapter One”“Before Breakfast（早饭之前）”）拆成“英文一行 + 中文一行”，各自成段，才能一对一配上，不会和下一段错位
+      const zhP = (body.match(/[\u3400-\u9fff][\u3400-\u9fff\s·•，。、：:（）()0-9]*/g) || []).join(' ').replace(/[（）()·•]/g, ' ').replace(/\s+/g, ' ').trim();
+      const enP = body.replace(/[（(][^()（）A-Za-z]*[\u3400-\u9fff][^()（）A-Za-z]*[)）]/g, ' ').replace(/[\u3400-\u9fff]+/g, ' ').replace(/[·•|]/g, ' ').replace(/\s+/g, ' ').trim();
+      return zhP && /[A-Za-z]{2}/.test(enP) ? enP + '\n\n' + zhP : all;
+    })
   return s.replace(/^```.*$/gm, '').replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
     .replace(/^\s{0,3}#{1,6}\s+/gm, '').replace(/^\s{0,3}>\s?/gm, '').replace(/^\s*([-*+]|\d+\.)\s+/gm, '')
     .replace(/^\s*([-*_]\s*){3,}$/gm, '').replace(/(\*\*|__)(.+?)\1/g, '$2').replace(/\*(.+?)\*/g, '$1')
