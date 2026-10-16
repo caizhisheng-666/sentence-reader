@@ -194,7 +194,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-110';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-111';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2022,25 +2022,46 @@ function houseSvg(c, lit, w, h) {                  // 一座小房子：屋顶 c
     '<rect x="14" y="70" width="11" height="10" rx="2" fill="' + L + '" stroke="' + c + '" stroke-width="1.3"/><rect x="51" y="70" width="11" height="10" rx="2" fill="' + L + '" stroke="' + c + '" stroke-width="1.3"/>' +
     '<path d="M2 89.5 H74" stroke="#8fbf7a" stroke-width="3" stroke-linecap="round"/></svg>';
 }
-function storyBuddy(it, have) {                    // 故事小屋里每个故事是一个可爱的小伙伴：按故事固定选动物和颜色，举着写着故事名的小牌子；已经领取的会眨眼笑
+function storyBuddy(it, have) {                    // 故事小屋里每个故事是一只可爱的小动物（猫咪最多）：按故事固定选，举着写着故事名的小牌子；已经领取的会眯眼笑
   let h = 0; const k = 'story-' + it.id; for (let i = 0; i < k.length; i++) h = (h * 33 + k.charCodeAt(i)) >>> 0;
-  const C = ['#f6c28b', '#f4a7b9', '#a8d8b9', '#a7c7e7', '#d7b8f0', '#f7d97a', '#d8bfa4', '#9fd3d1'][h % 8], kind = (h >>> 3) % 4;
-  const D = 'rgba(70,45,30,.85)', ear = kind === 0 ? '<path d="M17 22 L20 5 L32 15 Z M59 22 L56 5 L44 15 Z" fill="' + C + '"/><path d="M21 17 L22 10 L28 14 Z M55 17 L54 10 L48 14 Z" fill="#f9d6dc"/>'
-    : kind === 1 ? '<circle cx="19" cy="13" r="8" fill="' + C + '"/><circle cx="57" cy="13" r="8" fill="' + C + '"/><circle cx="19" cy="13" r="4" fill="#f9d6dc"/><circle cx="57" cy="13" r="4" fill="#f9d6dc"/>'
-    : kind === 2 ? '<ellipse cx="28" cy="7" rx="5" ry="13" fill="' + C + '"/><ellipse cx="48" cy="7" rx="5" ry="13" fill="' + C + '"/><ellipse cx="28" cy="8" rx="2.3" ry="9" fill="#f9d6dc"/><ellipse cx="48" cy="8" rx="2.3" ry="9" fill="#f9d6dc"/>'
-    : '<path d="M36 7 q2 -6 6 -5 q-3 2 -2 6 Z" fill="' + C + '"/>';
-  const eyes = have ? '<path d="M27 33 q3 -3 6 0 M43 33 q3 -3 6 0" stroke="' + D + '" stroke-width="2" fill="none" stroke-linecap="round"/>'
-    : '<circle cx="30" cy="33" r="3.3" fill="' + D + '"/><circle cx="46" cy="33" r="3.3" fill="' + D + '"/><circle cx="31.2" cy="31.8" r="1.2" fill="#fff"/><circle cx="47.2" cy="31.8" r="1.2" fill="#fff"/>';
-  const mouth = kind === 3 ? '<path d="M35 38 L41 38 L38 42 Z" fill="#f2a33a"/>' : '<path d="M34.5 39 q1.8 2.2 3.5 0 q1.7 2.2 3.5 0" stroke="' + D + '" stroke-width="1.5" fill="none" stroke-linecap="round"/>';
+  const P = ['#f6c28b', '#f4a7b9', '#a8d8b9', '#a7c7e7', '#d7b8f0', '#f7d97a', '#d8bfa4', '#9fd3d1'];
+  // 0 橘猫 1 虎斑猫 2 小黑猫 3 三花猫 4 白猫 5 小熊 6 小兔 7 小鸡 8 熊猫 9 小猪 10 小青蛙 11 小狗 12 小老鼠
+  const kind = (h >>> 3) % 13, D = 'rgba(70,45,30,.88)', pink = '#f9c9d2';
+  const C = [ '#f5b36b', '#c9a27a', '#4a4550', '#fbf4ea', '#ffffff', P[h % 8], P[(h >>> 1) % 8], '#ffd95e', '#ffffff', '#f7b8c4', '#9fd88a', '#e8c79e', '#c8c8d2'][kind];
+  const catEars = c => '<path d="M18 23 L20 4 L34 14 Z M58 23 L56 4 L42 14 Z" fill="' + c + '"/><path d="M21.5 17 L22.5 9 L29 13.5 Z M54.5 17 L53.5 9 L47 13.5 Z" fill="' + pink + '"/>';
+  const roundEars = (c, r, inner) => '<circle cx="19" cy="14" r="' + r + '" fill="' + c + '"/><circle cx="57" cy="14" r="' + r + '" fill="' + c + '"/>' + (inner ? '<circle cx="19" cy="14" r="' + (r / 2) + '" fill="' + inner + '"/><circle cx="57" cy="14" r="' + (r / 2) + '" fill="' + inner + '"/>' : '');
+  let back = '', front = '', eyeC = D, mouth = '<path d="M34.5 39 q1.8 2.2 3.5 0 q1.7 2.2 3.5 0" stroke="' + D + '" stroke-width="1.5" fill="none" stroke-linecap="round"/>', whisk = '';
+  const cat = kind <= 4;
+  if (cat) {
+    back = catEars(C);
+    whisk = '<path d="M14 36 h7 M14 40 l7 -1.5 M62 36 h-7 M62 40 l-7 -1.5" stroke="' + (kind === 2 ? 'rgba(255,255,255,.6)' : 'rgba(70,45,30,.35)') + '" stroke-width="1" stroke-linecap="round"/>';
+    mouth = '<path d="M36.6 37.4 h2.8 l-1.4 1.6 Z" fill="#f08a9b"/><path d="M34.5 40 q1.8 2.2 3.5 0 q1.7 2.2 3.5 0" stroke="' + (kind === 2 ? '#fff' : D) + '" stroke-width="1.4" fill="none" stroke-linecap="round"/>';
+    if (kind === 1) front = '<path d="M31 13 q2 5 0 9 M38 11 v9 M45 13 q-2 5 0 9" stroke="#8a6a4a" stroke-width="2.4" fill="none" stroke-linecap="round"/>';
+    if (kind === 2) eyeC = '#ffd23f';
+    if (kind === 3) front = '<path d="M17 28 a21 21 0 0 1 13 -16 q4 9 -4 16 Z" fill="#f2a65a"/><path d="M59 26 a21 21 0 0 0 -11 -14 q-3 8 3 14 Z" fill="#4a4550"/>';
+    if (kind === 4) front = '<ellipse cx="38" cy="45" rx="9" ry="5" fill="#fde8ee" opacity=".7"/>';
+  } else if (kind === 5) back = roundEars(C, 8, pink);
+  else if (kind === 6) back = '<ellipse cx="28" cy="7" rx="5" ry="13" fill="' + C + '"/><ellipse cx="48" cy="7" rx="5" ry="13" fill="' + C + '"/><ellipse cx="28" cy="8" rx="2.3" ry="9" fill="' + pink + '"/><ellipse cx="48" cy="8" rx="2.3" ry="9" fill="' + pink + '"/>';
+  else if (kind === 7) { back = '<path d="M36 8 q2 -7 6 -6 q-3 2 -2 6 Z" fill="#f2b33a"/>'; mouth = '<path d="M35 38 L41 38 L38 42 Z" fill="#f2a33a"/>'; }
+  else if (kind === 8) { back = roundEars('#3b3640', 7.5); front = '<ellipse cx="29" cy="33" rx="5.5" ry="6.5" transform="rotate(-20 29 33)" fill="#3b3640"/><ellipse cx="47" cy="33" rx="5.5" ry="6.5" transform="rotate(20 47 33)" fill="#3b3640"/>'; eyeC = '#fff'; }
+  else if (kind === 9) { back = '<path d="M18 20 L22 8 L31 15 Z M58 20 L54 8 L45 15 Z" fill="#f29bae"/>'; mouth = '<ellipse cx="38" cy="40" rx="6" ry="4" fill="#f29bae"/><circle cx="36" cy="40" r="1" fill="' + D + '"/><circle cx="40" cy="40" r="1" fill="' + D + '"/>'; }
+  else if (kind === 10) back = '<circle cx="27" cy="15" r="8" fill="' + C + '"/><circle cx="49" cy="15" r="8" fill="' + C + '"/>';
+  else if (kind === 11) { front = '<ellipse cx="18" cy="30" rx="6" ry="12" transform="rotate(15 18 30)" fill="#a87b4f"/><ellipse cx="58" cy="30" rx="6" ry="12" transform="rotate(-15 58 30)" fill="#a87b4f"/>'; mouth = '<ellipse cx="38" cy="38" rx="3" ry="2.2" fill="' + D + '"/><path d="M35 41 q3 3 6 0" stroke="' + D + '" stroke-width="1.4" fill="none" stroke-linecap="round"/>'; }
+  else if (kind === 12) back = roundEars(C, 11, pink);
+  const eyes = kind === 10 ? (have ? '<path d="M24 15 q3 -3 6 0 M46 15 q3 -3 6 0" stroke="' + D + '" stroke-width="2" fill="none" stroke-linecap="round"/>' : '<circle cx="27" cy="15" r="3.4" fill="' + D + '"/><circle cx="49" cy="15" r="3.4" fill="' + D + '"/><circle cx="28" cy="14" r="1.2" fill="#fff"/><circle cx="50" cy="14" r="1.2" fill="#fff"/>')
+    : have ? '<path d="M27 33 q3 -3 6 0 M43 33 q3 -3 6 0" stroke="' + eyeC + '" stroke-width="2" fill="none" stroke-linecap="round"/>'
+    : '<circle cx="30" cy="33" r="3.3" fill="' + eyeC + '"/><circle cx="46" cy="33" r="3.3" fill="' + eyeC + '"/>' + (eyeC === '#ffd23f' ? '<ellipse cx="30" cy="33" rx="1" ry="2.6" fill="#222"/><ellipse cx="46" cy="33" rx="1" ry="2.6" fill="#222"/>' : eyeC === '#fff' ? '<circle cx="30" cy="33" r="1.6" fill="#222"/><circle cx="46" cy="33" r="1.6" fill="#222"/>' : '<circle cx="31.2" cy="31.8" r="1.2" fill="#fff"/><circle cx="47.2" cy="31.8" r="1.2" fill="#fff"/>');
+  const line = C === '#ffffff' || C === '#fbf4ea' ? ' stroke="rgba(0,0,0,.12)"' : '';
   return '<div style="flex:none;position:relative;width:76px;height:92px" title="' + esc(it.title) + '">' +
-    '<svg width="76" height="92" viewBox="0 0 76 92" aria-hidden="true">' + ear +
-      '<ellipse cx="38" cy="60" rx="20" ry="17" fill="' + C + '"/>' +
-      '<circle cx="38" cy="32" r="21" fill="' + C + '"/>' +
-      eyes + '<ellipse cx="24" cy="39" rx="3.6" ry="2.2" fill="#f58a9a" opacity=".55"/><ellipse cx="52" cy="39" rx="3.6" ry="2.2" fill="#f58a9a" opacity=".55"/>' + mouth +
-      '<ellipse cx="29" cy="88" rx="7" ry="3.2" fill="' + C + '"/><ellipse cx="47" cy="88" rx="7" ry="3.2" fill="' + C + '"/>' +
+    '<svg width="76" height="92" viewBox="0 0 76 92" aria-hidden="true">' + back +
+      '<ellipse cx="38" cy="60" rx="20" ry="17" fill="' + C + '"' + line + '/>' +
+      (cat ? '<path d="M56 70 q14 -2 10 -16" stroke="' + C + '" stroke-width="5" fill="none" stroke-linecap="round"/>' : '') +
+      '<circle cx="38" cy="32" r="21" fill="' + C + '"' + line + '/>' + front + whisk +
+      eyes + '<ellipse cx="24" cy="39" rx="3.6" ry="2.2" fill="#f58a9a" opacity=".5"/><ellipse cx="52" cy="39" rx="3.6" ry="2.2" fill="#f58a9a" opacity=".5"/>' + mouth +
+      '<ellipse cx="29" cy="88" rx="7" ry="3.2" fill="' + C + '"' + line + '/><ellipse cx="47" cy="88" rx="7" ry="3.2" fill="' + C + '"' + line + '/>' +
       '<rect x="7" y="56" width="62" height="26" rx="6" fill="#fffaf0" stroke="#c99a5b" stroke-width="1.6"/>' +
-      '<circle cx="9" cy="66" r="5" fill="' + C + '"/><circle cx="67" cy="66" r="5" fill="' + C + '"/>' +
-      (have ? '<path d="M60 10 l1.5 3.5 3.5 1.5 -3.5 1.5 -1.5 3.5 -1.5 -3.5 -3.5 -1.5 3.5 -1.5 Z" fill="#ffd25e"/>' : '') +
+      '<circle cx="9" cy="66" r="5" fill="' + C + '"' + line + '/><circle cx="67" cy="66" r="5" fill="' + C + '"' + line + '/>' +
+      (have ? '<path d="M64 6 l1.5 3.5 3.5 1.5 -3.5 1.5 -1.5 3.5 -1.5 -3.5 -3.5 -1.5 3.5 -1.5 Z" fill="#ffd25e"/>' : '') +
     '</svg>' +
     '<div style="position:absolute;left:10px;top:57px;width:56px;height:24px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:9.5px;line-height:1.1;color:#5a4630;font-weight:700;overflow:hidden;word-break:break-word"><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">' + esc(it.titleZh || it.title) + '</span></div>' +
   '</div>';
