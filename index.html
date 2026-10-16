@@ -84,6 +84,17 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .bk .cover.house .done{top:0;right:-4px;border-radius:8px}
 .shelfbar h2{white-space:nowrap}
 .shelfbar .shsel{font-size:15px;padding:6px 2px}
+.gsent{font-size:18px;line-height:1.9;margin:6px 0 4px;font-family:var(--serif,Georgia,serif)}
+.gsent span,.glegend span,.gd span[class^="r-"]{border-radius:4px;padding:1px 2px}
+.glegend{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 10px;font-size:12px}
+.glegend span{padding:1px 8px}
+.r-s{background:rgba(66,133,244,.18);border-bottom:2px solid #4285f4}
+.r-v{background:rgba(234,67,53,.16);border-bottom:2px solid #ea4335}
+.r-o{background:rgba(52,168,83,.18);border-bottom:2px solid #34a853}
+.r-io{background:rgba(0,172,193,.18);border-bottom:2px solid #00acc1}
+.r-c{background:rgba(171,71,188,.18);border-bottom:2px solid #ab47bc}
+.r-oc{background:rgba(255,112,67,.18);border-bottom:2px solid #ff7043}
+.r-a{background:rgba(251,188,5,.16);border-bottom:2px dotted #c99400}
 .scChips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
 .scChip{background:var(--chip,rgba(0,0,0,.05));color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:13px;cursor:pointer}
 .scChip.on{background:var(--accent);color:#fff;border-color:var(--accent)}
@@ -197,7 +208,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-116';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-117';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1004,6 +1015,36 @@ function startSpeechScore() {
   try { rec.start(); } catch (e) { if (el) el.innerHTML = '<div class="note">无法启动：' + esc(e.message) + '</div>'; }
 }
 function keyWords(s) { return (s.match(/[a-zA-Z']+/g) || []).map(w => w.toLowerCase()).filter(w => w.length > 3 && !STOP.has(w)); }
+/* ---------- 句子结构（服务器上的 spaCy 句法分析）：主干、成分上色、从句、特殊句式 ---------- */
+const gsMem = new Map(); let gsBusy = '';
+function gsGet(s) { return (state && state.gstruct && state.gstruct[s]) || gsMem.get(s) || null; }
+async function gsFetch(idx) {
+  if (!state || !navigator.onLine) return;
+  const st = state, s = st.sentences[idx]; if (!s || gsGet(s) || gsBusy === s) return;
+  gsBusy = s;
+  try {
+    const r = await fetchT(SHOP_BASE + '/grammar', 9000, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ s }) });
+    if (r.ok) { const j = await r.json(); if (j && j.r && j.r.v) { gsMem.set(s, j.r); if (state === st) { st.gstruct = st.gstruct || {}; st.gstruct[s] = j.r; saveState(); if (st.idx === idx) render(); } } }
+    else gsMem.set(s, { fail: r.status });
+  } catch (e) {}
+  if (gsBusy === s) gsBusy = '';
+}
+const GS_ROLE = { S: ['主语', 'r-s'], V: ['谓语', 'r-v'], O: ['宾语', 'r-o'], IO: ['间接宾语', 'r-io'], C: ['表语', 'r-c'], OC: ['宾补', 'r-oc'], A: ['状语', 'r-a'] };
+function gsHtml(g) {
+  const used = new Set(g.tokens.map(t => t.r).filter(r => GS_ROLE[r]));
+  let h = '<div class="gsum">' + esc(g.mood + '，' + g.struct) + '</div>';
+  { const runs = []; g.tokens.forEach(t => { const last = runs[runs.length - 1]; if (last && last.r === t.r) { last.s += t.t + (t.w ? ' ' : ''); } else runs.push({ r: t.r, s: t.t + (t.w ? ' ' : '') }); });   // 同一成分连成一段上色
+    h += '<div class="gsent">' + runs.map(x => { const tr = x.s.replace(/\s+$/, ''), sp = x.s.length > tr.length ? ' ' : ''; return (GS_ROLE[x.r] ? '<span class="' + GS_ROLE[x.r][1] + '">' + esc(tr) + '</span>' : esc(tr)) + sp; }).join('') + '</div>'; }
+  h += '<div class="glegend">' + Object.keys(GS_ROLE).filter(k => used.has(k)).map(k => '<span class="' + GS_ROLE[k][1] + '">' + GS_ROLE[k][0] + '</span>').join('') + '</div>';
+  g.main.forEach((m, i) => {
+    h += '<div class="gi"><div class="gt">' + (g.main.length > 1 ? '分句 ' + (i + 1) + ' 主干' : '句子主干') + '</div><div class="gh" style="font-size:16px">' + esc(m.core) + '</div><div class="gd">' + esc(m.pattern) +
+      (m.tense ? '；时态：' + esc(m.tense) : '') + (m.passive ? '；被动语态' : '') + '</div>' +
+      '<div class="gd">' + ['S', 'V', 'IO', 'O', 'C', 'OC'].filter(k => m[k]).map(k => '<span class="' + GS_ROLE[k][1] + '">' + GS_ROLE[k][0] + '</span> ' + esc(m[k])).join('<br>') + '</div></div>';
+  });
+  if (g.clauses.length) h += g.clauses.map(c => '<div class="gi"><div class="gt">' + esc(c.type) + (c.lead && !/省略/.test(c.lead) ? ' · 引导词 ' + esc(c.lead) : c.lead ? ' · ' + esc(c.lead) : '') + '</div><div class="gh">“' + esc(c.text) + '”</div><div class="gd">' + esc(c.note) + '</div></div>').join('');
+  if (g.special.length) h += g.special.map(c => '<div class="gi"><div class="gt">⭐ ' + esc(c.type) + '</div><div class="gd">' + esc(c.note) + '</div></div>').join('');
+  return h;
+}
 function getAnalysis() {
   if (analysisCache.idx === state.idx) return analysisCache.res;
   let res = null;
@@ -3423,14 +3464,17 @@ function render() {
   else if (!navigator.onLine) trans = '当前离线，整句翻译需要联网。点单词查词和下面的语法讲解可以正常使用。';
   else trans = '正在翻译…<span style="color:var(--sub);font-size:.85em">（免费翻译偶尔较慢，请稍等）</span>';
 
-  const ga = getAnalysis();
-  const gHtml = '<details class="section" ' + (gramOpen ? 'open' : '') + ' ontoggle="gramOpen=this.open"><summary>语法讲解（离线）</summary>' +
-    (ga.summary ? '<div class="gsum">' + esc(ga.summary) + '</div>' : '') +
-    ga.items.map(it => '<div class="gi"><div class="gt">' + esc(it.title) + '</div>' +
+  const ga = getAnalysis(), gs = gsGet(state.sentences[state.idx]), gsOk = gs && gs.v;
+  if (!gs && navigator.onLine && gramOpen) setTimeout(() => gsFetch(state.idx), 0);
+  const oldItems = gsOk ? ga.items.filter(it => !/从句|主谓|系动词|直接引语|并列句|倒装|There be|强调/.test(it.title)) : ga.items;
+  const gHtml = '<details class="section" ' + (gramOpen ? 'open' : '') + ' ontoggle="gramOpen=this.open;if(this.open)gsFetch(state.idx)"><summary>语法讲解</summary>' +
+    (gsOk ? gsHtml(gs) + (oldItems.length ? '<div class="note" style="margin:10px 0 4px">其他语法点</div>' : '') : (ga.summary ? '<div class="gsum">' + esc(ga.summary) + '</div>' : '') +
+      (navigator.onLine && !gs ? '<div class="note" style="margin:4px 0 8px">正在分析句子结构…</div>' : gs && gs.fail ? '<div class="note" style="margin:4px 0 8px">句子结构分析暂时不可用，先看简版讲解。</div>' : '')) +
+    oldItems.map(it => '<div class="gi"><div class="gt">' + esc(it.title) + '</div>' +
       (it.hit ? '<div class="gh">“' + esc(it.hit) + '”</div>' : '') +
       '<div class="gd">' + esc(it.detail) + '</div>' +
       (window.EG && EG.REF[it.key] ? '<button class="link" onclick="openGrammarDict(\'' + it.key + '\')">在语法字典中查看</button>' : '') + '</div>').join('') +
-    '<div class="note" style="margin-top:6px">语法讲解由规则自动分析，适合作为读句子的提示；遇到复杂长句时仅供参考。</div></details>';
+    '<div class="note" style="margin-top:6px">' + (gsOk ? '句子结构由句法分析模型自动生成，偶尔会分错，长句请结合上下文理解。' : '当前是离线简版讲解（规则分析）；联网后会显示更准确的句子结构分析。') + '</div></details>';
 
   const recs = (recView.key === recKey() && recView.urls.length)
     ? '<div class="note" style="margin-top:10px">我的录音（最近 3 次，先听原音再点喇叭听自己的，对比发音）：</div>' +

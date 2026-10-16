@@ -210,6 +210,12 @@ function claimLimited(ip) {                       // 限时免费：同一个网
   if (claimLog.size > 5000) for (const [k, v] of claimLog) if (now - v[v.length - 1] > 3600000) claimLog.delete(k);
   return arr.length > 10;
 }
+const GRAMMAR_URL = process.env.GRAMMAR_URL || 'http://127.0.0.1:8791', gramCache = new Map(), gramLog = new Map();
+function gramLimited(ip) {                        // 同一个网络 1 小时最多分析 600 句
+  const now = Date.now(), arr = (gramLog.get(ip) || []).filter(t => now - t < 3600000); arr.push(now); gramLog.set(ip, arr);
+  if (gramLog.size > 5000) for (const [k, v] of gramLog) if (now - v[v.length - 1] > 3600000) gramLog.delete(k);
+  return arr.length > 600;
+}
 let tkCache = { m: 0, map: new Map() };
 function tokenLookup(tk) {                        // 买家凭证 → 他买的那本故事（兑换码被撤销就失效）
   if (!/^[0-9a-f]{32}$/.test(tk)) return null;
@@ -251,6 +257,21 @@ async function shopRoutes(req, res) {
     const item = shopRead().items.find(x => x.id === rec.story); if (!item) return out0(404, { error: 'story-gone' });
     rec.uses = (rec.uses || 0) + 1; rec.lastAt = new Date().toISOString(); if (!rec.tk) rec.tk = crypto.randomBytes(16).toString('hex');
     codesWrite(j); return out0(200, { ok: true, tk: rec.tk, item, left: CODE_MAX_USES - rec.uses });
+  }
+  if (req.method === 'POST' && url === '/grammar') {  // 句子结构分析：转给本机的 spaCy 服务（proxy/grammar/server.py）
+    const origin0 = req.headers.origin, okO0 = origin0 && ALLOW.includes(origin0) ? origin0 : null;
+    const hd0 = { 'Content-Type': 'application/json; charset=utf-8' }; if (okO0) { hd0['Access-Control-Allow-Origin'] = okO0; hd0.Vary = 'Origin'; }
+    const out0 = (c, o) => { res.writeHead(c, hd0); res.end(typeof o === 'string' ? o : JSON.stringify(o)); return true; };
+    if (!okO0) return out0(403, { error: 'origin-not-allowed' });
+    if (gramLimited(ip)) return out0(429, { error: 'too-many' });
+    let s0; try { s0 = String((JSON.parse(await readBody(req, 4000)) || {}).s || '').trim().slice(0, 800); } catch (e) { return out0(400, { error: 'bad-request' }); }
+    if (!s0) return out0(400, { error: 'empty' });
+    const hit = gramCache.get(s0); if (hit) return out0(200, hit);
+    const body = JSON.stringify({ s: s0 }), gu = new URL(GRAMMAR_URL + '/parse');
+    const r2 = await new Promise(ok => { const q = http.request({ hostname: gu.hostname, port: gu.port, path: gu.pathname, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }, timeout: 8000 }, rr => { let b = ''; rr.setEncoding('utf8'); rr.on('data', c => b += c); rr.on('end', () => ok({ s: rr.statusCode, b })); }); q.on('timeout', () => q.destroy(new Error('timeout'))); q.on('error', () => ok(null)); q.end(body); });
+    if (!r2 || r2.s !== 200) return out0(503, { error: 'grammar-unavailable' });
+    gramCache.set(s0, r2.b); if (gramCache.size > 5000) gramCache.delete(gramCache.keys().next().value);
+    return out0(200, r2.b);
   }
   if (req.method === 'POST' && url === '/claim') {   // 限时免费领取：活动期间不用兑换码，领到的买家永久拥有
     const origin0 = req.headers.origin, okO0 = origin0 && ALLOW.includes(origin0) ? origin0 : null;

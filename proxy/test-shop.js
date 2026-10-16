@@ -1,6 +1,6 @@
 // 故事城后台接口测试（不涉及真实密钥）
 process.env.VOLC_AK = 'A'; process.env.VOLC_SK = 'S'; process.env.ALLOW_ORIGINS = 'https://ok.example';
-process.env.ADMIN_TOKEN = 'test-admin-token-1234567890'; process.env.USAGE_FILE = '/tmp/shoptest/usage.json'; process.env.MAX_UPLOAD = '2000';
+process.env.ADMIN_TOKEN = 'test-admin-token-1234567890'; process.env.USAGE_FILE = '/tmp/shoptest/usage.json'; process.env.MAX_UPLOAD = '2000'; process.env.GRAMMAR_URL = 'http://127.0.0.1:9923';
 require('child_process').execSync('rm -rf /tmp/shoptest');
 const http = require('http'), assert = require('assert');
 const { server } = require('./server.js'); server.listen(9922);
@@ -107,6 +107,13 @@ const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-toke
   r = await call('/catalog'); { const q = JSON.parse(r.b).items.find(x => x.id === 'pay1'); assert.equal(q.sample, 'api:files/pay1-sample.srbook'); assert.equal(q.sampleCount, 30); }
   r = await call('/admin/item', { m: 'POST', h: A, body: JSON.stringify({ id: 'pay1', kind: 'story', title: 'Paid', price: 9.9, sample: 'api:files/../x.srbook' }) });
   r = await call('/catalog'); assert.equal(JSON.parse(r.b).items.find(x => x.id === 'pay1').sample, undefined);
+  // 句子结构分析：转发给本机 spaCy 服务
+  r = await call('/grammar', { m: 'POST', h: { 'Content-Type': 'application/json' }, body: '{"s":"Hi."}' }); assert.equal(r.s, 403);
+  r = await call('/grammar', { m: 'POST', h: O, body: '{"s":"Hi."}' }); assert.equal(r.s, 503);
+  const gs = http.createServer((q, w) => { let b = ''; q.on('data', c => b += c); q.on('end', () => { w.writeHead(200, { 'Content-Type': 'application/json' }); w.end(JSON.stringify({ ok: true, r: { echo: JSON.parse(b).s } })); }); }).listen(9923);
+  r = await call('/grammar', { m: 'POST', h: O, body: '{"s":"She gave me a book."}' }); assert.equal(r.s, 200); assert.equal(JSON.parse(r.b).r.echo, 'She gave me a book.');
+  gs.close();
+  r = await call('/grammar', { m: 'POST', h: O, body: '{"s":"She gave me a book."}' }); assert.equal(r.s, 200);   // 缓存
   // 限时免费
   r = await call('/claim', { m: 'POST', h: O, body: '{"story":"pay1"}' }); assert.equal(r.s, 403);
   r = await call('/admin/item', { m: 'POST', h: A, body: JSON.stringify({ id: 'pay1', kind: 'story', title: 'Paid', price: 29, freeUntil: Date.now() + 86400000 }) }); assert.equal(r.s, 200);
