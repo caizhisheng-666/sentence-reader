@@ -77,6 +77,16 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .bk{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .bk .cover{position:relative;aspect-ratio:3/4;border-radius:5px 10px 10px 5px;display:flex;align-items:center;justify-content:center;padding:12px 10px;color:#fff;box-shadow:0 3px 10px rgba(0,0,0,.2),inset 3px 0 0 rgba(0,0,0,.14);overflow:hidden}
 .bk .cover span{font-weight:600;font-size:14px;line-height:1.4;text-align:center;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+.bk .cover.house{aspect-ratio:76/92;background:none!important;box-shadow:none;border-radius:8px;padding:0;overflow:visible}
+.bk .cover.house svg{position:absolute;inset:0;width:100%;height:100%}
+.bk .cover.house span{position:absolute;left:17%;top:45%;width:66%;height:28%;display:flex;align-items:center;justify-content:center;color:#5a4630;font-size:12px;line-height:1.15}
+.bk .cover.house span b{font-weight:600;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.bk .cover.house .done{top:30%;right:-4px;border-radius:8px}
+.shelfbar h2{white-space:nowrap}
+.shelfbar .shsel{font-size:15px;padding:6px 2px}
+.shacts{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 2px 18px}
+.shacts button{width:100%;padding:11px 8px;font-size:15px}
+.bk .bs{text-align:center}
 .bk .done{position:absolute;top:0;right:0;background:#e8a33d;color:#fff;font-style:normal;font-size:11px;padding:2px 8px;border-radius:0 10px 0 8px}
 .bk .chk{position:absolute;right:6px;bottom:6px;width:24px;height:24px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.28);color:#fff;font-style:normal;display:flex;align-items:center;justify-content:center;font-size:15px}
 .bk.on .chk{background:var(--accent);border-color:var(--accent)}
@@ -184,7 +194,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-108';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-109';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -261,7 +271,7 @@ async function idbDel(store, key) {
 }
 
 /* ---------- 启动与保存 ---------- */
-function bookShortTitle(sentences) { const t = String((sentences && sentences[0]) || '').replace(/\s+/g, ' ').trim(); return t.length > 26 ? t.slice(0, 26) + '…' : (t || '未命名的书'); }
+function bookShortTitle(sentences) { const t = String((sentences && sentences[0]) || '').replace(/\s+/g, ' ').trim(); return t.length > 26 ? t.slice(0, 26) + '…' : (t || '未命名的故事'); }
 async function boot() {
   // 旧版本只存一本书（localStorage 里的 sr_state）：第一次打开新版本时，自动搬进书架
   try {
@@ -320,7 +330,7 @@ async function openBook(id) {
   try { b = await idbGet('books', id); } catch (e) {}
   if (!b || !Array.isArray(b.sentences)) {
     shelfSet(shelfGet().filter(x => x.id !== id));
-    toast('这本书的数据没有找到，已从书架移除', 4000); render(); return;
+    toast('这个故事的数据没有找到，已移除', 4000); render(); return;
   }
   if (!b.bookId) b.bookId = id;
   b.prog = b.prog || {}; b.cache = b.cache || {}; delete b.wordCache;
@@ -334,7 +344,7 @@ async function openBook(id) {
   }
 }
 function closeBook() {
-  if (rec.on) { toast('正在录音，先点停止再回书架', 2000); return; }
+  if (rec.on) { toast('正在录音，先点停止再返回', 2000); return; }
   stopSpeech(); try { pgPlayStop(); pgCancel(); } catch (e) {} clearCurImages();
   flushState();
   state = null; render();
@@ -350,7 +360,7 @@ async function deleteSelectedBooks() {
   if (!shelfSel || !shelfSel.size) return;
   const ids = [...shelfSel], l = shelfGet();
   const names = ids.map(id => (l.find(x => x.id === id) || {}).title || '').filter(Boolean).slice(0, 3).join('、');
-  if (!confirm('要删除 ' + ids.length + ' 本书吗？\n' + names + (ids.length > 3 ? ' 等' : '') + '\n\n读书进度、翻译缓存和跟读录音会一起删除，不能恢复。')) return;
+  if (!confirm('要删除 ' + ids.length + ' 个故事吗？\n' + names + (ids.length > 3 ? ' 等' : '') + '\n\n阅读进度、翻译缓存和跟读录音会一起删除，不能恢复。')) return;
   let gone = new Set();                                         // 这些书的语音（按句子内容存的），稍后清掉没有被其他书用到的
   for (const id of ids) { try { const bk = await idbGet('books', id); if (bk && bk.sentences) for (const t of bk.sentences) gone.add(await vpKey(t)); } catch (e) {} }
   for (const id of ids) {
@@ -361,7 +371,7 @@ async function deleteSelectedBooks() {
   const left = l.filter(x => !shelfSel.has(x.id));
   shelfSet(left);
   shelfSel = null; render();
-  toast('已删除 ' + ids.length + ' 本书', 2500);
+  toast('已删除 ' + ids.length + ' 个故事', 2500);
   vpPurge(gone, left.map(x => x.id));
 }
 function coverColor(id) {
@@ -372,12 +382,11 @@ function shelfHtml() {
   const l = shelfGet().slice().sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0));
   const sel = shelfSel;
   const sh = statsHtml();
-  let html = '<div class="shelfbar"><h2>书架</h2><div class="row" style="gap:8px">' +
-    '<button class="ghost sm" onclick="openStoryCity()">🏡 故事小屋</button><button class="ghost sm" onclick="openImportPop()">＋ 导入</button>' +
-    (l.length ? '<button class="ghost sm" onclick="toggleShelfSel()">' + (sel ? '取消' : '选择') + '</button>' : '') + '</div></div>';
+  let html = '<div class="shelfbar"><h2>我的故事</h2>' + (l.length ? '<button class="link shsel" onclick="toggleShelfSel()">' + (sel ? '取消' : '选择') + '</button>' : '') + '</div>' +
+    '<div class="shacts"><button onclick="openStoryCity()">🏡 去故事小屋</button><button class="ghost" onclick="openImportPop()">＋ 导入故事</button></div>';
   if (sh) html += '<div class="levelbar" style="margin:-6px 0 14px"><div id="statsLine">' + sh + '</div></div>';
   if (!l.length) {
-    html += '<div class="card" style="text-align:center;padding:36px 20px"><div style="font-size:38px">📚</div><div style="margin:10px 0 4px;font-size:17px;color:var(--ink)">书架是空的</div><div class="note">点“＋ 导入”，添加英文电子书、PDF、文本，或粘贴一段英文。</div><div class="row" style="justify-content:center;margin-top:14px"><button onclick="openStoryCity()">去故事小屋看看</button><button class="ghost" onclick="openImportPop()">导入第一本书</button></div></div>';
+    html += '<div class="card" style="text-align:center;padding:36px 20px"><div style="font-size:38px">🏡</div><div style="margin:10px 0 4px;font-size:17px;color:var(--ink)">还没有故事</div><div class="note">点上面的“去故事小屋”挑一个故事，<br>或“导入故事”添加你自己的英文故事（epub、PDF、文本），也可以粘贴一段英文。</div></div>';
     return html;
   }
   html += '<div class="shelf">' + l.map(b => {
@@ -385,22 +394,22 @@ function shelfHtml() {
     const status = !b.total ? '' : (b.idx >= b.total ? '读完' : ((b.idx || 0) > 0 ? pct + '%' : '未读'));
     const on = sel && sel.has(b.id);
     return '<div class="bk' + (on ? ' on' : '') + '" onclick="shelfTap(\'' + b.id + '\')">' +
-      '<div class="cover" style="background:' + coverColor(b.id) + '"><span>' + esc(b.title || '') + '</span>' +
+      '<div class="cover house">' + houseSvg(coverColor(b.id), (b.idx || 0) > 0) + '<span><b>' + esc(b.title || '') + '</b></span>' +
       (b.total && b.idx >= b.total ? '<i class="done">读完</i>' : '') +
       (sel ? '<i class="chk">' + (on ? '✓' : '') + '</i>' : '') + '</div>' +
-      '<div class="bt">' + esc(b.title || '') + '</div><div class="bs">' + (status && !(b.idx >= b.total) ? status : '&nbsp;') + '</div></div>';
+      '<div class="bs">' + (status && !(b.idx >= b.total) ? status : '&nbsp;') + '</div></div>';
   }).join('') + '</div>';
-  if (sel) html += '<div class="selbar"><span class="note">已选 ' + sel.size + ' 本</span><button ' + (sel.size ? '' : 'disabled ') + 'style="background:#b94a48" onclick="deleteSelectedBooks()">删除</button></div>';
+  if (sel) html += '<div class="selbar"><span class="note">已选 ' + sel.size + ' 个</span><button ' + (sel.size ? '' : 'disabled ') + 'style="background:#b94a48" onclick="deleteSelectedBooks()">删除</button></div>';
   return html;
 }
 function openImportPop() {
-  showPop('<h3 style="margin:0 0 8px">导入书</h3>' +
-    '<div class="filebtn" style="margin-bottom:10px"><button type="button" tabindex="-1">选择电子书或文档</button><input type="file" accept=".txt,.md,.markdown,.epub,.pdf,.docx,.doc,.mobi,.azw3,.azw" onchange="importFromFile(event)"></div>' +
+  showPop('<h3 style="margin:0 0 8px">导入故事</h3>' +
+    '<div class="filebtn" style="margin-bottom:10px"><button type="button" tabindex="-1">选择故事文件</button><input type="file" accept=".txt,.md,.markdown,.epub,.pdf,.docx,.doc,.mobi,.azw3,.azw" onchange="importFromFile(event)"></div>' +
     '<div class="note" style="margin-bottom:6px">支持 .epub、.pdf、.txt、.docx、.md、.mobi。或者粘贴一段英文：</div>' +
     '<textarea id="pasteBox" placeholder="在这里粘贴英文文本…" style="min-height:100px"></textarea>' +
     '<div class="row" style="margin-top:10px"><button class="ghost" onclick="importFromBox()">用粘贴的文本导入</button></div>' +
     '<div id="importStatus" class="note" style="margin-top:8px;min-height:20px"></div>' +
-    '<div class="note" style="margin-top:6px">图画书/漫画会保留每页插图。英文如果画在图里（扫描版），软件读不出文字，这样的页会显示成灰色。</div>');
+    '<div class="note" style="margin-top:6px">绘本/漫画会保留每页插图。英文如果画在图里（扫描版），软件读不出文字，这样的页会显示成灰色。</div>');
 }
 
 /* ---------- 整句翻译（需联网，失败不影响学习） ---------- */
@@ -545,7 +554,7 @@ function splitSentences(text) {
     .map(s => s.replace(/\u2024/g, '.').replace(/\u2025/g, ' ').trim())
     .filter(s => s.length > 1 && /[A-Za-z]{2}/.test(s) && !/https?:\/\/|www\.|ISBN|©/i.test(s));
 }
-/* ---------- 中英对照：把书里自带的中文译文，和对应的英文句子配上对 ---------- */
+/* ---------- 中英对照：把故事里自带的中文译文，和对应的英文句子配上对 ---------- */
 const ANNOT_RE = /[（(][^()（）A-Za-z]*[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff][^()（）A-Za-z]*[)）]/g;
 const ZH_KEEP = '\\u3000-\\u303f\\u3400-\\u4dbf\\u4e00-\\u9fff\\uf900-\\ufaff\\u2160-\\u217f\\u2460-\\u24ff\\uff00-\\uffef';   // 含全角标点：中文译文按原样保留
 const ZH_RUN_RE = new RegExp('[' + ZH_KEEP + '“‘](?:[' + ZH_KEEP + '\\s\\d,.;:!?"\'“”‘’()\\-·…—]*[' + ZH_KEEP + '”’])?', 'g');
@@ -649,7 +658,7 @@ function stripGutenberg(text) {
 }
 let importTitle = '', importBookId = '', importNatVoice = '', importNatSrc = '';
 async function finalizeImport(sentences, imageRanges, bookId, extraToast, toc, bil) {
-  if (!sentences.length) { alert('没有识别到英文句子，请检查导入的内容。扫描版或英文画在图里的书，软件暂不支持识别图片里的文字。'); return; }
+  if (!sentences.length) { alert('没有识别到英文句子，请检查导入的内容。扫描版或英文画在图里的故事，软件暂不支持识别图片里的文字。'); return; }
   const startIdx = detectStart(sentences);
   state = { natVoice: importNatVoice || '', natSrc: importNatSrc || '', bookId: bookId || importBookId || ('b' + Date.now()), sentences, idx: startIdx, prog: {}, cache: {}, startDate: Date.now(), totalCompleted: 0, imageRanges: imageRanges || [], toc: toc || buildTextToc(sentences, startIdx), zh: (bil && bil.zh) || {}, zhp: (bil && bil.para) || {}, zhOff: {} };
   state.title = (importTitle || '').trim() || bookShortTitle(sentences);
@@ -657,11 +666,11 @@ async function finalizeImport(sentences, imageRanges, bookId, extraToast, toc, b
   const entry = { id: state.bookId, title: state.title, addedAt: Date.now(), lastAt: Date.now(), total: sentences.length, idx: startIdx, nv: state.natVoice ? 1 : 0 };
   await flushState();
   const l = shelfGet().filter(x => x.id !== entry.id); l.unshift(entry); shelfSet(l);
-  state = null; closePop(); render();                           // 导入后回到书架，点封面开始读
+  state = null; closePop(); render();                           // 导入后回到“我的故事”，点封面开始读
   const msgs = [];
   if (startIdx > 0) msgs.push('已跳过开头 ' + startIdx + ' 句目录/版权信息，从正文开始，打开后可点顶部“目录”调整');
   if (extraToast) msgs.push(extraToast);
-  toast('《' + entry.title + '》已加入书架。' + msgs.join('；'), 7000);
+  toast('《' + entry.title + '》已加入“我的故事”。' + msgs.join('；'), 7000);
 }
 function importBook(text) {
   const gutenberg = /project gutenberg/i.test(text.slice(0, 3000));
@@ -674,7 +683,7 @@ function importBook(text) {
   const al = hadCjk ? alignSegs(allSegs, pb.sentences) : { zh: {}, para: {}, exact: 0, paraN: 0 };
   const parts = [];
   if (gutenberg) parts.push('已按 Project Gutenberg 的标记裁掉开头的版权声明');
-  if (al.exact + al.paraN > 0) parts.push('书里自带的中文译文已对上 ' + (al.exact + al.paraN) + ' 句' + (al.paraN ? '（其中 ' + al.paraN + ' 句是整段译文）' : '') + '，这些句子不再机器翻译');
+  if (al.exact + al.paraN > 0) parts.push('故事里自带的中文译文已对上 ' + (al.exact + al.paraN) + ' 句' + (al.paraN ? '（其中 ' + al.paraN + ' 句是整段译文）' : '') + '，这些句子不再机器翻译');
   else if (hadCjk) parts.push('中文已自动去掉，没能和英文一一对上，仍用机器翻译');
   return finalizeImport(sentences, [], null, parts.join('；') || null, null, al);
 }
@@ -683,7 +692,7 @@ async function importBookBlocks(blocks) {
   const sentences = [];
   const imageRanges = [];   // [起始句序号, 结束句序号(不含)]，这个范围内的句子都显示这组插图
   const tocItems = [];      // 目录：每一页（或每一节）一条
-  const allSegs = [];       // 全书按顺序排列的英文段/中文段，用来把书中译文配对
+  const allSegs = [];       // 全书按顺序排列的英文段/中文段，用来把自带译文配对
   let pendingImages = [], totalImages = 0, hasPage = false, pagesWithText = 0, hadCjk = false, bi = 0;
   const saves = [];
   for (const block of blocks) {
@@ -716,7 +725,7 @@ async function importBookBlocks(blocks) {
   const al = hadCjk ? alignSegs(allSegs, sentences) : { zh: {}, para: {}, exact: 0, paraN: 0 };
   const unit = hasPage ? '页' : '节';
   const parts = ['读到 ' + sentences.length + ' 句英文（' + pagesWithText + '/' + blocks.length + ' ' + unit + '有英文）'];
-  if (al.exact + al.paraN > 0) parts.push('书里自带的中文译文已对上 ' + (al.exact + al.paraN) + ' 句' + (al.paraN ? '（其中 ' + al.paraN + ' 句是整段译文）' : '') + '，这些句子不再机器翻译');
+  if (al.exact + al.paraN > 0) parts.push('故事里自带的中文译文已对上 ' + (al.exact + al.paraN) + ' 句' + (al.paraN ? '（其中 ' + al.paraN + ' 句是整段译文）' : '') + '，这些句子不再机器翻译');
   else if (hadCjk) parts.push('中文已自动去掉，没能和英文一一对上，仍用机器翻译');
   parts.push(saveFailed ? '插图保存失败（可能是存储空间不足），只导入了文字'
     : totalImages ? '已提取 ' + totalImages + ' 张插图'
@@ -1006,7 +1015,7 @@ async function loadCurrent() {
   render();
   loadRecs();
   loadCurrentImage();
-  if (bookZh(idx)) return;                       // 书里自带中文译文，不需要机器翻译
+  if (bookZh(idx)) return;                       // 故事里自带中文译文，不需要机器翻译
   const c = state.cache[key];
   if (c && !c.failed) return;
   if (!navigator.onLine) return;
@@ -1270,12 +1279,12 @@ function curatedVoices(en) {
   return res;
 }
 function natVoiceName(v) { const m = /^[a-z]{2}-[A-Z]{2}-(.+?)(?:Multilingual)?Neural$/.exec(v || ''); return m ? m[1] : ''; }
-function natPossible() {                           // 这本书可能用到自然语音吗？不可能的话，系统朗读要在点击的这一下里直接发起（iPhone 的要求）
+function natPossible() {                           // 这个故事可能用到自然语音吗？不可能的话，系统朗读要在点击的这一下里直接发起（iPhone 的要求）
   if (!state) return false;
   if (state.natVoice) return !state.useSys;
   return azReady();
 }
-function natOn() { return !!(state && state.natVoice && !state.useSys); }   // 这本书带自然语音，并且没有改用系统声音
+function natOn() { return !!(state && state.natVoice && !state.useSys); }   // 这个故事带自然语音，并且没有改用系统声音
 function voiceSelectHtml() {
   const en = (voiceListCache || []).filter(v => /^en/i.test(v.lang)), cur = natOn() ? '__nat' : getSavedVoiceURI();
   const cv = curatedVoices(en);
@@ -1291,7 +1300,7 @@ function voiceSelectHtml() {
 function refreshVoiceSelect() { const el = document.getElementById('voiceSel'); if (el) el.outerHTML = voiceSelectHtml(); }
 function onVoiceChange(uri) {
   if (uri === '__nat') { if (state) { state.useSys = false; saveState(); } toast('已改用自然语音，点底部的“▶ 朗读”试试', 2200); return; }
-  if (state && state.natVoice) { state.useSys = true; saveState(); }      // 这本书改用系统声音
+  if (state && state.natVoice) { state.useSys = true; saveState(); }      // 这个故事改用系统声音
   localStorage.setItem('sr_voice_uri', uri || '');
   previewVoice(uri);                            // 换了音色马上试听一句
 }
@@ -1500,7 +1509,7 @@ async function installStory(zip, fallbackName, opts) {
   if (names.length) await vpImportClips(zip, names, { id: 'story-' + man.id, title: man.title, buyer: man.buyer }, fallbackName, setScStatus);
   importTitle = man.title || fallbackName || ''; importBookId = 'story-' + man.id; importNatVoice = names.length ? (man.voice || 'natural') : '';
   if (!names.length && opts && opts.natSrc) { importNatVoice = man.voice || 'natural'; importNatSrc = opts.natSrc; }   // 语音在服务器上按句子放着：读到哪句取哪句
-  setScStatus('正在加入书架…');
+  setScStatus('正在加入“我的故事”…');
   await importBook(text);
   return { clips: names.length, voice: man.voice || '', ver: man.ver || 1 };
 }
@@ -1540,13 +1549,13 @@ async function getStory(id, tk0) {
     await loadLibs();
     const r = await installStory(await JSZip.loadAsync(buf), it.title, it.voice && tk ? { natSrc: 'api:pfiles/' + tk + '/' } : it.voice && /^api:files\//.test(it.file) ? { natSrc: 'api:files/' + it.id + '/' } : null);
     { const l = shelfGet(), e = l.find(x => x.id === 'story-' + it.id); if (e) { e.ver = it.ver || r.ver || 1; if (tk) e.tk = tk; shelfSet(l); } }
-    if (it.voice && !r.clips) toast('《' + it.title + '》已加入书架。自然语音读到哪句取哪句，不用等整本下载；想离线听，可以在故事小屋里点“下载全部语音”。', 5000);
+    if (it.voice && !r.clips) toast('《' + it.title + '》已加入“我的故事”。自然语音读到哪句取哪句，不用等整本下载；想离线听，可以在故事小屋里点“下载全部语音”。', 5000);
   } catch (e) { setScStatus('获取失败：' + (e && e.message ? e.message : '未知错误') + '。请检查网络后重试。'); }
 }
 async function getStoryVoice(it) {
   if (voiceDl[it.id] != null) return;
   voiceDl[it.id] = 0;
-  toast('《' + it.title + '》已加入书架，可以先读。自然语音正在后台下载…', 4000);
+  toast('《' + it.title + '》已加入“我的故事”，可以先读。自然语音正在后台下载…', 4000);
   const upd = () => { const el = document.getElementById('scVoice-' + it.id); if (el) el.textContent = '语音下载中 ' + voiceDl[it.id] + '%'; };
   try {
     const buf = await fetchProgress(voiceUrlOf(it), p => { voiceDl[it.id] = p; upd(); });
@@ -1612,19 +1621,19 @@ async function devCodes(id) {
   const tpl = devTplGet();
   document.getElementById('dcBody').innerHTML = '<div style="color:var(--ink)">共 ' + L.length + ' 个，可发货 ' + un.length + ' 个，已发出 ' + L.filter(c => c.issued && !c.uses && !c.revoked).length + ' 个</div>' +
     '<div class="row" style="margin-top:8px"><button onclick="devIssue(\'' + esc(id) + '\')">📋 发货：复制下一个码 + 话术</button></div>' +
-    '<div class="note" style="margin-top:6px">话术（{码} 会换成兑换码，{书名} 换成书名；改完自动保存）</div><textarea id="dcTpl" rows="5" oninput="devTplSet(this.value)" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--pop);color:var(--ink);font-size:14px;margin:4px 0 8px">' + esc(tpl) + '</textarea>' +
+    '<div class="note" style="margin-top:6px">话术（{码} 会换成兑换码，{故事名} 换成故事名；改完自动保存）</div><textarea id="dcTpl" rows="5" oninput="devTplSet(this.value)" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--pop);color:var(--ink);font-size:14px;margin:4px 0 8px">' + esc(tpl) + '</textarea>' +
     '<div class="row" style="margin-top:8px;gap:8px"><input id="dcN" value="10" inputmode="numeric" style="' + F + '"><button class="sm" onclick="devCodesMake(\'' + esc(id) + '\')">生成</button>' + (un.length ? '<button class="ghost sm" onclick="devCodesCopy(\'' + esc(id) + '\')">复制全部未使用的</button>' : '') + '</div>' +
     '<div style="max-height:40vh;overflow:auto;margin-top:8px;font-family:monospace;font-size:14px;line-height:1.9">' + L.map(c => '<div style="color:' + (c.revoked ? '#999;text-decoration:line-through' : c.uses || c.issued ? '#999' : 'var(--ink)') + '">' + esc(c.code) + ' <span class="note">' + (c.revoked ? '已作废' : c.uses ? '已用 ' + c.uses + '/' + j.max : c.issued ? '已发出' : '未发') + '</span>' + (c.revoked ? '' : ' <a href="#" style="font-size:12px" onclick="devCodeRevoke(\'' + esc(id) + '\',\'' + esc(c.code) + '\');return false">作废</a>') + '</div>').join('') + '</div>';
   window._dcUn = un.map(c => c.code);
 }
-const DEV_TPL = '感谢购买《{书名}》！你的兑换码：{码}\n使用方法：打开「一句一读」→ 故事小屋 → 点“我有兑换码”→ 输入即可。\n每个码最多可在 3 台设备上使用。';
+const DEV_TPL = '感谢购买《{故事名}》！你的兑换码：{码}\n使用方法：打开「一句一读」→ 故事小屋 → 点“我有兑换码”→ 输入即可。\n每个码最多可在 3 台设备上使用。';
 function devTplGet() { try { return localStorage.getItem('sr_dev_tpl') || DEV_TPL; } catch (e) { return DEV_TPL; } }
 function devTplSet(v) { try { localStorage.setItem('sr_dev_tpl', v); } catch (e) {} }
 async function devIssue(id) {                         // 闲鱼聊天里发货：取出下一个没发过的码，连话术一起复制
   const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it) return;
   const r = await devAdmin('/admin/codes/issue', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ story: id }) });
   if (!r.ok) { setScStatus(/404/.test(r.msg) ? '没有可发的码了，请先生成一批。' : '失败：' + r.msg); return; }
-  const j = await r.res.json(), tx = (document.getElementById('dcTpl') ? document.getElementById('dcTpl').value : devTplGet()).replace(/\{码\}/g, j.code).replace(/\{书名\}/g, it.title);
+  const j = await r.res.json(), tx = (document.getElementById('dcTpl') ? document.getElementById('dcTpl').value : devTplGet()).replace(/\{码\}/g, j.code).replace(/\{(?:故事名|书名)\}/g, it.title);
   let ok = false; try { await navigator.clipboard.writeText(tx); ok = true; } catch (e) {}
   await devCodes(id);
   setScStatus(ok ? '已复制（' + j.code + '），去闲鱼聊天里粘贴发给买家。还剩 ' + j.left + ' 个可发。' : '复制没成功，请手动复制：' + j.code);
@@ -1638,7 +1647,7 @@ async function devCodesMake(id) {
 }
 async function devCodesCopy(id) { try { await navigator.clipboard.writeText((window._dcUn || []).join('\n')); setScStatus('已复制 ' + (window._dcUn || []).length + ' 个'); } catch (e) { setScStatus('复制失败，请手动选中'); } }
 async function devCodeRevoke(id, code) {
-  if (!confirm('作废 ' + code + '？用过它的买家也会失去这本书的语音/更新权限（已下载的文字还在）。')) return;
+  if (!confirm('作废 ' + code + '？用过它的买家也会失去这个故事的语音/更新权限（已下载的文字还在）。')) return;
   const r = await devAdmin('/admin/codes/' + code, { method: 'DELETE' }); if (!r.ok) { setScStatus('失败：' + r.msg); return; } await devCodes(id); setScStatus('已作废');
 }
 async function devUnlist(id) {
@@ -1793,7 +1802,7 @@ async function devLoadStory(it) {                    // 读出已上架故事的
   const z = await JSZip.loadAsync(zbuf);
   return { man: JSON.parse(await z.file('manifest.json').async('string')), text: await z.file('book.txt').async('string') };
 }
-async function devHaveClips(id) {                    // 服务器上这本书已经有哪些句子的语音
+async function devHaveClips(id) {                    // 服务器上这个故事已经有哪些句子的语音
   const r = await devAdmin('/admin/clips/' + id, { method: 'GET' });
   if (!r.ok) throw new Error('查询服务器语音失败：' + r.msg);
   return new Set((await r.res.json()).have || []);
@@ -1848,10 +1857,10 @@ function devEditInfo(id) {
     '<div class="note">英文标题</div><input id="deTitle" value="' + esc(it.title) + '" style="' + F + '">' +
     '<div class="note">中文名</div><input id="deZh" value="' + esc(it.titleZh || '') + '" style="' + F + '">' +
     '<div class="note">等级</div><input id="deLevel" value="' + esc(it.level || '') + '" style="' + F + '">' +
-    ('<div class="note">购买说明（买家点“购买”时看到，比如“闲鱼搜 喵喵书店，拍下后自动发兑换码”）</div><input id="deBuy" value="' + esc(it.buy || '') + '" style="' + F + '"><div class="note">购买链接（闲鱼商品页，https 开头，可空）</div><input id="deBuyUrl" value="' + esc(it.buyUrl || '') + '" style="' + F + '">') +
+    ('<div class="note">购买说明（买家点“购买”时看到，比如“闲鱼搜 喵喵故事小屋，拍下后自动发兑换码”）</div><input id="deBuy" value="' + esc(it.buy || '') + '" style="' + F + '"><div class="note">购买链接（闲鱼商品页，https 开头，可空）</div><input id="deBuyUrl" value="' + esc(it.buyUrl || '') + '" style="' + F + '">') +
     '<div class="note">价格（元，填 0 就是免费）</div><input id="dePrice" inputmode="decimal" value="' + esc(String(it.price || 0)) + '" style="' + F + '">' +
     '<div class="note">限时免费到（日期，如 2026-10-31；留空=不做活动；过了这天自动恢复原价）</div><input id="deFree" placeholder="2026-10-31" value="' + (it.freeUntil && it.freeUntil > Date.now() ? esc(new Date(it.freeUntil - 86400000).toISOString().slice(0, 10)) : '') + '" style="' + F + '">' +
-    '<div class="note" style="margin:0 0 8px">免费 ⇄ 收费会自动把这本书的文字和语音在服务器上搬一下，不用重新上架。已经免费拿走的人，之后在线听语音可能取不到，需要重新兑换。</div>' +
+    '<div class="note" style="margin:0 0 8px">免费 ⇄ 收费会自动把这个故事的文字和语音在服务器上搬一下，不用重新上架。已经免费拿走的人，之后在线听语音可能取不到，需要重新兑换。</div>' +
     '<div class="row" style="margin-top:6px"><button onclick="devEditInfoSave(\'' + esc(id) + '\')">保存</button><button class="ghost" onclick="openStoryCity()">返回</button></div>' +
     '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>');
 }
@@ -1866,8 +1875,8 @@ async function devEditInfoSave(id) {
   if (!it.titleZh && !it.desc || it.desc === (it.titleZh ? it.titleZh + '。' : '')) { if (zh) entry.desc = zh + '。'; else delete entry.desc; }
   {
     const pr = Math.max(0, Math.round((parseFloat(document.getElementById('dePrice').value) || 0) * 100) / 100), sw = (pr > 0) !== !!it.price;
-    if (sw && !it.price && !it.file) { setScStatus('这本书的文件不在服务器上，不能直接改价格'); return; }
-    if (sw && !confirm(pr > 0 ? '改成收费（¥' + pr + '）吗？这本书会从公开目录搬到私有目录，只有兑换码买家能下载。' : '改成免费吗？这本书会放到公开目录，任何人都能下载。')) return;
+    if (sw && !it.price && !it.file) { setScStatus('这个故事的文件不在服务器上，不能直接改价格'); return; }
+    if (sw && !confirm(pr > 0 ? '改成收费（¥' + pr + '）吗？这个故事会从公开目录搬到私有目录，只有兑换码买家能下载。' : '改成免费吗？这个故事会放到公开目录，任何人都能下载。')) return;
     if (pr !== (it.price || 0)) {
       setScStatus('正在改价格…');
       const pj = await devAdmin('/admin/price/' + it.id, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ price: pr }) });
@@ -1998,22 +2007,23 @@ async function redeemGo() {
     const k = storyCat.items.findIndex(x => x.id === j.item.id); if (k >= 0) storyCat.items[k] = j.item; else storyCat.items.push(j.item);
     redeemBusy = false;
     await getStory(j.item.id, j.tk);
-    if (document.getElementById('scList') || document.getElementById('scStatus')) { toast('兑换成功，《' + j.item.title + '》已加入书架', 3500); renderStoryCity(''); }
+    if (document.getElementById('scList') || document.getElementById('scStatus')) { toast('兑换成功，《' + j.item.title + '》已加入“我的故事”', 3500); renderStoryCity(''); }
   } catch (e) { setScStatus('网络不通，兑换没成功，请稍后再试。'); redeemBusy = false; }
 }
-function storyHouse(it, have) {                    // 故事小屋里每本书是一座小房子：屋顶颜色按书区分，门牌上写书名；已经在书架上的，窗户亮着灯
-  const c = coverColor('story-' + it.id), lit = have ? '#ffd86b' : '#cfe3f2';
-  return '<div style="flex:none;position:relative;width:76px;height:92px" title="' + esc(it.title) + '">' +
-    '<svg width="76" height="92" viewBox="0 0 76 92" aria-hidden="true">' +
-      '<rect x="51" y="9" width="8" height="16" rx="1.5" fill="' + c + '" opacity=".75"/>' +
-      '<circle cx="57" cy="5" r="2.2" fill="#d9d4cc" opacity=".8"/><circle cx="61" cy="2.5" r="1.6" fill="#d9d4cc" opacity=".6"/>' +
-      '<rect x="10" y="37" width="56" height="51" rx="4" fill="#fbf3e4" stroke="rgba(0,0,0,.12)"/>' +
-      '<path d="M3 41 L38 8 L73 41 Z" fill="' + c + '" stroke="' + c + '" stroke-width="3" stroke-linejoin="round"/>' +
-      '<circle cx="38" cy="28" r="6" fill="' + lit + '" stroke="#fff" stroke-width="1.6"/><path d="M38 22v12M32 28h12" stroke="#fff" stroke-width="1.2"/>' +
-      '<path d="M31 88 V72 a7 7 0 0 1 14 0 V88 Z" fill="' + c + '"/><circle cx="41.5" cy="80" r="1.1" fill="#fbf3e4"/>' +
-      '<rect x="14" y="70" width="11" height="10" rx="2" fill="' + lit + '" stroke="' + c + '" stroke-width="1.3"/><rect x="51" y="70" width="11" height="10" rx="2" fill="' + lit + '" stroke="' + c + '" stroke-width="1.3"/>' +
-      '<path d="M2 89.5 H74" stroke="#8fbf7a" stroke-width="3" stroke-linecap="round"/>' +
-    '</svg>' +
+function houseSvg(c, lit, w, h) {                  // 一座小房子：屋顶 c 色；lit=窗户亮灯
+  const L = lit ? '#ffd86b' : '#cfe3f2';
+  return '<svg' + (w ? ' width="' + w + '" height="' + h + '"' : '') + ' viewBox="0 0 76 92" aria-hidden="true">' +
+    '<rect x="51" y="9" width="8" height="16" rx="1.5" fill="' + c + '" opacity=".75"/>' +
+    '<circle cx="57" cy="5" r="2.2" fill="#d9d4cc" opacity=".8"/><circle cx="61" cy="2.5" r="1.6" fill="#d9d4cc" opacity=".6"/>' +
+    '<rect x="10" y="37" width="56" height="51" rx="4" fill="#fbf3e4" stroke="rgba(0,0,0,.12)"/>' +
+    '<path d="M3 41 L38 8 L73 41 Z" fill="' + c + '" stroke="' + c + '" stroke-width="3" stroke-linejoin="round"/>' +
+    '<circle cx="38" cy="28" r="6" fill="' + L + '" stroke="#fff" stroke-width="1.6"/><path d="M38 22v12M32 28h12" stroke="#fff" stroke-width="1.2"/>' +
+    '<path d="M31 88 V72 a7 7 0 0 1 14 0 V88 Z" fill="' + c + '"/><circle cx="41.5" cy="80" r="1.1" fill="#fbf3e4"/>' +
+    '<rect x="14" y="70" width="11" height="10" rx="2" fill="' + L + '" stroke="' + c + '" stroke-width="1.3"/><rect x="51" y="70" width="11" height="10" rx="2" fill="' + L + '" stroke="' + c + '" stroke-width="1.3"/>' +
+    '<path d="M2 89.5 H74" stroke="#8fbf7a" stroke-width="3" stroke-linecap="round"/></svg>';
+}
+function storyHouse(it, have) {                    // 故事小屋里每个故事是一座小房子：屋顶颜色按故事区分，门牌上写名字；已经领取的，窗户亮着灯
+  return '<div style="flex:none;position:relative;width:76px;height:92px" title="' + esc(it.title) + '">' + houseSvg(coverColor('story-' + it.id), have, 76, 92) +
     '<div style="position:absolute;left:12px;top:40px;width:52px;height:27px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:9.5px;line-height:1.15;color:#5a4630;font-weight:600;overflow:hidden;word-break:break-word"><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">' + esc(it.titleZh || it.title) + '</span></div>' +
   '</div>';
 }
@@ -2030,7 +2040,7 @@ function renderStoryCity(err) {
       '<div style="flex:1;min-width:0"><div style="font-size:16px;color:var(--ink)">' + esc(it.title) + (it.titleZh ? ' <span class="note">' + esc(it.titleZh) + '</span>' : '') + '</div>' +
       '<div class="note">' + esc(meta) + '</div>' + (it.desc ? '<div class="note" style="margin-top:4px;color:var(--ink)">' + esc(it.desc) + '</div>' : '') +
       '<div class="row" style="margin-top:8px;gap:8px">' +
-      (have ? '<button class="sm" onclick="closePop();openBook(\'story-' + it.id + '\')">已在书架 · 打开</button>' +
+      (have ? '<button class="sm" onclick="closePop();openBook(\'story-' + it.id + '\')">已领取 · 打开</button>' +
           ((it.file || tkOf(it.id)) && it.ver && ((shelfGet().find(x => x.id === 'story-' + it.id) || {}).ver || 1) < it.ver ? '<button class="sm" onclick="updateStory(\'' + it.id + '\')">🔄 有更新，点击更新</button>' : '') +
           (it.voice && (it.file || tkOf(it.id)) && !(shelfGet().find(x => x.id === 'story-' + it.id) || {}).nv ? (voiceDl[it.id] != null ? '<span class="note" id="scVoice-' + it.id + '">语音下载中 ' + voiceDl[it.id] + '%</span>' : '<button class="ghost sm" onclick="getStoryVoice(storyCat.items.find(x => x.id === \'' + it.id + '\'))">⬇ 下载全部语音（离线听）</button>') : '')
         : free ? '<button class="sm" onclick="getStory(\'' + it.id + '\')">免费获取</button>'
@@ -2467,10 +2477,10 @@ async function wordClick(i, el) {
   document.getElementById('wpBody').innerHTML = html;
   positionWordPop(rect);
 }
-/* ---------- 本句意思：用这句的中文译文（书中译文优先，其次机器翻译）对照词典释义，挑出这句里用到的那个意思 ---------- */
+/* ---------- 本句意思：用这句的中文译文（自带译文优先，其次机器翻译）对照词典释义，挑出这句里用到的那个意思 ---------- */
 function ctxZh(idx) {
   if (!state || idx < 0) return { zh: '', src: '' };
-  if (state.zh && state.zh[idx]) return { zh: state.zh[idx], src: '书中译文' };
+  if (state.zh && state.zh[idx]) return { zh: state.zh[idx], src: '自带译文' };
   const c = state.cache && state.cache[idx];
   return (c && c.translation) ? { zh: c.translation, src: '机器翻译' } : { zh: '', src: '' };
 }
@@ -2615,7 +2625,7 @@ async function copyDiag() {
   const voices = currentVoices(), en = voices.filter(v => /^en/i.test(v.lang));
   const lines = [
     '版本: ' + APP_VERSION + ' | 网址: ' + location.host + location.pathname,
-    '打开速度: ' + (function () { try { const n = performance.getEntriesByType('navigation')[0] || {}; return '页面文件取到 ' + Math.round(n.responseEnd || 0) + 'ms（' + (n.transferSize ? '来自网络 ' + Math.round(n.transferSize / 1024) + 'KB' : '来自手机缓存') + '）| 脚本开始 ' + T_SCRIPT + 'ms | 书架显示 ' + T_SHELF + 'ms'; } catch (e) { return '无法测量'; } })(),
+    '打开速度: ' + (function () { try { const n = performance.getEntriesByType('navigation')[0] || {}; return '页面文件取到 ' + Math.round(n.responseEnd || 0) + 'ms（' + (n.transferSize ? '来自网络 ' + Math.round(n.transferSize / 1024) + 'KB' : '来自手机缓存') + '）| 脚本开始 ' + T_SCRIPT + 'ms | 首页显示 ' + T_SHELF + 'ms'; } catch (e) { return '无法测量'; } })(),
     '时间: ' + new Date().toLocaleString(),
     '浏览器: ' + nav.userAgent,
     '屏幕: ' + screen.width + 'x' + screen.height + ' @' + (window.devicePixelRatio || 1) + 'x',
@@ -2627,10 +2637,10 @@ async function copyDiag() {
     '录音: ' + !!(nav.mediaDevices && window.MediaRecorder) + ' | 语音识别打分: ' + speechRecoSupported(),
     '存储: ' + est,
     '词典: ' + (dictInfo && dictInfo.count ? dictInfo.count + ' 词条' : '未导入') + ' | 自动下载提示: ' + (getAutoMsg() || '无'),
-    state ? '书: ' + state.sentences.length + ' 句，当前第 ' + (state.idx + 1) + ' 句，目录类型 ' + (state.toc && state.toc.kind) + '，书中译文 ' + Object.keys(state.zh || {}).length + ' 句，插图段 ' + (state.imageRanges || []).length : '书: 未导入'
+    state ? '故事: ' + state.sentences.length + ' 句，当前第 ' + (state.idx + 1) + ' 句，目录类型 ' + (state.toc && state.toc.kind) + '，自带译文 ' + Object.keys(state.zh || {}).length + ' 句，插图段 ' + (state.imageRanges || []).length : '书: 未导入'
   ];
   const text = lines.join('\n');
-  try { await nav.clipboard.writeText(text); toast('诊断信息已复制，请粘贴发给我们（里面没有书的内容）', 3500); }
+  try { await nav.clipboard.writeText(text); toast('诊断信息已复制，请粘贴发给我们（里面没有故事的内容）', 3500); }
   catch (e) { showPop('<h3 style="margin:0 0 8px">诊断信息</h3><div class="note">自动复制失败，请长按下面的文字，手动复制后发给我们：</div><textarea readonly style="min-height:220px;margin-top:8px">' + esc(text) + '</textarea>'); }
 }
 function openFeedback() { if (FEEDBACK_URL) window.open(FEEDBACK_URL, '_blank', 'noopener'); }
@@ -2640,24 +2650,24 @@ function openHelp() {
   showPop(
     '<h3 style="margin:0 0 4px">❓ 帮助与反馈</h3><div class="note">试用版 · 版本 <span onclick="devTap()" style="cursor:default;user-select:none">' + esc(APP_VERSION) + '</span></div>' +
     '<div class="row" style="margin:12px 0 4px"><button onclick="copyDiag()">复制诊断信息</button>' + (FEEDBACK_URL ? '<button class="ghost" onclick="openFeedback()">打开反馈问卷</button>' : '') + '</div>' +
-    '<div class="note">遇到问题（没声音、录不了音、书导入不对等），先点“复制诊断信息”，粘贴发给发你链接的人。诊断信息只有设备和软件状态，没有书的内容和你的录音。</div>' +
+    '<div class="note">遇到问题（没声音、录不了音、故事导入不对等），先点“复制诊断信息”，粘贴发给发你链接的人。诊断信息只有设备和软件状态，没有故事的内容和你的录音。</div>' +
     sec('快速上手',
       li('点句子里的<b>单词</b>查词，点哪个词就读哪个词，同时弹出解释。') + li('点底部的 <b>▶ 朗读</b>，念到哪个词哪个词会亮；旁边的下拉菜单可以换美音、英音。') +
       li('<b>🎙 跟读</b>：录下自己读这一句，保存在本机，可以回放和原音对比。') + li('<b>点“0.9x”这样的语速按钮没变化？</b>有些手机或声音不支持调速，软件会自动检测并提示。这时可以换一个声音试试。') +
       li('顶部 <b>整页翻译</b> 把一页的句子连同中文一起列出来，点句子就读；<b>目录</b> 可以跳到任意页；右上角 <b>···</b> 里有语音包、词典、语法字典和帮助。') +
-      li('装到手机桌面：iPhone 用 Safari，点分享 → 添加到主屏幕；安卓用 Chrome，点 ⋮ → 安装应用。<b>装好后请在桌面图标里导入书（打开软件先是书架，点“＋ 导入”）</b>，浏览器和桌面图标的数据是分开的。'), true) +
+      li('装到手机桌面：iPhone 用 Safari，点分享 → 添加到主屏幕；安卓用 Chrome，点 ⋮ → 安装应用。<b>装好后请在桌面图标里导入故事（打开软件先是“我的故事”，点“＋ 导入”）</b>，浏览器和桌面图标的数据是分开的。'), true) +
     sec('隐私与数据',
-      li('你导入的书（书架上所有的书）、读书进度、录音、下载的词典，都<b>只存在这台设备的浏览器里</b>，不会上传。换设备或清除浏览器数据会丢失，请注意。') +
-      li('<b>整句翻译</b>：当前这一句英文会发到开发者的翻译中转服务，再转给火山引擎机器翻译，中转服务不保存内容；中转不可用时改发 Google 或 MyMemory 的免费接口。查词时本地词典没有的词会发给第三方词典服务。书里自带中文译文的句子不会发送。') +
+      li('你导入的故事（“我的故事”里所有的故事）、阅读进度、录音、下载的词典，都<b>只存在这台设备的浏览器里</b>，不会上传。换设备或清除浏览器数据会丢失，请注意。') +
+      li('<b>整句翻译</b>：当前这一句英文会发到开发者的翻译中转服务，再转给火山引擎机器翻译，中转服务不保存内容；中转不可用时改发 Google 或 MyMemory 的免费接口。查词时本地词典没有的词会发给第三方词典服务。故事里自带中文译文的句子不会发送。') +
       li('<b>自然语音（仅开发者可用）</b>：需要开发者口令解锁。启用后，当前要朗读的那一句英文会发到开发者自己的微软 Azure 账号生成语音。Key 用口令加密后只保存在开发者的设备里，软件代码里没有任何 Key。') +
       li('软件本身不收集任何使用数据。')) +
     sec('开源与致谢',
       li('英汉词典数据：ECDICT（skywind3000，MIT 许可）') + li('PDF 解析：pdf.js（Mozilla，Apache-2.0）') + li('epub 解压：JSZip（MIT / GPLv3 双许可）') +
       li('各组件版权归原作者所有。')) +
     sec('免责声明',
-      li('软件不提供书籍，请只导入你有权使用的书（如公版书、你自己购买的电子书）。') +
-      li('顶部的“已读 X 句 · 已听 X 句 · 连续 X 天”是你所有书合起来的学习记录：<b>已读</b>是你点“🎙 跟读”自己读过的句数（同一句读几遍只算一句）；<b>已听</b>是你完整听过的句数（同一句听几遍只算一句，中途停掉的不算）。') +
-      li('语法讲解由规则自动生成，翻译来自机器翻译或书里自带的译文，仅供学习参考，可能有误。'))
+      li('请只导入你有权使用的故事（如公版作品、你自己购买的读物）。') +
+      li('顶部的“已读 X 句 · 已听 X 句 · 连续 X 天”是你所有故事合起来的学习记录：<b>已读</b>是你点“🎙 跟读”自己读过的句数（同一句读几遍只算一句）；<b>已听</b>是你完整听过的句数（同一句听几遍只算一句，中途停掉的不算）。') +
+      li('语法讲解由规则自动生成，翻译来自机器翻译或故事里自带的译文，仅供学习参考，可能有误。'))
   );
 }
 
@@ -2827,8 +2837,8 @@ function parseMobi(buf) {
   const rec = i => u8.subarray(off(i), i + 1 < nRec ? off(i + 1) : u8.length);
   const r0 = rec(0), d0 = new DataView(r0.buffer, r0.byteOffset, r0.byteLength);
   const comp = d0.getUint16(0), count = d0.getUint16(8), crypt = d0.getUint16(12);
-  if (crypt !== 0) throw new Error('这本书有 DRM 加密，无法读取。请使用没有 DRM 的版本。');
-  if (comp !== 1 && comp !== 2) throw new Error('这本书使用了暂不支持的压缩方式，请用 Calibre 转成 epub 后再导入。');
+  if (crypt !== 0) throw new Error('这个故事有 DRM 加密，无法读取。请使用没有 DRM 的版本。');
+  if (comp !== 1 && comp !== 2) throw new Error('这个故事使用了暂不支持的压缩方式，请用 Calibre 转成 epub 后再导入。');
   const enc = r0.length > 32 ? d0.getUint32(28) : 1252;
   const extra = (r0.length > 0xf4 && d0.getUint32(20) >= 228) ? d0.getUint16(0xf2) : 0;
   const parts = [];
@@ -2925,7 +2935,7 @@ function buildTextToc(sentences, startIdx) {
   for (let i = startIdx || 0; i < sentences.length; i++) if (TOC_CHAPTER_RE.test(sentences[i].trim())) heads.push(i);
   const items = [];
   if (heads.length >= 2) {
-    if (heads[0] > 0) items.push({ n: 0, t: '开头（书名、版权、目录等）', s: 0, e: 1 });
+    if (heads[0] > 0) items.push({ n: 0, t: '开头（标题、版权、目录等）', s: 0, e: 1 });
     heads.forEach((s, k) => items.push({ n: k + 1, t: sentences[s].trim().slice(0, 40), s, e: 1 }));
     return { kind: 'chapter', items };
   }
@@ -2968,7 +2978,7 @@ function openToc(query) {
     showPop(html);
     return;
   }
-  html += '<div class="note" style="margin-bottom:8px">点任意一项，直接跳到那里开始学习。开头自动跳过不准时，可以搜索故事开头的几个词（比如 Chapter 1）。' + (toc.kind === 'page' ? '灰色的页是没读到英文的（可能只有图片或中文）。' : toc.kind === 'segment' ? '这本书没有识别到章节标题，按每 50 句分段。' : '') + '</div>';
+  html += '<div class="note" style="margin-bottom:8px">点任意一项，直接跳到那里开始学习。开头自动跳过不准时，可以搜索故事开头的几个词（比如 Chapter 1）。' + (toc.kind === 'page' ? '灰色的页是没读到英文的（可能只有图片或中文）。' : toc.kind === 'segment' ? '这个故事没有识别到章节标题，按每 50 句分段。' : '') + '</div>';
   items.forEach((it, i) => {
     const empty = !it.e, sent = it.e ? state.sentences[it.s] : '';
     const label = toc.kind === 'page' ? '第 ' + it.n + ' 页' : (it.t || '第 ' + it.n + ' 节');
@@ -3014,7 +3024,7 @@ function pgItemLabel(it, toc) {
 }
 function pgTransHtml(idx) {
   const bz = bookZh(idx);
-  if (bz) return '<span class="src">书中译文</span>' + esc(bz);
+  if (bz) return '<span class="src">自带译文</span>' + esc(bz);
   const c = state.cache[idx];
   if (c && c.translation) return esc(c.translation);
   if (c && c.failed) return '<span class="sub">翻译失败</span>';
@@ -3219,7 +3229,7 @@ async function pgStartTranslate(auto) {
 function render() {
   closeWordPop();
   const app = document.getElementById('app');
-  const header = '<div class="topbar"><div class="tbin"><div>' + (state ? '<button class="iconbtn" aria-label="回书架" onclick="closeBook()" style="font-size:15px;margin-left:-8px">‹ 书架</button>' : '<h1>一句一读</h1>') + '</div>' +
+  const header = '<div class="topbar"><div class="tbin"><div>' + (state ? '<button class="iconbtn" aria-label="回我的故事" onclick="closeBook()" style="font-size:15px;margin-left:-8px">‹ 我的故事</button>' : '<h1>一句一读</h1>') + '</div>' +
     '<div class="tools">' + (state ? '<button class="iconbtn" aria-label="整页翻译" onclick="openPageView()">整页翻译</button><button class="iconbtn" aria-label="目录" onclick="openToc()">目录</button>' : '') + '<button class="iconbtn" aria-label="更多" onclick="openMoreMenu()" style="font-size:22px;letter-spacing:1px;padding-bottom:6px">···</button></div></div></div>';
 
   if (!state) {
@@ -3229,7 +3239,7 @@ function render() {
     return;
   }
   if (state.idx >= state.sentences.length) {
-    app.innerHTML = header + '<div class="card finish"><div style="font-size:40px">🎉</div><h2>整本书读完了！</h2><div class="sub">共 ' + state.sentences.length + ' 句。</div><button style="margin-top:16px" onclick="closeBook()">回书架</button></div>';
+    app.innerHTML = header + '<div class="card finish"><div style="font-size:40px">🎉</div><h2>整个故事读完了！</h2><div class="sub">共 ' + state.sentences.length + ' 句。</div><button style="margin-top:16px" onclick="closeBook()">回书架</button></div>';
     return;
   }
   const pct = Math.round(state.idx / state.sentences.length * 100);
@@ -3265,10 +3275,10 @@ function render() {
   app.innerHTML = header +
     '<div class="levelbar"><div id="statsLine">' + statsHtml() + '</div><div>' + (tocLabel() ? esc(tocLabel()) + ' · ' : '') + (state.idx + 1) + ' / ' + state.sentences.length + '</div></div>' +
     '<div class="card">' +
-      (function () { const r = imageRangeFor(state.idx); return (r && r[0] === curImageStart) ? curImageUrls.map(u => '<img src="' + u + '" alt="书页插图" style="max-width:100%;max-height:60vh;object-fit:contain;border-radius:10px;margin:0 auto 14px;display:block">').join('') : ''; })() +
+      (function () { const r = imageRangeFor(state.idx); return (r && r[0] === curImageStart) ? curImageUrls.map(u => '<img src="' + u + '" alt="故事插图" style="max-width:100%;max-height:60vh;object-fit:contain;border-radius:10px;margin:0 auto 14px;display:block">').join('') : ''; })() +
       '<div class="sentence"' + (function () { const n = state.sentences[state.idx].length; return n > 280 ? ' style="font-size:21px"' : n > 160 ? ' style="font-size:24px"' : ''; })() + '>' + renderSentenceHTML(state.sentences[state.idx]) + '</div>' +
       '<div class="row" style="justify-content:space-between;align-items:flex-start;gap:8px">' +
-        '<div class="zh">' + (getShowZh() ? (bz ? '<span class="src" style="margin:0 6px 0 0">书中译文' + (state.zhp && state.zhp[state.idx] ? '·整段' : '') + '</span>' : '') + trans + (hasBz ? ' <button class="link" onclick="toggleBookZh()">' + (bz ? '改看机器翻译' : '改看书中译文') + '</button>' : '') : '<span class="sub">中文翻译已隐藏</span>') + '</div>' +
+        '<div class="zh">' + (getShowZh() ? (bz ? '<span class="src" style="margin:0 6px 0 0">自带译文' + (state.zhp && state.zhp[state.idx] ? '·整段' : '') + '</span>' : '') + trans + (hasBz ? ' <button class="link" onclick="toggleBookZh()">' + (bz ? '改看机器翻译' : '改看自带译文') + '</button>' : '') : '<span class="sub">中文翻译已隐藏</span>') + '</div>' +
         '<button class="iconbtn" style="flex-shrink:0" onclick="toggleZh()">' + (getShowZh() ? '隐藏中文' : '显示中文') + '</button>' +
       '</div>' +
       '<div class="section">' + recs + '</div>' +
