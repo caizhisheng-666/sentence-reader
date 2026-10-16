@@ -84,6 +84,9 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .bk .cover.house .done{top:0;right:-4px;border-radius:8px}
 .shelfbar h2{white-space:nowrap}
 .shelfbar .shsel{font-size:15px;padding:6px 2px}
+.scChips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.scChip{background:var(--chip,rgba(0,0,0,.05));color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:13px;cursor:pointer}
+.scChip.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 .shacts{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 2px 18px}
 .shacts button{width:100%;padding:11px 8px;font-size:15px}
 .bk .bs{text-align:center}
@@ -194,7 +197,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-114';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-115';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2123,7 +2126,8 @@ const BUDDIES = [
 ];
 function buddySvg(k, have, W, H) {                 // 按 key 固定画一只小伙伴（故事小屋和“我的故事”里同一个故事是同一只）；have=眯眼笑+小星星
   let h = 0; for (let i = 0; i < k.length; i++) h = (h * 33 + k.charCodeAt(i)) >>> 0;
-  const B = BUDDIES[(h >>> 3) % BUDDIES.length], C = B.c, D = BD_D, body = B.body || C;
+  h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d) >>> 0; h ^= h >>> 12; h = Math.imul(h, 0x297a2d39) >>> 0; h = (h ^ (h >>> 15)) >>> 0;     // 打散：名字只差一个字的故事也分到不同的小伙伴
+  const B = BUDDIES[h % BUDDIES.length], C = B.c, D = BD_D, body = B.body || C;
   const ln = c => c === '#ffffff' || c === '#fbf4ea' || c === '#fffaf2' || c === '#ffe0c7' ? ' stroke="rgba(0,0,0,.12)"' : '';
   const L1 = ln(C), L2 = ln(body);
   let eyes;
@@ -2150,38 +2154,79 @@ function storyBuddy(it, have) {                    // 故事小屋里每个故�
     '<div style="position:absolute;left:10px;top:57px;width:56px;height:24px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:9.5px;line-height:1.1;color:#5a4630;font-weight:700;overflow:hidden;word-break:break-word"><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">' + esc(it.titleZh || it.title) + '</span></div>' +
   '</div>';
 }
-function renderStoryCity(err) {
+let scQ = '', scF = 'all', scLv = '', scN = 20, scObs = null;           // 故事小屋的搜索 / 筛选 / 已显示数量
+function scCard(it, owned) {
+  const have = owned.has('story-' + it.id), free = !it.price;
+  const meta = [freeNow(it) ? '限时免费 · 到' + fmtDay(it.freeUntil - 1) : '', it.level, it.count ? it.count + ' 句' : '', it.voice ? '🎧 含自然语音' : ''].filter(Boolean).join(' · ');
+  const prev = (it.preview || []).map(p => '<div style="margin:6px 0"><div>' + esc(p.en || '') + '</div><div class="note">' + esc(p.zh || '') + '</div></div>').join('');
+  return '<div class="card" style="display:flex;gap:12px;margin-bottom:10px;padding:12px">' + storyBuddy(it, have) +
+    '<div style="flex:1;min-width:0"><div style="font-size:16px;color:var(--ink)">' + esc(it.title) + (it.titleZh ? ' <span class="note">' + esc(it.titleZh) + '</span>' : '') + '</div>' +
+    '<div class="note">' + esc(meta) + '</div>' + (it.desc ? '<div class="note" style="margin-top:4px;color:var(--ink)">' + esc(it.desc) + '</div>' : '') +
+    '<div class="row" style="margin-top:8px;gap:8px">' +
+    (have && isSample('story-' + it.id) ? '<button class="sm" onclick="closePop();openBook(\'story-' + it.id + '\')">📖 试读中 · 打开</button>' +
+        (freeNow(it) ? '<button class="sm" onclick="claimFree(\'' + it.id + '\')">🎁 限时免费领取全本</button>' : '<button class="sm" onclick="scBuy(\'' + it.id + '\')">¥' + esc(String(it.price)) + ' 购买全本</button>')
+      : have ? '<button class="sm" onclick="closePop();openBook(\'story-' + it.id + '\')">已领取 · 打开</button>' +
+        ((it.file || tkOf(it.id)) && it.ver && ((shelfGet().find(x => x.id === 'story-' + it.id) || {}).ver || 1) < it.ver ? '<button class="sm" onclick="updateStory(\'' + it.id + '\')">🔄 有更新，点击更新</button>' : '') +
+        (it.voice && (it.file || tkOf(it.id)) && !(shelfGet().find(x => x.id === 'story-' + it.id) || {}).nv ? (voiceDl[it.id] != null ? '<span class="note" id="scVoice-' + it.id + '">语音下载中 ' + voiceDl[it.id] + '%</span>' : '<button class="ghost sm" onclick="getStoryVoice(storyCat.items.find(x => x.id === \'' + it.id + '\'))">⬇ 下载全部语音（离线听）</button>') : '')
+      : free ? '<button class="sm" onclick="getStory(\'' + it.id + '\')">免费获取</button>'
+      : freeNow(it) ? '<button class="sm" onclick="claimFree(\'' + it.id + '\')">🎁 限时免费领取</button><button class="ghost sm" onclick="scBuy(\'' + it.id + '\')">¥' + esc(String(it.price)) + '</button>'
+      : '<button class="sm" onclick="scBuy(\'' + it.id + '\')">¥' + esc(String(it.price)) + ' 购买</button>') +
+    (!have && !free && it.sample ? '<button class="ghost sm" onclick="getSample(\'' + it.id + '\')">📖 免费试读' + (it.sampleCount ? '（' + it.sampleCount + ' 句）' : '') + '</button>' : !have && !free && prev ? '<button class="ghost sm" onclick="scToggle(\'' + it.id + '\')">试读</button>' : '') +
+    (azReady() && it.price ? '<button class="ghost sm" onclick="devSampleBtn(\'' + it.id + '\')">📖 ' + (it.sample ? '更新试读' : '生成试读') + '</button>' : '') +
+    (azReady() ? '<button class="ghost sm" onclick="devEditInfo(\'' + it.id + '\')">✏️ 改信息</button><button class="ghost sm" onclick="devEditText(\'' + it.id + '\')">✏️ 改内容</button>' + (it.price ? '<button class="ghost sm" onclick="devCodes(\'' + it.id + '\')">🎟 兑换码</button>' : '') + '<button class="ghost sm" onclick="devGenVoice(\'' + it.id + '\')">🎙 ' + (it.voice ? '补语音' : '生成语音') + '</button>' : '') +
+    (azReady() ? '<button class="ghost sm" onclick="devUnlist(\'' + it.id + '\')">下架</button>' : '') + '</div>' +
+    (prev ? '<div id="scPrev-' + it.id + '" style="display:none;margin-top:8px">' + prev + '</div>' : '') + '</div></div>';
+}
+function scFiltered() {
   const items = ((storyCat && storyCat.items) || []).filter(x => x.kind !== 'voice');     // 语音不单独卖，买故事自带语音
-  const owned = new Set(shelfGet().map(x => x.id));
-  let h = '<h3 id="scList" style="margin:0 0 6px">🏡 故事小屋</h3><div class="note" style="margin-bottom:10px">' + esc((storyCat && storyCat.intro) || '原创中英对照故事，点单词发音，点句子朗读。') + '</div>';
+  const owned = new Set(shelfGet().map(x => x.id)), q = scQ.trim().toLowerCase();
+  let l = items.filter(it => {
+    const have = owned.has('story-' + it.id);
+    if (scF === 'free' && (it.price && !freeNow(it))) return false;
+    if (scF === 'paid' && !it.price) return false;
+    if (scF === 'mine' && !have) return false;
+    if (scLv && String(it.level || '').slice(0, 2).toUpperCase() !== scLv) return false;
+    if (q && ![it.title, it.titleZh, it.desc].some(t => String(t || '').toLowerCase().includes(q))) return false;
+    return true;
+  });
+  const ord = new Map(items.map((x, i) => [x.id, i]));
+  l.sort((a, b) => (freeNow(b) - freeNow(a)) || (ord.get(b.id) - ord.get(a.id)));         // 限时免费在最前，其余最新上架在前
+  return { l, owned, total: items.length };
+}
+function scListHtml() {
+  const { l, owned } = scFiltered();
+  if (!l.length) return '<div class="note" style="text-align:center;padding:20px 0">' + (scQ || scF !== 'all' || scLv ? '没有找到符合条件的故事，换个条件试试。' : '暂时还没有故事上架。') + '</div>';
+  return l.slice(0, scN).map(it => scCard(it, owned)).join('') + (l.length > scN ? '<div id="scMore" class="note" style="text-align:center;padding:14px 0">往下滑加载更多（还有 ' + (l.length - scN) + ' 个）</div>' : '<div class="note" style="text-align:center;padding:8px 0 4px">共 ' + l.length + ' 个故事</div>');
+}
+function scRefresh(reset) {                        // 只刷新列表，搜索框不丢焦点
+  if (reset) scN = 20;
+  const box = document.getElementById('scItems'); if (!box) return;
+  box.innerHTML = scListHtml();
+  document.querySelectorAll('.scChip').forEach(b => b.classList.toggle('on', b.dataset.f != null ? b.dataset.f === scF : b.dataset.lv === scLv));
+  scWatchMore();
+}
+function scWatchMore() {
+  if (scObs) { scObs.disconnect(); scObs = null; }
+  const m = document.getElementById('scMore'); if (!m || !('IntersectionObserver' in window)) { if (m) m.onclick = () => { scN += 20; scRefresh(); }; return; }
+  scObs = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) { scN += 20; scRefresh(); } });
+  scObs.observe(m); m.onclick = () => { scN += 20; scRefresh(); };
+}
+function scSetF(f) { scF = f; scRefresh(true); }
+function scSetLv(lv) { scLv = scLv === lv ? '' : lv; scRefresh(true); }
+function renderStoryCity(err) {
+  const total = scFiltered().total, lvs = [...new Set(((storyCat && storyCat.items) || []).map(x => String(x.level || '').slice(0, 2).toUpperCase()).filter(x => /^[ABC][12]$/.test(x)))].sort();
+  let h = '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 6px"><h3 id="scList" style="margin:0">🏡 故事小屋</h3><button class="link" style="font-size:14px" onclick="redeemPop()">🎟 我有兑换码</button></div><div class="note" style="margin-bottom:10px">' + esc((storyCat && storyCat.intro) || '原创中英对照故事，点单词发音，点句子朗读。') + '</div>';
   if (err) h += '<div class="note" style="color:#b94a48;margin-bottom:8px">' + esc(err) + '</div>';
-  h += items.map(it => {
-    const have = owned.has('story-' + it.id), free = !it.price;
-    const meta = [freeNow(it) ? '限时免费 · 到' + fmtDay(it.freeUntil - 1) : '', it.level, it.count ? it.count + ' 句' : '', it.voice ? '🎧 含自然语音' : ''].filter(Boolean).join(' · ');
-    const prev = (it.preview || []).map(p => '<div style="margin:6px 0"><div>' + esc(p.en || '') + '</div><div class="note">' + esc(p.zh || '') + '</div></div>').join('');
-    return '<div class="card" style="display:flex;gap:12px;margin-bottom:10px;padding:12px">' + storyBuddy(it, have) +
-      '<div style="flex:1;min-width:0"><div style="font-size:16px;color:var(--ink)">' + esc(it.title) + (it.titleZh ? ' <span class="note">' + esc(it.titleZh) + '</span>' : '') + '</div>' +
-      '<div class="note">' + esc(meta) + '</div>' + (it.desc ? '<div class="note" style="margin-top:4px;color:var(--ink)">' + esc(it.desc) + '</div>' : '') +
-      '<div class="row" style="margin-top:8px;gap:8px">' +
-      (have && isSample('story-' + it.id) ? '<button class="sm" onclick="closePop();openBook(\'story-' + it.id + '\')">📖 试读中 · 打开</button>' +
-          (freeNow(it) ? '<button class="sm" onclick="claimFree(\'' + it.id + '\')">🎁 限时免费领取全本</button>' : '<button class="sm" onclick="scBuy(\'' + it.id + '\')">¥' + esc(String(it.price)) + ' 购买全本</button>')
-        : have ? '<button class="sm" onclick="closePop();openBook(\'story-' + it.id + '\')">已领取 · 打开</button>' +
-          ((it.file || tkOf(it.id)) && it.ver && ((shelfGet().find(x => x.id === 'story-' + it.id) || {}).ver || 1) < it.ver ? '<button class="sm" onclick="updateStory(\'' + it.id + '\')">🔄 有更新，点击更新</button>' : '') +
-          (it.voice && (it.file || tkOf(it.id)) && !(shelfGet().find(x => x.id === 'story-' + it.id) || {}).nv ? (voiceDl[it.id] != null ? '<span class="note" id="scVoice-' + it.id + '">语音下载中 ' + voiceDl[it.id] + '%</span>' : '<button class="ghost sm" onclick="getStoryVoice(storyCat.items.find(x => x.id === \'' + it.id + '\'))">⬇ 下载全部语音（离线听）</button>') : '')
-        : free ? '<button class="sm" onclick="getStory(\'' + it.id + '\')">免费获取</button>'
-        : freeNow(it) ? '<button class="sm" onclick="claimFree(\'' + it.id + '\')">🎁 限时免费领取</button><button class="ghost sm" onclick="scBuy(\'' + it.id + '\')">¥' + esc(String(it.price)) + '</button>'
-        : '<button class="sm" onclick="scBuy(\'' + it.id + '\')">¥' + esc(String(it.price)) + ' 购买</button>') +
-      (!have && !free && it.sample ? '<button class="ghost sm" onclick="getSample(\'' + it.id + '\')">📖 免费试读' + (it.sampleCount ? '（' + it.sampleCount + ' 句）' : '') + '</button>' : !have && !free && prev ? '<button class="ghost sm" onclick="scToggle(\'' + it.id + '\')">试读</button>' : '') +
-      (azReady() && it.price ? '<button class="ghost sm" onclick="devSampleBtn(\'' + it.id + '\')">📖 ' + (it.sample ? '更新试读' : '生成试读') + '</button>' : '') +
-      (azReady() ? '<button class="ghost sm" onclick="devEditInfo(\'' + it.id + '\')">✏️ 改信息</button><button class="ghost sm" onclick="devEditText(\'' + it.id + '\')">✏️ 改内容</button>' + (it.price ? '<button class="ghost sm" onclick="devCodes(\'' + it.id + '\')">🎟 兑换码</button>' : '') + '<button class="ghost sm" onclick="devGenVoice(\'' + it.id + '\')">🎙 ' + (it.voice ? '补语音' : '生成语音') + '</button>' : '') +
-      (azReady() ? '<button class="ghost sm" onclick="devUnlist(\'' + it.id + '\')">下架</button>' : '') + '</div>' +
-      (prev ? '<div id="scPrev-' + it.id + '" style="display:none;margin-top:8px">' + prev + '</div>' : '') + '</div></div>';
-  }).join('');
-  if (!items.length) h += '<div class="note">暂时还没有故事上架。</div>';
-  h += '<div class="row" style="margin-top:6px"><button class="ghost sm" onclick="redeemPop()">🎟 我有兑换码</button></div>';
+  if (total > 0) {
+    const chip = (attr, val, label, on, fn) => '<button class="scChip' + (on ? ' on' : '') + '" data-' + attr + '="' + val + '" onclick="' + fn + '">' + label + '</button>';
+    h += '<input id="scSearch" type="search" placeholder="🔍 搜索故事名（英文或中文）" value="' + esc(scQ) + '" oninput="scQ=this.value;scRefresh(true)" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--pop);color:var(--ink);font-size:15px;margin-bottom:8px">' +
+      '<div class="scChips">' + chip('f', 'all', '全部', scF === 'all', "scSetF('all')") + chip('f', 'free', '免费', scF === 'free', "scSetF('free')") + chip('f', 'paid', '收费', scF === 'paid', "scSetF('paid')") + chip('f', 'mine', '已领取', scF === 'mine', "scSetF('mine')") + '</div>' +
+      (lvs.length > 1 ? '<div class="scChips">' + lvs.map(lv => chip('lv', lv, lv, scLv === lv, "scSetLv('" + lv + "')")).join('') + '</div>' : '');
+  }
+  h += '<div id="scItems">' + scListHtml() + '</div>';
   h += (azReady() ? '<div class="row" style="margin-top:6px"><button class="sm" onclick="devNewStoryPop()">＋ 上架新故事（开发者）</button></div>' : '') +
     '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>';
-  showPop(h);
+  showPop(h); scWatchMore();
 }
 function fetchT(url, ms, opt) {                    // 带时间上限的网络请求：网慢时不无限等
   const ctrl = new AbortController(), t = setTimeout(() => ctrl.abort(), ms);
