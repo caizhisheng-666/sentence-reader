@@ -184,7 +184,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.16-94';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.16-95';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1327,7 +1327,7 @@ function azSsml(text, voice) {
 }
 function azErr(code, msg) { const e = new Error(msg); e.code = code; return e; }
 function azHttpMsg(st) {
-  return { 400: '请求无效（音色名可能不对）', 401: 'Key 无效，或区域和 Key 不匹配', 403: '没有权限（Key 无效，或没有开通语音服务）', 404: '终结点不对，请检查区域或自定义终结点', 429: '请求太频繁，或免费额度已用完' }[st] || ('服务返回 HTTP ' + st);
+  return { 400: '请求无效（音色名可能不对）', 401: 'Azure Key 已失效（可能免费试用已到期），或区域和 Key 不匹配。试用到期的话，要在 Azure 升级到即用即付（定价层保持 F0 免费）或换一个 Key', 403: 'Azure 拒绝了这个 Key（可能免费试用已到期、订阅被停用）。试用到期的话，要在 Azure 升级到即用即付（定价层保持 F0 免费）或换一个 Key', 404: '终结点不对，请检查区域或自定义终结点', 429: '请求太频繁，或免费额度已用完' }[st] || ('服务返回 HTTP ' + st);
 }
 async function azHash(str) {
   try { const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str)); return [...new Uint8Array(d)].map(n => n.toString(16).padStart(2, '0')).join(''); }
@@ -1605,16 +1605,17 @@ function devParse(text) {                           // 解析中英对照文本�
 async function devSynth(sents) {                     // 用开发者的 Azure Key 逐句合成。返回 { clips: Map(哈希→音频), voice }；缺句会抛错（再点一次接着做，已合成的不重复收费）
   const voice = azCfg().voice, uniq = new Map();
   for (const t of sents) { const k = await vpKey(t); if (!uniq.has(k)) uniq.set(k, String(t).trim()); }
-  const todo = [...uniq.entries()], clips = new Map(); let i = 0, done = 0, failed = 0;
+  const todo = [...uniq.entries()], clips = new Map(); let i = 0, done = 0, failed = 0, keyErr = '', lastErr = '';
   const worker = async () => {
-    while (i < todo.length && failed < 3) {
+    while (i < todo.length && failed < 3 && !keyErr) {
       const [k, t] = todo[i++]; let ok = false;
-      for (let a = 0; a < 3 && !ok; a++) { try { const r2 = await azLoad(t, voice); clips.set(k, r2.blob); if (!r2.cached) azUsedAdd(t.length); ok = true; } catch (e) { await new Promise(z => setTimeout(z, 700 * (a + 1))); } }
+      for (let a = 0; a < 3 && !ok; a++) { try { const r2 = await azLoad(t, voice); clips.set(k, r2.blob); if (!r2.cached) azUsedAdd(t.length); ok = true; } catch (e) { lastErr = (e && e.message) || ''; if (e && (e.code === 'http401' || e.code === 'http403')) { keyErr = lastErr; break; } await new Promise(z => setTimeout(z, 700 * (a + 1))); } }
       if (!ok) failed++; else { done++; if (done % 5 === 0 || done === todo.length) setScStatus('正在合成语音 ' + done + ' / ' + todo.length + ' 句…（请保持屏幕亮着）'); }
     }
   };
   await Promise.all([worker(), worker(), worker(), worker()]);
-  if (clips.size < todo.length) throw new Error('只合成了 ' + clips.size + ' / ' + todo.length + ' 句（Key、网络或额度有问题）。再点一次会接着做，已经合成的不会重复收费');
+  if (keyErr) throw new Error(keyErr);                     // Key 失效（比如试用到期）：直接说清楚，不再重试
+  if (clips.size < todo.length) throw new Error((lastErr ? lastErr + '。' : '') + '只合成了 ' + clips.size + ' / ' + todo.length + ' 句（Key、网络或额度有问题）。再点一次会接着做，已经合成的不会重复收费');
   return { clips, voice };
 }
 async function devPackStory(man, text, clips) {          // 故事包只放文字（很小，用户马上能读）；语音单独打包（见 devPackVoice）
@@ -1664,7 +1665,7 @@ async function devNewGo() {
   if (!title) { setScStatus('请填英文标题'); return; }
   const id = devSlug(title) || ('s' + Date.now().toString(36));
   const chars = devNew.d.sents.reduce((m, x) => m + x.length, 0);
-  if (wantVoice && azUsed() + chars > AZ_FREE && !confirm('这本约 ' + chars + ' 字符，加上本月已记录的 ' + azUsed() + '，会超出 ' + AZ_FREE + ' 免费额度，超出部分会向微软付费。继续吗？')) return;
+  if (wantVoice && azUsed() + chars > AZ_FREE && !confirm('这本约 ' + chars + ' 字符，加上本月已记录的 ' + azUsed() + '，会超出 ' + AZ_FREE + ' 免费额度。\n\n· 定价层是 F0：超出的会失败，不收费\n· 定价层是 S0、还在免费试用：从试用额度里扣，不收费\n· 已升级即用即付且是 S0：会向微软付费\n\n继续吗？')) return;
   devGenBusy = true; document.getElementById('dnGo').disabled = true;
   try {
     let clips = null, voice = '';
