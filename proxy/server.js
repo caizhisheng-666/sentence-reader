@@ -137,6 +137,8 @@ function cleanItem(b) {
   if (b.voice === true) o.voice = true;
   if (Number.isFinite(+b.ver) && +b.ver >= 1 && +b.ver < 100000) o.ver = Math.round(+b.ver);      // 内容更新次数：买家书架里的版本比它小，就提示“有更新”
   if (typeof b.file === 'string' && /^(api:files\/[A-Za-z0-9._-]{1,90}|stories\/[A-Za-z0-9._-]{1,90})$/.test(b.file)) o.file = b.file;
+  if (typeof b.sample === 'string' && /^api:files\/[a-z0-9][a-z0-9-]{0,59}-sample\.srbook$/.test(b.sample)) o.sample = b.sample;      // 收费故事的免费试读版（比如第一章）
+  if (Number.isFinite(+b.sampleCount) && +b.sampleCount > 0) o.sampleCount = Math.round(+b.sampleCount);
   if (Array.isArray(b.preview)) o.preview = b.preview.slice(0, 5).map(p => ({ en: String((p && p.en) || '').slice(0, 300), zh: String((p && p.zh) || '').slice(0, 300) }));
   return o;
 }
@@ -283,6 +285,14 @@ async function shopRoutes(req, res) {
       const f = path.join(SHOP_PRIV, m[1]); if (!fs.existsSync(f)) return out(404, { error: 'not-found' });
       const h2 = { 'Content-Type': 'application/zip', 'Content-Length': fs.statSync(f).size }; if (okO) { h2['Access-Control-Allow-Origin'] = okO; h2.Vary = 'Origin'; }
       res.writeHead(200, h2); fs.createReadStream(f).pipe(res); return true;
+    }
+    m = /^\/admin\/sample\/([a-z0-9][a-z0-9-]{0,50})$/.exec(url);
+    if (req.method === 'POST' && m) {                  // 试读版的语音：把收费故事里试读那几句的语音复制一份到公开目录
+      const b = JSON.parse(await readBody(req, 200000)), hs = Array.isArray(b.hashes) ? b.hashes.filter(x => /^[0-9a-f]{16,64}$/.test(x)).slice(0, 5000) : [];
+      const src = path.join(SHOP_PRIV, m[1]), dst = path.join(SHOP_FILES, m[1] + '-sample');
+      fs.rmSync(dst, { recursive: true, force: true }); fs.mkdirSync(dst, { recursive: true });
+      let n = 0; for (const h of hs) { const f = path.join(src, h + '.mp3'); if (fs.existsSync(f)) { fs.copyFileSync(f, path.join(dst, h + '.mp3')); n++; } }
+      return out(200, { ok: true, copied: n });
     }
     m = /^\/admin\/clips\/([a-z0-9][a-z0-9-]{0,59})$/.exec(url);
     if (req.method === 'GET' && m) {                   // 这本书服务器上已经有哪些句子的语音（补语音时只做缺的）

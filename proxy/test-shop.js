@@ -100,6 +100,13 @@ const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-toke
   r = await call('/catalog'); pq = JSON.parse(r.b).items.find(x => x.id === 'pay1'); assert.equal(pq.price, 19.9); assert.equal(pq.file, undefined);
   r = await call('/admin/price/pay1', { m: 'POST', h: A, body: '{"price":29}' }); assert.equal(JSON.parse(r.b).moved, '');
   r = await call('/admin/price/nope', { m: 'POST', h: A, body: '{"price":1}' }); assert.equal(r.s, 404);
+  // 试读版：把试读句子的语音复制到公开目录
+  r = await call('/admin/sample/pay1', { m: 'POST', h: A, body: JSON.stringify({ hashes: [HP, 'f'.repeat(64), '../x'] }) }); assert.equal(JSON.parse(r.b).copied, 1);
+  r = await call('/files/pay1-sample/' + HP + '.mp3'); assert.equal(r.b, 'PAID-AUDIO');
+  r = await call('/admin/item', { m: 'POST', h: A, body: JSON.stringify({ id: 'pay1', kind: 'story', title: 'Paid', price: 9.9, sample: 'api:files/pay1-sample.srbook', sampleCount: 30 }) });
+  r = await call('/catalog'); { const q = JSON.parse(r.b).items.find(x => x.id === 'pay1'); assert.equal(q.sample, 'api:files/pay1-sample.srbook'); assert.equal(q.sampleCount, 30); }
+  r = await call('/admin/item', { m: 'POST', h: A, body: JSON.stringify({ id: 'pay1', kind: 'story', title: 'Paid', price: 9.9, sample: 'api:files/../x.srbook' }) });
+  r = await call('/catalog'); assert.equal(JSON.parse(r.b).items.find(x => x.id === 'pay1').sample, undefined);
   // 限时免费
   r = await call('/claim', { m: 'POST', h: O, body: '{"story":"pay1"}' }); assert.equal(r.s, 403);
   r = await call('/admin/item', { m: 'POST', h: A, body: JSON.stringify({ id: 'pay1', kind: 'story', title: 'Paid', price: 29, freeUntil: Date.now() + 86400000 }) }); assert.equal(r.s, 200);
