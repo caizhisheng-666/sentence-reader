@@ -58,6 +58,39 @@ const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-toke
   r = await call('/admin/split/leg', { m: 'POST', h: { Origin: 'https://ok.example' } }); assert.equal(r.s, 401);
   r = await call('/admin/item/kitten-voice', { m: 'DELETE', h: A }); assert.equal(r.s, 200);
   r = await call('/catalog'); const j = JSON.parse(r.b); assert.equal(j.items.length, 0); assert.ok(j.removed.includes('kitten-voice'));
+  // 兑换码：收费故事只发给兑换过的买家
+  const J = Object.assign({}, A), O = { Origin: 'https://ok.example', 'Content-Type': 'application/json' };
+  r = await call('/admin/item', { m: 'POST', h: A, body: JSON.stringify({ id: 'pay1', kind: 'story', title: 'Paid', price: 9.9, buy: '闲鱼搜 喵喵', buyUrl: 'https://m.goofish.com/x', ver: 1 }) }); assert.equal(r.s, 200);
+  r = await call('/catalog'); const pi = JSON.parse(r.b).items.find(x => x.id === 'pay1'); assert.equal(pi.buy, '闲鱼搜 喵喵'); assert.equal(pi.buyUrl, 'https://m.goofish.com/x');
+  r = await call('/admin/item', { m: 'POST', h: A, body: JSON.stringify({ id: 'pay1', buyUrl: 'javascript:alert(1)' }) }); r = await call('/catalog'); assert.equal(JSON.parse(r.b).items.find(x => x.id === 'pay1').buyUrl, 'https://m.goofish.com/x');
+  const PZ = new JSZip(); PZ.file('manifest.json', '{"format":"sr-story","id":"pay1"}'); PZ.file('book.txt', 'Secret text.');
+  r = await call('/admin/file/pay1.srbook?private=1', { m: 'PUT', h: A, body: await PZ.generateAsync({ type: 'nodebuffer' }) }); assert.equal(r.s, 200);
+  const HP = 'e'.repeat(64);
+  const PV = new JSZip(); PV.file('manifest.json', '{}'); PV.file('clips/' + HP + '.mp3', 'PAID-AUDIO');
+  r = await call('/admin/file/pay1.voice.zip?private=1', { m: 'PUT', h: A, body: await PV.generateAsync({ type: 'nodebuffer' }) }); assert.equal(r.s, 200);
+  r = await call('/files/pay1.srbook'); assert.equal(r.s, 404);
+  r = await call('/admin/codes', { m: 'POST', h: A, body: JSON.stringify({ story: 'nope', n: 1 }) }); assert.equal(r.s, 404);
+  r = await call('/admin/codes', { m: 'POST', h: { Origin: 'https://ok.example' }, body: '{}' }); assert.equal(r.s, 401);
+  r = await call('/admin/codes', { m: 'POST', h: A, body: JSON.stringify({ story: 'pay1', n: 3 }) }); assert.equal(r.s, 200);
+  const cs = JSON.parse(r.b).codes; assert.equal(cs.length, 3); assert.ok(/^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(cs[0])); assert.equal(new Set(cs).size, 3);
+  r = await call('/redeem', { m: 'POST', h: O, body: JSON.stringify({ code: 'AAAA-BBBB-CCCC' }) }); assert.equal(r.s, 404);
+  r = await call('/redeem', { m: 'POST', h: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: cs[0] }) }); assert.equal(r.s, 403);
+  r = await call('/redeem', { m: 'POST', h: O, body: JSON.stringify({ code: cs[0].toLowerCase().replace(/-/g, ' ') }) }); assert.equal(r.s, 200);
+  const rd = JSON.parse(r.b); assert.ok(/^[0-9a-f]{32}$/.test(rd.tk)); assert.equal(rd.item.id, 'pay1'); assert.equal(rd.left, 2);
+  r = await call('/pfiles/' + rd.tk + '/story.srbook'); assert.equal(r.s, 200); assert.ok(r.h['content-length'] > 20);
+  r = await call('/pfiles/' + rd.tk + '/' + HP + '.mp3'); assert.equal(r.s, 200); assert.equal(r.b, 'PAID-AUDIO');
+  r = await call('/pfiles/' + rd.tk + '/voice.zip'); assert.equal(r.s, 200);
+  r = await call('/pfiles/' + 'f'.repeat(32) + '/story.srbook'); assert.equal(r.s, 404);
+  r = await call('/pfiles/' + rd.tk + '/..%2f..%2fcatalog.json'); assert.equal(r.s, 404);
+  r = await call('/redeem', { m: 'POST', h: O, body: JSON.stringify({ code: cs[0] }) }); assert.equal(JSON.parse(r.b).tk, rd.tk);
+  await call('/redeem', { m: 'POST', h: O, body: JSON.stringify({ code: cs[0] }) });
+  r = await call('/redeem', { m: 'POST', h: O, body: JSON.stringify({ code: cs[0] }) }); assert.equal(r.s, 403);   // 最多 3 台设备
+  r = await call('/admin/codes?story=pay1', { h: A }); const lst = JSON.parse(r.b).codes; assert.equal(lst.length, 3); assert.equal(lst.find(x => x.code === cs[0]).uses, 3);
+  r = await call('/admin/codes/' + cs[0], { m: 'DELETE', h: A }); assert.equal(r.s, 200);
+  r = await call('/pfiles/' + rd.tk + '/story.srbook'); assert.equal(r.s, 404);   // 撤销后买家凭证失效
+  r = await call('/redeem', { m: 'POST', h: O, body: JSON.stringify({ code: cs[0] }) }); assert.equal(r.s, 404);
+  r = await call('/admin/item/pay1', { m: 'DELETE', h: A }); assert.equal(r.s, 200);
+  r = await call('/admin/codes', { m: 'POST', h: A, body: JSON.stringify({ story: 'pay1', n: 1 }) }); assert.equal(r.s, 404);
   for (let i = 0; i < 9; i++) r = await call('/admin/item', { m: 'POST', h: { Origin: 'https://ok.example', Authorization: 'Bearer nope', 'Content-Type': 'application/json' }, body: '{}' });
   assert.equal(r.s, 429);
   console.log('SHOP OK'); process.exit(0);

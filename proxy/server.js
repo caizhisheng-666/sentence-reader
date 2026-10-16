@@ -129,9 +129,10 @@ function cleanItem(b) {
   const id = String(b.id || ''), title = String(b.title || '').slice(0, 120);
   if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(id) || !title) return null;
   const o = { id, kind, title };
-  for (const k of ['titleZh', 'level', 'desc', 'forId']) if (typeof b[k] === 'string' && b[k]) o[k] = b[k].slice(0, 400);
+  for (const k of ['titleZh', 'level', 'desc', 'forId', 'buy']) if (typeof b[k] === 'string' && b[k]) o[k] = b[k].slice(0, 400);
   if (Number.isFinite(+b.count) && +b.count > 0) o.count = Math.round(+b.count);
   if (Number.isFinite(+b.price) && +b.price > 0 && +b.price < 100000) o.price = Math.round(+b.price * 100) / 100;
+  if (typeof b.buyUrl === 'string' && /^https:\/\/[^\s<>"']{4,300}$/.test(b.buyUrl)) o.buyUrl = b.buyUrl;      // 购买链接（比如闲鱼商品页），只收 https
   if (b.voice === true) o.voice = true;
   if (Number.isFinite(+b.ver) && +b.ver >= 1 && +b.ver < 100000) o.ver = Math.round(+b.ver);      // 内容更新次数：买家书架里的版本比它小，就提示“有更新”
   if (typeof b.file === 'string' && /^(api:files\/[A-Za-z0-9._-]{1,90}|stories\/[A-Za-z0-9._-]{1,90})$/.test(b.file)) o.file = b.file;
@@ -187,6 +188,26 @@ function rebuildVoiceZip(id, priv) {                // 增量补了几句语音�
   fs.writeFileSync(tmp, zipStore([{ name: 'manifest.json', data: Buffer.from(JSON.stringify({ format: 'sr-voicepack', v: 1, id: 'story-' + id, count: files.length })) }, ...ents]));
   fs.renameSync(tmp, target); return files.length;
 }
+// ---- 兑换码：买家在闲鱼等地方付款后拿到兑换码，在软件里输入，服务器核对后把收费故事发给他 ----
+const CODES_FILE = path.join(SHOP_DIR, 'codes.json'), CODE_ALPHA = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789', CODE_MAX_USES = 3;
+function codesRead() { try { const j = JSON.parse(fs.readFileSync(CODES_FILE, 'utf8')); return j && j.codes ? j : { codes: {} }; } catch (e) { return { codes: {} }; } }
+function codesWrite(j) { fs.mkdirSync(SHOP_DIR, { recursive: true }); const t = CODES_FILE + '.tmp'; fs.writeFileSync(t, JSON.stringify(j)); fs.renameSync(t, CODES_FILE); }
+const normCode = x => String(x || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+const fmtCode = c => c.replace(/(.{4})(?=.)/g, '$1-');
+function genCode() { let c = ''; for (let i = 0; i < 12; i++) c += CODE_ALPHA[crypto.randomInt(CODE_ALPHA.length)]; return c; }
+const redeemFails = new Map();
+function redeemLimited(ip, fail) {
+  const now = Date.now(), arr = (redeemFails.get(ip) || []).filter(t => now - t < 600000);
+  if (fail) { arr.push(now); redeemFails.set(ip, arr); if (redeemFails.size > 5000) for (const [k, v] of redeemFails) if (!v.length || now - v[v.length - 1] > 600000) redeemFails.delete(k); }
+  return arr.length >= 10;
+}
+let tkCache = { m: 0, map: new Map() };
+function tokenLookup(tk) {                        // 买家凭证 → 他买的那本故事（兑换码被撤销就失效）
+  if (!/^[0-9a-f]{32}$/.test(tk)) return null;
+  let st; try { st = fs.statSync(CODES_FILE); } catch (e) { return null; }
+  if (st.mtimeMs !== tkCache.m) { const map = new Map(), j = codesRead(); for (const r of Object.values(j.codes)) if (r.tk && !r.revoked) map.set(r.tk, r.story); tkCache = { m: st.mtimeMs, map }; }
+  return tkCache.map.get(tk) || null;
+}
 function readBody(req, limit) {
   return new Promise((ok, no) => { let raw = '', n = 0; req.on('data', c => { n += c.length; if (n <= limit) raw += c; }); req.on('end', () => n > limit ? no(new Error('too-big')) : ok(raw)); req.on('error', no); });
 }
@@ -199,6 +220,28 @@ async function shopRoutes(req, res) {
     const f = path.join(SHOP_FILES, cm[1], cm[2] + '.mp3');
     if (!fs.existsSync(f)) { res.writeHead(404, pubHead); res.end(); return true; }
     res.writeHead(200, { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=86400', 'Content-Type': 'audio/mpeg', 'Content-Length': fs.statSync(f).size }); fs.createReadStream(f).pipe(res); return true;
+  }
+  const pm = /^\/pfiles\/([0-9a-f]{32})\/(story\.srbook|voice\.zip|[0-9a-f]{16,64}\.mp3)$/.exec(url);
+  if (req.method === 'GET' && pm) {                 // 收费故事：只有兑换过的买家（凭证）才能取文字和语音
+    const sid = tokenLookup(pm[1]), seg = pm[2];
+    const f = !sid ? '' : seg === 'story.srbook' ? path.join(SHOP_PRIV, sid + '.srbook') : seg === 'voice.zip' ? path.join(SHOP_PRIV, sid + '.voice.zip') : path.join(SHOP_PRIV, sid, seg);
+    if (!f || !fs.existsSync(f)) { res.writeHead(404, pubHead); res.end(); return true; }
+    const mp3 = /\.mp3$/.test(seg);
+    res.writeHead(200, { 'Access-Control-Allow-Origin': '*', 'Cache-Control': mp3 ? 'private, max-age=86400' : 'no-store', 'Content-Type': mp3 ? 'audio/mpeg' : 'application/zip', 'Content-Length': fs.statSync(f).size }); fs.createReadStream(f).pipe(res); return true;
+  }
+  if (req.method === 'POST' && url === '/redeem') {
+    const origin0 = req.headers.origin, okO0 = origin0 && ALLOW.includes(origin0) ? origin0 : null;
+    const hd0 = { 'Content-Type': 'application/json; charset=utf-8' }; if (okO0) { hd0['Access-Control-Allow-Origin'] = okO0; hd0.Vary = 'Origin'; }
+    const out0 = (c, o) => { res.writeHead(c, hd0); res.end(JSON.stringify(o)); return true; };
+    if (!okO0) return out0(403, { error: 'origin-not-allowed' });
+    if (redeemLimited(ip, false)) return out0(429, { error: 'too-many-failures' });
+    let b; try { b = JSON.parse(await readBody(req, 2000)); } catch (e) { return out0(400, { error: 'bad-request' }); }
+    const code = normCode(b && b.code), j = codesRead(), rec = code.length === 12 ? j.codes[code] : null;
+    if (!rec || rec.revoked) { redeemLimited(ip, true); return out0(404, { error: 'bad-code' }); }
+    if ((rec.uses || 0) >= CODE_MAX_USES) return out0(403, { error: 'used-up' });
+    const item = shopRead().items.find(x => x.id === rec.story); if (!item) return out0(404, { error: 'story-gone' });
+    rec.uses = (rec.uses || 0) + 1; rec.lastAt = new Date().toISOString(); if (!rec.tk) rec.tk = crypto.randomBytes(16).toString('hex');
+    codesWrite(j); return out0(200, { ok: true, tk: rec.tk, item, left: CODE_MAX_USES - rec.uses });
   }
   let m = /^\/files\/([A-Za-z0-9._-]{1,90})$/.exec(url);
   if (req.method === 'GET' && m) {
@@ -224,6 +267,24 @@ async function shopRoutes(req, res) {
     if (req.method === 'GET' && m) {                   // 这本书服务器上已经有哪些句子的语音（补语音时只做缺的）
       const have = new Set(); for (const base of [SHOP_FILES, SHOP_PRIV]) { try { for (const f of fs.readdirSync(path.join(base, m[1]))) { const h = /^([0-9a-f]{16,64})\.mp3$/.exec(f); if (h) have.add(h[1]); } } catch (e) {} }
       return out(200, { have: [...have] });
+    }
+    if (req.method === 'POST' && url === '/admin/codes') {          // 给某本收费故事批量生成兑换码
+      const b = JSON.parse(await readBody(req, 2000)), n = Math.max(1, Math.min(200, Math.round(+b.n || 1)));
+      const it = shopRead().items.find(x => x.id === b.story); if (!it) return out(404, { error: 'story-not-found' });
+      if (!it.price) return out(400, { error: 'story-is-free' });
+      const j = codesRead(), made = [];
+      while (made.length < n) { const c = genCode(); if (j.codes[c]) continue; j.codes[c] = { story: it.id, at: new Date().toISOString(), uses: 0 }; made.push(fmtCode(c)); }
+      codesWrite(j); return out(200, { ok: true, codes: made });
+    }
+    if (req.method === 'GET' && url === '/admin/codes') {
+      const q = new URL(req.url, 'http://x').searchParams.get('story') || '', j = codesRead();
+      const list = Object.entries(j.codes).filter(([, r]) => !q || r.story === q).map(([c, r]) => ({ code: fmtCode(c), story: r.story, at: r.at, uses: r.uses || 0, revoked: !!r.revoked })).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 1000);
+      return out(200, { codes: list, max: CODE_MAX_USES });
+    }
+    m = /^\/admin\/codes\/([A-Za-z0-9-]{12,20})$/.exec(url);
+    if (req.method === 'DELETE' && m) {
+      const j = codesRead(), c = normCode(m[1]); if (!j.codes[c]) return out(404, { error: 'not-found' });
+      j.codes[c].revoked = true; codesWrite(j); return out(200, { ok: true });
     }
     if (req.method === 'POST' && url === '/admin/item') {
       const it = cleanItem(JSON.parse(await readBody(req, 20000))); if (!it) return out(400, { error: 'bad-item' });
