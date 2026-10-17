@@ -236,7 +236,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-130';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-131';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1184,14 +1184,14 @@ function applyVoiceSync(u) {
   if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'en-US'; }
 }
 /* ---------- 语速 ---------- */
-const RATE_STEPS = [0.5, 0.6, 0.75, 0.9, 1.0, 1.25, 1.5, 1.75, 2.0];
-function getRate() { const r = parseFloat(localStorage.getItem('sr_rate')); return RATE_STEPS.includes(r) ? r : 0.9; }
+const RATE_SLOW = 0.7;                             // 只有两档：正常（1 倍）和慢速（0.7 倍）
+function getRate() { const r = parseFloat(localStorage.getItem('sr_rate')); return r && r < 0.85 ? RATE_SLOW : 1.0; }   // 以前选过 0.5～0.75 的归到慢速，其余（包括以前默认的 0.9）都是正常
+function isSlow() { return getRate() === RATE_SLOW; }
 function cycleRate() {
-  const steps = RATE_STEPS, cur = getRate();
-  const idx = (steps.indexOf(cur) + 1) % steps.length;
-  localStorage.setItem('sr_rate', String(steps[idx]));
+  const slow = !isSlow();
+  localStorage.setItem('sr_rate', String(slow ? RATE_SLOW : 1.0));
   render();
-  toast('语速 ' + steps[idx] + 'x', 1800);
+  toast(slow ? '🐢 已改成慢速' : '🐇 已改回正常速度', 1800);
   if (azActive && azAudio) { azAudio.playbackRate = getRate(); azAudio.defaultPlaybackRate = getRate(); }      // 自然语音：播放器变速，马上生效
   else if (azReady()) speakText('This is how fast I read.');
   else previewRate();                            // 马上用新速度念一句，能听出有没有变化
@@ -1279,14 +1279,14 @@ function recordRateProbe(key, rate, ms) {
   arr.push({ rate, ms: Math.round(ms) });
   for (const q of arr.slice(0, -1)) {
     const hi = Math.max(q.rate, rate), lo = Math.min(q.rate, rate);
-    if (hi / lo < 1.5) continue;
+    if (hi / lo < 1.35) continue;
     const slowMs = q.rate < rate ? q.ms : ms, fastMs = q.rate < rate ? ms : q.ms;
     rateIgnored[key] = (slowMs / fastMs) < 1.15;   // 正常情况下，慢的那次应该明显更久
     break;
   }
   if (rateIgnored[key] && !rateNotified[key]) {
     rateNotified[key] = true;
-    toast('这个声音在你的手机上好像不支持调速（换几档速度，念的时长都差不多）。可以换个声音试试。', 7000);
+    toast('这个声音在你的手机上好像不支持调速（换成慢速，念的时长也差不多）。可以换个声音试试。', 7000);
   }
   if (state) render();
 }
@@ -3164,7 +3164,7 @@ function openHelp() {
     '<div class="note">遇到问题（没声音、录不了音、材料导入不对等），先点“复制诊断信息”，粘贴发给发你链接的人。诊断信息只有设备和软件状态，没有材料的内容和你的录音。</div>' +
     sec('快速上手',
       li('点句子里的<b>单词</b>查词，点哪个词就读哪个词，同时弹出解释。') + li('点底部的 <b>▶ 朗读</b>，念到哪个词哪个词会亮；旁边的下拉菜单可以换美音、英音。') + li('<b>声音只有几个？</b>iPhone、iPad 网页版只能用系统自带的声音（苹果的限制），推荐选 <b>🎧 自然语音</b>；安卓手机和电脑可以在系统设置里下载更多英语声音，电脑用 Edge 浏览器打开还能直接用几十个在线声音。') +
-      li('<b>🎙 跟读</b>：录下自己读这一句，联网时会给发音打分（每个词都有分）。最近 3 次录音保存在本机，能看进步，点“🔁 对比听”连着听原声和自己的。') + li('<b>点“0.9x”这样的语速按钮没变化？</b>有些手机或声音不支持调速，软件会自动检测并提示。这时可以换一个声音试试。') +
+      li('<b>🎙 跟读</b>：录下自己读这一句，联网时会给发音打分（每个词都有分）。最近 3 次录音保存在本机，能看进步，点“🔁 对比听”连着听原声和自己的。') + li('<b>🐇 正常 / 🐢 慢速</b>：听不清的时候点一下改成慢速，再点一下改回正常。如果点了没变化，是这个声音不支持调速，软件会提示，换一个声音试试。') +
       li('顶部 <b>整页翻译</b> 把一页的句子连同中文一起列出来，点句子就读；<b>目录</b> 可以跳到任意页；右上角 <b>···</b> 里有语音包、词典、语法字典和帮助。') +
       li('装到手机桌面：iPhone 用 Safari，点分享 → 添加到主屏幕；安卓用 Chrome，点 ⋮ → 安装应用。<b>装好后请在桌面图标里导入材料（打开软件先是“我的学习”，点“＋ 导入”）</b>，浏览器和桌面图标的数据是分开的。'), true) +
     sec('隐私与数据',
@@ -3807,7 +3807,7 @@ function render() {
     '<div class="bctl">' +
       '<div class="row onerow">' +
           voiceSelectHtml() +
-          '<button class="ghost sm" onclick="cycleRate()" aria-label="语速" title="' + (rateIgnored[voiceKeyNow()] ? '这个声音不支持调速' : '语速，点一下换一档') + '">' + getRate() + 'x' + (rateIgnored[voiceKeyNow()] ? ' ⚠' : '') + '</button>' +
+          '<button class="' + (isSlow() ? 'sm rateslow' : 'ghost sm') + '" onclick="cycleRate()" aria-label="' + (isSlow() ? '现在是慢速，点一下改回正常' : '现在是正常速度，点一下改成慢速') + '" title="' + (rateIgnored[voiceKeyNow()] ? '这个声音不支持调速' : '点一下切换正常 / 慢速') + '">' + (isSlow() ? '🐢 慢速' : '🐇 正常') + (rateIgnored[voiceKeyNow()] ? ' ⚠' : '') + '</button>' +
           '<button class="recbtn ' + (rec.on ? 'on' : '') + '" onclick="toggleRecord()">' + (rec.on ? '■ 停止 <span id="recTime">0.0 秒</span>' : recWait ? '⏳ 正在打开麦克风…' : '🎙 跟读') + '</button>' +
         '</div>' + '</div>' +
     '<div class="bbin">' +
