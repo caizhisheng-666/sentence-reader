@@ -210,7 +210,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-120';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-121';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -333,7 +333,12 @@ let saveTimer = null;
 function saveState() {
   if (!state) return;
   const l = shelfGet(), e = l.find(x => x.id === state.bookId);
-  if (e) { e.idx = state.idx; e.lastAt = Date.now(); e.total = state.sentences.length; shelfSet(l); }
+  if (e) {
+    e.idx = state.idx; e.lastAt = Date.now(); e.total = state.sentences.length;
+    e.max = Math.max(e.max || 0, e.idx);                 // 最远读到哪里：往回翻、从目录跳回前面，都不会把“读完”/进度冲掉
+    if (e.idx >= e.total) e.done = 1;
+    shelfSet(l);
+  }
   clearTimeout(saveTimer); saveTimer = setTimeout(flushState, 500);       // 整本书的数据比较大，隔一会儿再写一次
 }
 async function flushState() {
@@ -420,14 +425,15 @@ function shelfHtml() {
     return html;
   }
   html += '<div class="shelf">' + l.map(b => {
-    const pct = b.total ? Math.min(100, Math.round((b.idx || 0) / b.total * 100)) : 0;
-    const status = !b.total ? '' : (b.idx >= b.total ? '读完' : ((b.idx || 0) > 0 ? pct + '%' : '未读'));
+    const far = Math.max(b.max || 0, b.idx || 0), done = !!b.done || (b.total && far >= b.total);
+    const pct = b.total ? Math.min(100, Math.round(far / b.total * 100)) : 0;
+    const status = !b.total ? '' : (done ? '读完' : (far > 0 ? pct + '%' : '未读'));
     const on = sel && sel.has(b.id);
     return '<div class="bk' + (on ? ' on' : '') + '" onclick="shelfTap(\'' + b.id + '\')">' +
-      '<div class="cover house">' + buddySvg(b.id, (b.idx || 0) > 0) + '<span><b>' + esc(b.title || '') + '</b></span>' +
-      (b.sample ? '<i class="done" style="background:#6f9fd8">试读</i>' : b.total && b.idx >= b.total ? '<i class="done">读完</i>' : '') +
+      '<div class="cover house">' + buddySvg(b.id, far > 0) + '<span><b>' + esc(b.title || '') + '</b></span>' +
+      (b.sample ? '<i class="done" style="background:#6f9fd8">试读</i>' : done ? '<i class="done">读完</i>' : '') +
       (sel ? '<i class="chk">' + (on ? '✓' : '') + '</i>' : '') + '</div>' +
-      '<div class="bs">' + (status && !(b.idx >= b.total) ? status : '&nbsp;') + '</div></div>';
+      '<div class="bs">' + (done ? (b.idx < b.total ? '重读中 ' + Math.round((b.idx || 0) / b.total * 100) + '%' : '&nbsp;') : status || '&nbsp;') + '</div></div>';
   }).join('') + '</div>';
   if (sel) html += '<div class="selbar"><span class="note">已选 ' + sel.size + ' 个</span><button ' + (sel.size ? '' : 'disabled ') + 'style="background:#b94a48" onclick="deleteSelectedBooks()">删除</button></div>';
   return html;
@@ -2321,6 +2327,10 @@ function scWatchMore() {
 function scSetF(f) { scF = f; scRefresh(true); }
 function scSetLv(lv) { scLv = lv; scRefresh(true); }
 function renderStoryCity(err) {
+  try { renderStoryCity0(err); }
+  catch (e) { showPop('<h3 style="margin:0 0 6px">📚 学习材料</h3><div class="note" style="color:#b94a48">目录显示出错了（' + esc(e && e.message || '未知错误') + '），请关掉再点一次“学习材料”。</div>'); }
+}
+function renderStoryCity0(err) {
   scQ = ''; scF = 'all';                               // 搜索和商城式分类已去掉，只按难度筛
   const total = scFiltered().total, lvs = [...new Set(((storyCat && storyCat.items) || []).map(x => String(x.level || '').slice(0, 2).toUpperCase()).filter(x => /^[ABC][12]$/.test(x)))].sort();
   let h = '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 6px"><h3 id="scList" style="margin:0">📚 学习材料</h3><button class="link" style="font-size:14px" onclick="redeemPop()">🔑 我有激活码</button></div><div class="note" style="margin-bottom:10px">' + esc((storyCat && storyCat.intro) || '中英对照学习材料，点单词发音，点句子朗读。') + '</div>';
@@ -2340,10 +2350,16 @@ function fetchT(url, ms, opt) {                    // 带时间上限的网络�
 }
 function catCacheGet() { try { return JSON.parse(localStorage.getItem('sr_cat_cache') || 'null'); } catch (e) { return null; } }
 function catCacheSet(c) { try { localStorage.setItem('sr_cat_cache', JSON.stringify(c)); } catch (e) {} }
+function fetchJsonT(url, ms) {                      // 连“下载内容”也算在时限里：网慢时不会一直卡在“正在加载…”
+  return new Promise(res => {
+    const ctrl = new AbortController(), t = setTimeout(() => { ctrl.abort(); res(null); }, ms);
+    fetch(url, { cache: 'no-store', signal: ctrl.signal }).then(r => r.ok ? r.json() : null).then(j => { clearTimeout(t); res(j); }, () => { clearTimeout(t); res(null); });
+  });
+}
 async function fetchStoryCat() {
   const [loc, srv] = await Promise.all([
-    fetchT('stories/catalog.json?t=' + Date.now(), 6000, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
-    fetchT(SHOP_BASE + '/catalog?t=' + Date.now(), 6000, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
+    fetchJsonT('stories/catalog.json?t=' + Date.now(), 8000),
+    fetchJsonT(SHOP_BASE + '/catalog?t=' + Date.now(), 8000)
   ]);
   if (!loc && !srv) return null;
   const base = loc || { items: [] }, sv = srv || { items: [], removed: [] };
@@ -2373,8 +2389,9 @@ async function openStoryCity(fresh) {               // fresh = 刚上架/修改�
     return;
   }
   showPop('<h3 style="margin:0 0 6px">📚 学习材料</h3><div class="note">正在加载…</div>');
-  const cat = await fetchStoryCat();
+  let cat = null; try { cat = await fetchStoryCat(); } catch (e) {}
   if (cat) storyCat = cat;
+  if (!document.getElementById('overlay').classList.contains('show')) return;    // 用户已经关掉了
   renderStoryCity(cat ? '' : (storyCat ? '没连上网，显示的是上次的目录。' : '材料目录加载失败，请检查网络后再点一次“学习材料”。'));
 }
 /* ---------- 语音包：买来的“一句一个音频”文件包，导入后每句优先播放包里的声音 ---------- */
@@ -2756,7 +2773,7 @@ async function wordClick(i, el) {
     const td = r.t ? defSplit(r.t) : null;
     ent += '<div class="dentry"><div><b>' + esc(r.head) + '</b>' + (r.p ? '<span class="ph">/' + esc(r.p) + '/</span>' : '') + '<span class="src">' + r.src + '</span></div>' +
       (r.note ? '<div class="note">' + esc(r.note) + '</div>' : '') +
-      (td ? '<div class="zhdef">' + fmt(td.main) + '</div>' + (td.rest ? '<details class="defmore"><summary>更多释义（含不常用的意思）</summary><div class="zhdef" style="color:var(--sub)">' + fmt(td.rest) + '</div></details>' : '') : '') +
+      (td ? '<div class="zhdef">' + fmt(td.main) + '</div>' + (td.rest ? '<details class="defmore"><summary>更多释义（不常用，一般读书用不到）</summary><div class="zhdef" style="color:var(--sub)">' + fmt(td.rest) + '</div></details>' : '') : '') +
       (r.d ? '<div class="endef">' + fmt(r.d) + '</div>' : '') + '</div>';
     if (!curWordZh) curWordZh = r.t || r.d || '';
   });
@@ -3026,9 +3043,11 @@ function renderSentenceHTML(sentence) {
     const start = pos; pos += tok.length;
     if (!tok || /^\s+$/.test(tok)) return tok;
     if (!/[A-Za-z]/.test(tok)) return esc(tok);
-    const i = curTokens.push(tok) - 1;
-    curTokenPos.push({ start, end: start + tok.length });
-    return '<span class="w" data-i="' + i + '" tabindex="0" role="button" onclick="wordClick(' + i + ',this)" onkeydown="if(event.key===\'Enter\')wordClick(' + i + ',this)">' + esc(tok) + '</span>';
+    const m = /^([^A-Za-z0-9]*)(.*[A-Za-z0-9])([^A-Za-z0-9]*)$/.exec(tok) || ['', '', tok, ''];   // 引号、句号等标点不算进单词按钮：home." → home + ."
+    const core = m[2], s0 = start + m[1].length;
+    const i = curTokens.push(core) - 1;
+    curTokenPos.push({ start: s0, end: s0 + core.length });
+    return esc(m[1]) + '<span class="w" data-i="' + i + '" tabindex="0" role="button" onclick="wordClick(' + i + ',this)" onkeydown="if(event.key===\'Enter\')wordClick(' + i + ',this)">' + esc(core) + '</span>' + esc(m[3]);
   }).join('');
 }
 
