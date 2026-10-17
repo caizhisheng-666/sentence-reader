@@ -57,10 +57,11 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .badge{background:var(--soft);color:var(--accent);border-radius:999px;padding:2px 10px;font-weight:600;font-size:12px}
 .sentence .w.speaking,.pgsent .w.speaking{background:var(--accent);color:#fff;border-radius:5px;box-shadow:0 0 0 3px var(--accent)}
 .onerow{flex-wrap:nowrap!important;gap:8px!important;align-items:center}
-@media (max-width:380px){.onerow{gap:6px!important}.onerow>button{padding-left:11px;padding-right:11px}.onerow .voicesel{padding-left:4px;padding-right:2px}}
+@media (max-width:380px){.onerow{gap:6px!important}.onerow>button{padding-left:11px;padding-right:11px}.onerow .voicesel{padding-left:10px;padding-right:24px}}
 .onerow>button{flex:none;white-space:nowrap}
 .onerow .voicesel{flex:1 1 auto;min-width:0;max-width:none}
-.voicesel{max-width:185px;border:1px solid var(--line);border-radius:10px;padding:9px 6px;font-size:13px;background:var(--pop);color:var(--ink);font-family:inherit}
+.voicesel{max-width:185px;border:none;border-radius:999px;padding:9px 28px 9px 14px;font-size:14px;font-weight:500;color:var(--accent);font-family:inherit;-webkit-appearance:none;appearance:none;
+  background:var(--soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5l3.5 3.5 3.5-3.5' fill='none' stroke='%23b5651d' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 11px center}
 .navsticky{position:sticky;top:env(safe-area-inset-top,0px);z-index:15;background:var(--bg);padding:8px 0;margin-bottom:8px;border-bottom:1px solid var(--line)}
 .navsticky .row{flex-wrap:nowrap}
 .progressline{height:3px;background:var(--line);border-radius:3px;overflow:hidden;margin:10px 0 18px}
@@ -110,6 +111,11 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .pw.mid{background:rgba(242,179,58,.2);color:#9a6a00}
 .pw.bad{background:rgba(229,83,75,.16);color:#c0392b}
 .pw.om{background:rgba(0,0,0,.06);color:#999;text-decoration:line-through}
+.freebadge{display:inline-block;margin:4px 0 2px;padding:2px 10px;border-radius:999px;background:#e8f5ec;color:#2e8b47;font-size:13px;font-weight:600}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .freebadge{background:rgba(52,168,83,.18);color:#7fd39a}}
+:root[data-theme="dark"] .freebadge{background:rgba(52,168,83,.18);color:#7fd39a}
+.hometip{margin:18px 2px 0;padding:14px 16px;border-radius:14px;background:var(--soft);color:var(--ink);font-size:14px;line-height:1.7}
+.hometip b{color:var(--accent)}
 .scChips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
 .scChip{background:var(--chip,rgba(0,0,0,.05));color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:13px;cursor:pointer}
 .scChip.on{background:var(--accent);color:#fff;border-color:var(--accent)}
@@ -230,7 +236,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-126';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-127';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1094,10 +1100,11 @@ function gsHtml(g) {
   return h;
 }
 function getAnalysis() {
-  if (analysisCache.idx === state.idx) return analysisCache.res;
+  const sk = state.sentences[state.idx];
+  if (analysisCache.idx === state.idx && analysisCache.s === sk) return analysisCache.res;   // 按句子内容判断，换书时不会闪出上一本同位置那句的讲解
   let res = null;
   try { res = EG.analyze(state.sentences[state.idx]); } catch (e) { res = { summary: '', items: [] }; }
-  analysisCache = { idx: state.idx, res };
+  analysisCache = { idx: state.idx, s: sk, res };
   return res;
 }
 
@@ -2292,10 +2299,11 @@ const LV_CN = { A1: 'A1 入门', A2: 'A2 初级', B1: 'B1 中级', B2: 'B2 中�
 function lvLabel(l) { const m = /\b([ABC][12])\b/i.exec(String(l || '')); return m ? LV_CN[m[1].toUpperCase()] : String(l || '').trim(); }   // 难度标签统一写成“B2 中高级”
 function scCard(it, owned) {
   const have = owned.has('story-' + it.id), free = !it.price;
-  const meta = [freeNow(it) ? '限时免费 · 到' + fmtDay(it.freeUntil - 1) : '', lvLabel(it.level), it.count ? it.count + ' 句' : '', it.voice ? '🎧 含自然语音' : ''].filter(Boolean).join(' · ');
+  const meta = [lvLabel(it.level), it.count ? it.count + ' 句' : '', it.voice ? '🎧 含自然语音' : ''].filter(Boolean).join(' · ');
   const prev = (it.preview || []).map(p => '<div style="margin:6px 0"><div>' + esc(p.en || '') + '</div><div class="note">' + esc(p.zh || '') + '</div></div>').join('');
   return '<div class="card" style="display:flex;gap:12px;margin-bottom:10px;padding:12px">' + storyBuddy(it, have) +
     '<div style="flex:1;min-width:0"><div style="font-size:16px;color:var(--ink)">' + esc(it.title) + (it.titleZh ? ' <span class="note">' + esc(it.titleZh) + '</span>' : '') + '</div>' +
+    (freeNow(it) && !(have && !isSample('story-' + it.id)) ? '<div class="freebadge">🎁 限时免费 · 到 ' + esc(fmtDay(it.freeUntil - 1)) + '</div>' : '') +
     '<div class="note">' + esc(meta) + '</div>' + (it.desc ? '<div class="note" style="margin-top:4px;color:var(--ink)">' + esc(it.desc) + '</div>' : '') +
     '<div class="row" style="margin-top:8px;gap:8px">' +
     (have && isSample('story-' + it.id) ? '<button class="sm" onclick="closePop();openBook(\'story-' + it.id + '\')">📖 继续体验</button>' +
@@ -2356,7 +2364,7 @@ function renderStoryCity0(err) {
   scQ = ''; scF = 'all';                               // 搜索和商城式分类已去掉，只按难度筛
   const total = scFiltered().total, lvs = [...new Set(((storyCat && storyCat.items) || []).map(x => String(x.level || '').slice(0, 2).toUpperCase()).filter(x => /^[ABC][12]$/.test(x)))].sort();
   let h = '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 6px"><h3 id="scList" style="margin:0">📚 学习材料</h3><button class="link" style="font-size:14px" onclick="redeemPop()">🔑 我有激活码</button></div><div class="note" style="margin-bottom:10px">' + esc((storyCat && storyCat.intro) || '中英对照学习材料，点单词发音，点句子朗读。') + '</div>';
-  if (err) h += '<div class="note" style="color:#b94a48;margin-bottom:8px">' + esc(err) + '</div>';
+  if (err) h += '<div class="note" style="color:#b94a48;margin-bottom:8px">' + esc(err) + ' <button class="ghost sm" style="margin-left:4px" onclick="openStoryCity(true)">🔄 重新加载</button></div>';
   if (total > 0) {
     const chip = (attr, val, label, on, fn) => '<button class="scChip' + (on ? ' on' : '') + '" data-' + attr + '="' + val + '" onclick="' + fn + '">' + label + '</button>';
     h += (lvs.length ? '<div class="scChips">' + chip('lv', '', '全部', scLv === '', "scSetLv('')") + lvs.map(lv => chip('lv', lv, lv, scLv === lv, "scSetLv('" + lv + "')")).join('') + '<button class="scChip" style="border-style:dashed" onclick="levelHelp()">❓ 怎么选等级</button></div>' : '');
@@ -3740,8 +3748,9 @@ function render() {
 
   if (!state) {
     app.innerHTML = header + shelfHtml() +
-      '<div class="note" style="margin:16px 4px 0">点单词查词、语法讲解、跟读录音都可以离线使用。整句翻译需要联网。' +
-      (dictInfo && dictInfo.count ? '离线大词典已就绪（' + dictInfo.count.toLocaleString() + ' 词条）。' : '离线大词典会在联网时自动后台下载，也可在右上角“···”菜单里查看进度。') + '</div>';
+      '<div class="hometip"><b>怎么学：</b>打开一份材料，一句一句读 → 不认识的词点一下就能查 → 点“🎙 跟读”读一遍，马上给你的发音打分。<br>' +
+      '<span class="sub" style="font-size:13px">查词、语法讲解、跟读录音不联网也能用；整句翻译和发音打分需要联网。' +
+      (dictInfo && dictInfo.count ? '离线大词典已就绪（' + dictInfo.count.toLocaleString() + ' 词条）。' : '离线大词典会在联网时自动后台下载。') + '</span></div>';
     return;
   }
   if (state.idx >= state.sentences.length) {
