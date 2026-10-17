@@ -230,7 +230,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-125';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-126';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2776,8 +2776,8 @@ function pronHtml() {
   if (v.curves) h += curveSvg(v.curves);
   return h + '</div>';
 }
-const IC_PLAY = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>';
-const IC_PAUSE = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="6.5" y="5.5" width="4" height="13" rx="1" fill="currentColor"/><rect x="13.5" y="5.5" width="4" height="13" rx="1" fill="currentColor"/></svg>';
+const IC_PLAY = '<svg class="spk" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>';
+const IC_PAUSE = '<svg class="spk" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="6.5" y="5.5" width="4" height="13" rx="1" fill="currentColor"/><rect x="13.5" y="5.5" width="4" height="13" rx="1" fill="currentColor"/></svg>';
 let cmpRun = 0;
 function recStop() {
   cmpRun++; const cb = document.getElementById('cmpbtn'); if (cb) cb.textContent = '🔁 对比听（原声 → 我的）';
@@ -3548,7 +3548,7 @@ function pgWordsHtml(idx) {
 function pgRowHtml(idx) {
   const cur = idx === state.idx;
   return '<div id="pgs-' + idx + '" style="display:flex;gap:10px;align-items:flex-start;padding:10px ' + (cur ? '8px' : '0') + ';border-bottom:1px solid var(--line);' + (cur ? 'background:var(--pop);border-radius:10px' : '') + '">' +
-    '<button class="pgplay" onclick="pgSpeak(' + idx + ')" aria-label="朗读这一句" title="朗读这一句">' + SPK_OFF + '</button>' +
+    '<button class="pgplay" onclick="pgSpeak(' + idx + ')" aria-label="朗读这一句" title="朗读这一句">' + IC_PLAY + '</button>' +
     '<div style="flex:1;min-width:0">' +
       '<div class="pgsent" style="font-size:17px;line-height:1.6">' + pgWordsHtml(idx) + '</div>' +
       (getShowZh() ? '<div class="zh" id="pgz-' + idx + '" style="margin-top:4px;font-size:14px">' + pgTransHtml(idx) + '</div>' : '') +
@@ -3576,9 +3576,9 @@ const SPK_OFF = '<svg class="spk" viewBox="0 0 24 24" width="22" height="22" ari
 const SPK_ON = '<svg class="spk on" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">' + SPK_BODY + '<path d="M15.8 9a4.2 4.2 0 0 1 0 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M18.6 6.4a8 8 0 0 1 0 11.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';   // 打开（正在播放）
 function pgMark(idx) {
   document.querySelectorAll('.pgon').forEach(e => e.classList.remove('pgon'));
-  document.querySelectorAll('.pgplay').forEach(e => { e.innerHTML = SPK_OFF; e.classList.remove('playing'); });
+  document.querySelectorAll('.pgplay').forEach(e => { e.innerHTML = IC_PLAY; e.classList.remove('playing'); });
   pgCurIdx = idx;
-  if (idx >= 0) { const pb = document.querySelector('#pgs-' + idx + ' .pgplay'); if (pb) { pb.innerHTML = SPK_ON; pb.classList.add('playing'); } }
+  if (idx >= 0) { const pb = document.querySelector('#pgs-' + idx + ' .pgplay'); if (pb) { pb.innerHTML = IC_PAUSE; pb.classList.add('playing'); } }
   const r = idx >= 0 ? document.getElementById('pgs-' + idx) : null;
   if (r) { r.classList.add('pgon'); try { r.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) {} }
 }
@@ -3803,7 +3803,7 @@ function render() {
         '</div>' + '</div>' +
     '<div class="bbin">' +
       '<button class="ghost" onclick="prevSentence()" ' + (state.idx > 0 && !rec.on ? '' : 'disabled') + '>上一句</button>' +
-      (function () { const on = listenState.idx === state.idx && listenState.playing && !listenState.paused; return '<button class="bplay' + (on ? ' playing' : '') + (on && azLoading ? ' loading' : '') + '" onclick="playListen()" aria-label="' + (on ? '暂停朗读' : '朗读这一句') + '">' + (on ? SPK_ON : SPK_OFF) + '</button>'; })() +
+      (function () { const on = listenState.idx === state.idx && listenState.playing && !listenState.paused; return '<button class="bplay' + (on ? ' playing' : '') + (on && azLoading ? ' loading' : '') + '" onclick="playListen()" aria-label="' + (on ? '暂停朗读' : '朗读这一句') + '">' + (on ? IC_PAUSE : IC_PLAY) + '</button>'; })() +
       '<button class="nxt" onclick="nextSentence()" ' + (rec.on ? 'disabled' : '') + '>下一句</button>' +
     '</div></div>';
   applySpeakHighlight();
