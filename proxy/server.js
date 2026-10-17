@@ -223,7 +223,7 @@ function pronLimited(ip) {
   return '';
 }
 function pronAzure(wav, ref) {
-  const pa = Buffer.from(JSON.stringify({ ReferenceText: ref, GradingSystem: 'HundredMark', Granularity: 'Phoneme', Dimension: 'Comprehensive', EnableMiscue: true, EnableProsodyAssessment: true })).toString('base64');
+  const pa = Buffer.from(JSON.stringify({ ReferenceText: ref, GradingSystem: 'HundredMark', Granularity: 'Phoneme', Dimension: 'Comprehensive', EnableMiscue: true })).toString('base64');
   const tu = /^http:\/\//.test(AZ_HOST) ? new URL(AZ_HOST) : null, host = tu ? tu.hostname : (AZ_HOST || AZ_REGION + '.stt.speech.microsoft.com');   // http:// 只用于本地测试
   return new Promise(ok => {
     const q = (tu ? http : https).request({ host, port: tu ? tu.port : 443, path: '/speech/recognition/conversation/cognitiveservices/v1?language=en-US&format=detailed', method: 'POST', timeout: 15000,
@@ -301,8 +301,10 @@ async function shopRoutes(req, res) {
     if (r.s !== 200) return out0(502, { error: 'azure-failed', code: r.s });
     let j; try { j = JSON.parse(r.b); } catch (e) { return out0(502, { error: 'azure-bad-reply' }); }
     if (j.RecognitionStatus && j.RecognitionStatus !== 'Success') return out0(200, { ok: false, status: j.RecognitionStatus });
-    const nb = (j.NBest || [])[0] || {}, pa = nb.PronunciationAssessment || {};
-    const words = (nb.Words || []).map(w => ({ w: w.Word, s: Math.round(((w.PronunciationAssessment || {}).AccuracyScore) || 0), e: ((w.PronunciationAssessment || {}).ErrorType) || 'None' }));
+    // Azure 短音频接口的分数有两种放法：直接放在 NBest[0] / 每个词上（常见），或包在 PronunciationAssessment 里。两种都认。
+    const nb = (j.NBest || [])[0] || {}, pa = Object.assign({}, nb, nb.PronunciationAssessment || {});
+    const words = (nb.Words || []).map(w => { const wp = Object.assign({}, w, w.PronunciationAssessment || {}); return { w: w.Word, s: Math.round(wp.AccuracyScore || 0), e: wp.ErrorType || 'None' }; });
+    if (pa.PronScore == null && pa.AccuracyScore != null) pa.PronScore = (pa.AccuracyScore || 0) * 0.6 + (pa.FluencyScore || 0) * 0.2 + (pa.CompletenessScore || 0) * 0.2;
     return out0(200, { ok: true, total: Math.round(pa.PronScore || 0), acc: Math.round(pa.AccuracyScore || 0), flu: Math.round(pa.FluencyScore || 0), comp: Math.round(pa.CompletenessScore || 0), pros: pa.ProsodyScore != null ? Math.round(pa.ProsodyScore) : null, heard: nb.Display || '', words });
   }
   if (req.method === 'POST' && url === '/grammar') {  // 句子结构分析：转给本机的 spaCy 服务（proxy/grammar/server.py）

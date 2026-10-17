@@ -225,7 +225,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-123';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-124';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1300,10 +1300,11 @@ function playListen() {
   u.onstart = () => { u._began = true; if (!u._stopped && state.idx === idx) startEstimator(u, u.text); };
   setTimeout(() => {                              // 3 秒还没开始念：多半是这台设备的系统朗读不可用，别让用户以为点了没反应
     if (u._began || u._stopped || lastListenUtt !== u) return;
+    try { if (speechSynthesis.speaking || speechSynthesis.pending) return; } catch (e) {}   // 正在念（iPhone 有时不报“开始”），别误报
     try { speechSynthesis.cancel(); } catch (e) {}
     if (listenState.idx === idx) { listenState = { idx: -1, playing: false, paused: false }; if (state && state.idx === idx) render(); }
     toast('没能播放声音：这台设备的系统朗读好像不可用。请检查手机是否静音、音量是否调低；也可以在左下角换一个声音再试。', 6000);
-  }, 3000);
+  }, 6000);
   u.onboundary = ev => {                        // 声音引擎报告“念到哪个词了”
     if (u._stopped || state.idx !== idx || (ev.name && ev.name !== 'word')) return;
     u._gotBoundary = true; stopEstimator();
@@ -2676,13 +2677,21 @@ async function toggleRecord() {
 let recAudio = null, recIdx = -1; var recWait = false;
 /* ---------- 跟读打分：录音转成 16k 单声道 wav → 服务器 → Azure 发音评估；同时画原声和你的“语调曲线” ---------- */
 let pronView = { key: '', loading: false, res: null, err: '', curves: null };
-async function decodeMono16k(blob) {
+async function decodeMono16k(blob) {                // 解码录音 → 合成单声道 → 自己换算成 16000 赫兹（不靠 OfflineAudioContext，iPhone 上它可能不按要求的采样率输出）
   const ab = await blob.arrayBuffer(), AC = window.AudioContext || window.webkitAudioContext, ac = new AC();
-  const buf = await new Promise((ok, no) => { const p = ac.decodeAudioData(ab.slice(0), ok, no); if (p && p.then) p.then(ok, no); });
-  try { ac.close(); } catch (e) {}
-  const len = Math.max(1, Math.ceil(buf.duration * 16000)), off = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, len, 16000);
-  const src = off.createBufferSource(); src.buffer = buf; src.connect(off.destination); src.start(0);
-  const r = await off.startRendering(); return r.getChannelData(0);
+  let buf;
+  try { buf = await new Promise((ok, no) => { const p = ac.decodeAudioData(ab.slice(0), ok, no); if (p && p.then) p.then(ok, no); }); }
+  finally { try { ac.close(); } catch (e) {} }
+  const sr = buf.sampleRate, ch = buf.numberOfChannels, n = buf.length, mono = new Float32Array(n);
+  for (let c = 0; c < ch; c++) { const d = buf.getChannelData(c); for (let i = 0; i < n; i++) mono[i] += d[i] / ch; }
+  if (sr === 16000) return mono;
+  const ratio = sr / 16000, m = Math.floor(n / ratio), out = new Float32Array(m);
+  for (let i = 0; i < m; i++) {                        // 先按区间取平均（相当于低通），再取样
+    const a = i * ratio, b = Math.min(n, a + ratio); let sum = 0, k = 0;
+    for (let t = Math.floor(a); t < b; t++) { sum += mono[t]; k++; }
+    out[i] = k ? sum / k : 0;
+  }
+  return out;
 }
 function wav16k(f32) {
   const n = f32.length, b = new ArrayBuffer(44 + n * 2), v = new DataView(b), w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
@@ -2724,6 +2733,7 @@ async function pronScore(blob, key, text) {
     try { const ob = (vpCount > 0 ? await vpGet(text) : null) || (state && state.natSrc ? await natFetch(text) : null); if (ob) orig = pitchCurve(await decodeMono16k(ob)); } catch (e) {}
     if (me.length > 4) pronView.curves = { me, orig: orig && orig.length > 4 ? orig : null };
   } catch (e) {}
+  { let pk = 0; for (let i = 0; i < f32.length; i++) { const a = Math.abs(f32[i]); if (a > pk) pk = a; } if (pk < 0.01) { pronView.loading = false; pronView.err = '录音几乎没有声音：请检查麦克风有没有被挡住，靠近手机大声一点再读一遍。'; if (pronView.key === key) render(); return; } }
   if (!navigator.onLine) { pronView.loading = false; pronView.err = '当前离线，联网后跟读才能打分。'; if (pronView.key === key) render(); return; }
   try {
     const r = await fetchT(SHOP_BASE + '/pron?text=' + encodeURIComponent(text.slice(0, 400)), 20000, { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: wav16k(f32) });
@@ -2746,6 +2756,7 @@ function pronHtml() {
       bar('准确度', r.acc) + bar('流利度', r.flu) + bar('完整度', r.comp) + (r.pros != null ? bar('语调节奏', r.pros) : '');
     h += '<div class="pwords">' + r.words.filter(w => w.e !== 'Insertion').map(w => '<span class="pw ' + (w.e === 'Omission' ? 'om' : w.s >= 80 ? 'ok' : w.s >= 60 ? 'mid' : 'bad') + '" onclick="speakText(\'' + esc(String(w.w).replace(/'/g, '')) + '\')">' + esc(w.w) + (w.e === 'Omission' ? '' : '<sub>' + w.s + '</sub>') + '</span>').join(' ') + '</div>';
     const weak = r.words.filter(w => w.e === 'Omission' || (w.e !== 'Insertion' && w.s < 60));
+    if (t === 0 || r.comp === 0) h += '<div class="note" style="color:#c0392b">没有听出你读的是这一句' + (r.heard ? '（听到的是：“' + esc(r.heard) + '”）' : '（没听到清楚的英语）') + '。请对着这句英文大声、完整地读一遍。</div>';
     h += '<div class="note">' + (weak.length ? '要多练的词：' + weak.slice(0, 6).map(w => '<b>' + esc(w.w) + '</b>' + (w.e === 'Omission' ? '（漏读）' : '')).join('、') + '。点单词能听它的读音。' : '每个词都读得挺准！') + '</div>';
   }
   if (v.err) h += '<div class="note">' + esc(v.err) + '</div>';
