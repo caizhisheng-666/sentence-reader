@@ -210,7 +210,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-119';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-120';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1774,15 +1774,29 @@ function devMeta(text, fileName, htmlTitle) {
   if (!zh) { const fz = String(fileName || '').replace(/\.[^.]+$/, '').match(/[\u4e00-\u9fff][\u4e00-\u9fff\s·：]*/); if (fz) zh = fz[0].trim().slice(0, 20); }
   return { en: en.slice(0, 80), zh };
 }
-function devLevel(sents) {                           // 估等级：用平均句长 + 音节数算出美国年级（Flesch-Kincaid），再对应到 CEFR
-  const syl = w => { w = w.toLowerCase().replace(/[^a-z]/g, ''); if (w.length <= 3) return 1; w = w.replace(/(?:[^laeiouy]es|ed|[^laeiouy]e)$/, '').replace(/^y/, ''); const m = w.match(/[aeiouy]{1,2}/g); return m ? m.length : 1; };
-  let W = 0, S = 0, Y = 0;
+async function devLevel(sents) {                     // 估等级：主要看用词（每个词有多常见：词频 + 中考/高考/四六级标签），再参考句子长短
+  if (!window.LEXLV) { try { await loadScript('./lexlevel.js?v=' + APP_VERSION); } catch (e) {} }
   const pick = sents.length > 3000 ? sents.filter((_, i) => i % Math.ceil(sents.length / 3000) === 0) : sents;
-  for (const s of pick) { const ws = s.match(/[A-Za-z]+(?:'[A-Za-z]+)?/g); if (!ws || ws.length < 2) continue; S++; W += ws.length; for (const w of ws) Y += syl(w); }
-  if (!S || !W) return { label: '', grade: 0 };
-  const g = 0.39 * (W / S) + 11.8 * (Y / W) - 15.59;
-  const L = g < 2.5 ? 'A1 入门' : g < 4.5 ? 'A2 初级' : g < 6.5 ? 'B1 中级' : g < 9.5 ? 'B2 中高级' : g < 12.5 ? 'C1 高级' : 'C2 精通';
-  return { label: L, grade: Math.round(g * 10) / 10, wps: Math.round(W / S * 10) / 10 };
+  let W = 0, S = 0; const cnt = [0, 0, 0, 0, 0, 0, 0], seen = new Map(), names = new Set();
+  for (const s of pick) {
+    const ws = String(s).match(/[A-Za-z]+(?:'[A-Za-z]+)?/g); if (!ws || ws.length < 2) continue;
+    S++; W += ws.length;
+    ws.forEach((w0, k) => {
+      if (k > 0 && /^[A-Z][a-z]/.test(w0)) { names.add(w0.toLowerCase()); return; }   // 句中大写开头：多半是人名地名，不算生词
+      let w = w0.toLowerCase(); w = w === "can't" ? 'can' : w === "won't" ? 'will' : w.replace(/n't$/, '').replace(/'(s|d|ll|re|ve|m)$/, '');
+      const L = window.LEXLV ? (LEXLV.get(w) || LEXLV.get(w.replace(/(ies)$/, 'y')) || LEXLV.get(w.replace(/(es|s|ed|ing|ly|er|est)$/, '')) || 6) : 3;
+      if (!seen.has(w)) seen.set(w, L);
+    });
+  }
+  for (const [w, L] of seen) if (!names.has(w)) cnt[L]++;           // 按“不同的词”算：同一个生词反复出现只算一次
+  const tot = cnt.reduce((a, b) => a + b, 0);
+  if (!S || !tot) return { label: '', vocab: 0, wps: 0 };
+  let vocab = 6, acc = 0; for (let L = 1; L <= 6; L++) { acc += cnt[L]; if (acc / tot >= 0.9) { vocab = L; break; } }   // 认识书里 90% 的不同单词需要到哪一级
+  const wps = W / S, syn = wps < 8 ? 1 : wps < 11 ? 2 : wps < 15 ? 3 : wps < 19 ? 4 : wps < 24 ? 5 : 6;
+  const lvl = Math.max(1, Math.min(6, Math.round(vocab * 0.7 + syn * 0.3)));
+  const label = ['', 'A1 入门', 'A2 初级', 'B1 中级', 'B2 中高级', 'C1 高级', 'C2 精通'][lvl];
+  const VOC = ['', '2000', '4000', '8000', '15000', '30000', '30000 以上'];
+  return { label, vocab, syn, wps: Math.round(wps * 10) / 10, need: VOC[vocab], hard: Math.round((1 - (cnt[1] + cnt[2] + cnt[3]) / tot) * 1000) / 10 };
 }
 function devParse(text) {                           // 解析中英对照文本：句子 + 前两句的中文（做试读）
   const pb = parseBlockSegs(text); const allSegs = []; let off = 0;
@@ -1885,12 +1899,12 @@ async function devNewFile(ev) {
     const meta = devMeta(text, file.name, cl.htmlTitle);
     if (/\.(md|markdown)$/i.test(file.name)) text = mdToText(text);
     const d = devParse(text); if (!d.sents.length) throw new Error('没有识别到英文句子');
-    const title = meta.en, zh = meta.zh, lv = devLevel(d.sents);
+    const title = meta.en, zh = meta.zh, lv = await devLevel(d.sents);
     devNew = { text, d };
     document.getElementById('dnTitle').value = title; document.getElementById('dnZh').value = zh;
     if (lv.label) document.getElementById('dnLevel').value = lv.label;
     const chars = d.sents.reduce((m, x) => m + x.length, 0);
-    document.getElementById('dnInfo').textContent = '《' + (title || file.name) + '》共 ' + d.sents.length + ' 句，约 ' + chars + ' 个字符' + (d.preview.length ? '，已自动取前两句做试读' : '，没识别到中文对照，试读为空') + (lv.label ? '。自动评测等级：' + lv.label + '（平均每句 ' + lv.wps + ' 词，' + (lv.grade < 1 ? '低于美国 1 年级' : '约美国 ' + Math.round(lv.grade) + ' 年级') + '难度，可以手动改）' : '') + '。本月免费额度这台设备上约已用 ' + azUsed() + ' / ' + AZ_FREE + '。';
+    document.getElementById('dnInfo').textContent = '《' + (title || file.name) + '》共 ' + d.sents.length + ' 句，约 ' + chars + ' 个字符' + (d.preview.length ? '，已自动取前两句做试读' : '，没识别到中文对照，试读为空') + (lv.label ? '。自动评测等级：' + lv.label + '（书里 90% 的不同单词在最常用的 ' + lv.need + ' 个词以内；平均每句 ' + lv.wps + ' 词；不对可以手动改）' : '') + '。本月免费额度这台设备上约已用 ' + azUsed() + ' / ' + AZ_FREE + '。';
     document.getElementById('dnGo').disabled = false;
   } catch (e) { document.getElementById('dnInfo').textContent = '读取失败：' + (e && e.message ? e.message : '未知错误'); }
 }
@@ -1990,13 +2004,22 @@ function devEditInfo(id) {
   showPop('<h3 style="margin:0 0 6px">✏️ 修改信息</h3>' +
     '<div class="note">英文标题</div><input id="deTitle" value="' + esc(it.title) + '" style="' + F + '">' +
     '<div class="note">中文名</div><input id="deZh" value="' + esc(it.titleZh || '') + '" style="' + F + '">' +
-    '<div class="note">等级</div><input id="deLevel" value="' + esc(it.level || '') + '" style="' + F + '">' +
+    '<div class="note">等级 <button class="link" onclick="devReLevel(\'' + esc(id) + '\')">🔄 重新自动评测</button></div><input id="deLevel" value="' + esc(lvLabel(it.level)) + '" style="' + F + '">' +
     ('<div class="note">购买说明（买家点“购买”时看到，比如“闲鱼搜 喵喵英语，拍下后自动发激活码”）</div><input id="deBuy" value="' + esc(it.buy || '') + '" style="' + F + '"><div class="note">购买链接（闲鱼商品页，https 开头，可空）</div><input id="deBuyUrl" value="' + esc(it.buyUrl || '') + '" style="' + F + '">') +
     '<div class="note">价格（元，填 0 就是免费）</div><input id="dePrice" inputmode="decimal" value="' + esc(String(it.price || 0)) + '" style="' + F + '">' +
     '<div class="note">限时免费到（日期，如 2026-10-31；留空=不做活动；过了这天自动恢复原价）</div><input id="deFree" placeholder="2026-10-31" value="' + (it.freeUntil && it.freeUntil > Date.now() ? esc(new Date(it.freeUntil - 86400000).toISOString().slice(0, 10)) : '') + '" style="' + F + '">' +
     '<div class="note" style="margin:0 0 8px">免费 ⇄ 收费会自动把这个材料的文字和语音在服务器上搬一下，不用重新上架。已经免费拿走的人，之后在线听语音可能取不到，需要重新解锁。</div>' +
     '<div class="row" style="margin-top:6px"><button onclick="devEditInfoSave(\'' + esc(id) + '\')">保存</button><button class="ghost" onclick="openStoryCity()">返回</button></div>' +
     '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>');
+}
+async function devReLevel(id) {
+  const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it) return;
+  setScStatus('正在读取内容并评测…');
+  try {
+    const { text } = await devLoadStory(it), lv = await devLevel(devParse(text).sents);
+    if (lv.label) { document.getElementById('deLevel').value = lv.label; setScStatus('评测结果：' + lv.label + '（书里 90% 的不同单词在最常用的 ' + lv.need + ' 个词以内，平均每句 ' + lv.wps + ' 词）。点“保存”才会生效。'); }
+    else setScStatus('评测失败：没有读到英文句子');
+  } catch (e) { setScStatus('评测失败：' + (e && e.message ? e.message : '未知错误')); }
 }
 async function devEditInfoSave(id) {
   const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it) return;
@@ -2224,6 +2247,19 @@ function storyBuddy(it, have) {                    // 学习材料里每个材�
   '</div>';
 }
 let scQ = '', scF = 'all', scLv = '', scN = 20, scObs = null;           // 学习材料的搜索 / 筛选 / 已显示数量
+function levelHelp() {
+  const L = (e, t, d, ex) => '<div style="margin:10px 0"><div style="font-size:16px;color:var(--ink)">' + e + ' <b>' + t + '</b>：' + d + '</div>' + (ex ? '<div class="note" style="font-style:italic;margin-top:2px">例：' + ex + '</div>' : '') + '</div>';
+  showPop('<h3 style="margin:0 0 6px">❓ 怎么选等级</h3><div class="note">看例句，自己能读懂的就选那一级。</div>' +
+    L('🌱', 'A1 入门', '刚开始学英语。句子很短，都是最常用的词。', 'I have a cat. It is white.') +
+    L('🌿', 'A2 初级', '会一点英语。句子稍长一点，讲的是日常小事。', 'Tom went to the park with his dog after school.') +
+    L('🌳', 'B1 中级', '能读小故事。有长一点的句子，会出现 because、when 这样把两句连起来的词。', 'When it started to rain, the children ran back home.') +
+    L('🍎', 'B2 中高级', '能读原版小说。生词多了，句子长了，常常一句话里套着另一句话。', 'The little prince, who lived on a tiny planet, loved a rose more than anything.') +
+    L('🏔', 'C1 高级', '读起来有挑战。像大人看的书，句子复杂，用词讲究。', '') +
+    L('🚀', 'C2 精通', '最难，接近英语国家的人读的水平。', '') +
+    '<div class="card" style="padding:10px 12px;margin-top:10px"><b>选书小窍门</b>：读一页，不认识的词不超过 5 个，这个等级就适合你；超过 10 个，就先往下降一级。</div>' +
+    '<div class="note" style="margin-top:8px">等级是软件按书里的用词和句子长短自动估的，只是参考。</div>' +
+    '<div class="row" style="margin-top:10px"><button class="ghost" onclick="openStoryCity()">返回学习材料</button></div>');
+}
 const LV_CN = { A1: 'A1 入门', A2: 'A2 初级', B1: 'B1 中级', B2: 'B2 中高级', C1: 'C1 高级', C2: 'C2 精通' };
 function lvLabel(l) { const m = /\b([ABC][12])\b/i.exec(String(l || '')); return m ? LV_CN[m[1].toUpperCase()] : String(l || '').trim(); }   // 难度标签统一写成“B2 中高级”
 function scCard(it, owned) {
@@ -2291,7 +2327,7 @@ function renderStoryCity(err) {
   if (err) h += '<div class="note" style="color:#b94a48;margin-bottom:8px">' + esc(err) + '</div>';
   if (total > 0) {
     const chip = (attr, val, label, on, fn) => '<button class="scChip' + (on ? ' on' : '') + '" data-' + attr + '="' + val + '" onclick="' + fn + '">' + label + '</button>';
-    h += (lvs.length ? '<div class="scChips">' + chip('lv', '', '全部', scLv === '', "scSetLv('')") + lvs.map(lv => chip('lv', lv, lv, scLv === lv, "scSetLv('" + lv + "')")).join('') + '</div>' : '');
+    h += (lvs.length ? '<div class="scChips">' + chip('lv', '', '全部', scLv === '', "scSetLv('')") + lvs.map(lv => chip('lv', lv, lv, scLv === lv, "scSetLv('" + lv + "')")).join('') + '<button class="scChip" style="border-style:dashed" onclick="levelHelp()">❓ 怎么选等级</button></div>' : '');
   }
   h += '<div id="scItems">' + scListHtml() + '</div>';
   h += (azReady() ? '<div class="row" style="margin-top:6px"><button class="sm" onclick="devNewStoryPop()">＋ 上架新材料（开发者）</button></div>' : '') +
