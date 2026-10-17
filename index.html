@@ -167,6 +167,8 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .ctxm .ctxv{font-size:20px;font-weight:600;color:var(--accent);margin-top:2px;line-height:1.4}
 .ctxm .ctxv .pos{font-size:13px;font-weight:400;color:var(--sub);margin-right:4px}
 .ctxall{margin-top:8px}
+.defmore>summary{cursor:pointer;font-size:12px;color:var(--accent);padding:4px 0;list-style:none}
+.defmore>summary::-webkit-details-marker{display:none}
 .ctxall>summary{cursor:pointer;font-size:13px;color:var(--accent);padding:6px 0;list-style:none}
 .ctxall>summary::-webkit-details-marker{display:none}
 .ctxall[open]>summary{color:var(--sub)}
@@ -208,7 +210,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-118';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-119';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -231,7 +233,15 @@ function ensurePdf() {
   return pdfReady || (pdfReady = loadScript('./lib/pdf.min.js').then(() => { pdfjsLib.GlobalWorkerOptions.workerSrc = './lib/pdf.worker.min.js'; }).catch(() =>
     loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js').then(() => { pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; })).catch(e => { pdfReady = null; throw e; }));
 }
-if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+if ('serviceWorker' in navigator) {
+  const hadSW = !!navigator.serviceWorker.controller; let swReloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {     // 新版本装好了：没在读的时候自动刷新一次，免得新旧界面混着显示
+    if (!hadSW || swReloaded) return;
+    if (!state && !(typeof rec !== 'undefined' && rec.on) && !document.getElementById('overlay').classList.contains('show')) { swReloaded = true; location.reload(); }
+    else { window.__swPending = true; toast('软件已更新到新版本，回到“我的学习”时会自动刷新', 4000); }
+  });
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+}
 
 /* ---------- IndexedDB：离线大词典 + 录音 ---------- */
 let _db = null;
@@ -250,39 +260,37 @@ function idb() {
       if (!d.objectStoreNames.contains('vpack')) d.createObjectStore('vpack');
       if (!d.objectStoreNames.contains('books')) d.createObjectStore('books');
     };
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
+    r.onsuccess = () => {
+      const d = r.result;
+      d.onclose = () => { _db = null; };                                   // iPhone 切到后台久了、存储紧张时，浏览器会悄悄关掉连接
+      d.onversionchange = () => { try { d.close(); } catch (e) {} _db = null; };
+      res(d);
+    };
+    r.onerror = () => { _db = null; rej(r.error); };
+    r.onblocked = () => {};
   });
+  _db.catch(() => { _db = null; });                                        // 打开失败不要一直记着失败，下次再试
   return _db;
 }
-async function idbGet(store, key) {
-  const d = await idb();
-  return new Promise((res, rej) => { const r = d.transaction(store).objectStore(store).get(key); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+async function idbRun(store, mode, fn) {             // 执行一次读写；连接已失效（被浏览器关掉）就重新连一次再试
+  for (let k = 0; k < 2; k++) {
+    let d;
+    try { d = await idb(); } catch (e) { if (k) throw e; await new Promise(r => setTimeout(r, 150)); continue; }
+    try { return await new Promise((res, rej) => fn(d.transaction(store, mode), res, rej)); }
+    catch (e) {
+      const stale = e && /InvalidState|TransactionInactive|closing|closed|UnknownError/i.test((e.name || '') + ' ' + (e.message || ''));
+      if (!stale || k) throw e;
+      _db = null; try { d.close(); } catch (e2) {}
+    }
+  }
 }
-async function idbGetAll(store) {
-  const d = await idb();
-  return new Promise((res, rej) => { const r = d.transaction(store).objectStore(store).getAll(); r.onsuccess = () => res(r.result || []); r.onerror = () => rej(r.error); });
-}
-async function idbPut(store, val, key) {
-  const d = await idb();
-  return new Promise((res, rej) => { const t = d.transaction(store, 'readwrite'); if (key === undefined) t.objectStore(store).put(val); else t.objectStore(store).put(val, key); t.oncomplete = res; t.onerror = () => rej(t.error); });
-}
-async function idbPutMany(store, arr) {
-  const d = await idb();
-  return new Promise((res, rej) => { const t = d.transaction(store, 'readwrite'); const s = t.objectStore(store); arr.forEach(v => s.put(v)); t.oncomplete = res; t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); });
-}
-async function idbClear(store) {
-  const d = await idb();
-  return new Promise((res, rej) => { const t = d.transaction(store, 'readwrite'); t.objectStore(store).clear(); t.oncomplete = res; t.onerror = () => rej(t.error); });
-}
-async function idbDelPrefix(store, prefix) {          // 删除所有以 prefix 开头的 key（按书删除插图、录音）
-  const d = await idb();
-  return new Promise((res, rej) => { const t = d.transaction(store, 'readwrite'); t.objectStore(store).delete(IDBKeyRange.bound(prefix, prefix + '\uffff')); t.oncomplete = res; t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); });
-}
-async function idbDel(store, key) {
-  const d = await idb();
-  return new Promise((res, rej) => { const t = d.transaction(store, 'readwrite'); t.objectStore(store).delete(key); t.oncomplete = res; t.onerror = () => rej(t.error); });
-}
+function idbGet(store, key) { return idbRun(store, 'readonly', (t, res, rej) => { const r = t.objectStore(store).get(key); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+function idbGetAll(store) { return idbRun(store, 'readonly', (t, res, rej) => { const r = t.objectStore(store).getAll(); r.onsuccess = () => res(r.result || []); r.onerror = () => rej(r.error); }); }
+function idbPut(store, val, key) { return idbRun(store, 'readwrite', (t, res, rej) => { if (key === undefined) t.objectStore(store).put(val); else t.objectStore(store).put(val, key); t.oncomplete = res; t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); }); }
+function idbPutMany(store, arr) { return idbRun(store, 'readwrite', (t, res, rej) => { const s = t.objectStore(store); arr.forEach(v => s.put(v)); t.oncomplete = res; t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); }); }
+function idbClear(store) { return idbRun(store, 'readwrite', (t, res, rej) => { t.objectStore(store).clear(); t.oncomplete = res; t.onerror = () => rej(t.error); }); }
+function idbDelPrefix(store, prefix) { return idbRun(store, 'readwrite', (t, res, rej) => { t.objectStore(store).delete(IDBKeyRange.bound(prefix, prefix + '\uffff')); t.oncomplete = res; t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); }); }   // 删除所有以 prefix 开头的 key（按书删除插图、录音）
+function idbDel(store, key) { return idbRun(store, 'readwrite', (t, res, rej) => { t.objectStore(store).delete(key); t.oncomplete = res; t.onerror = () => rej(t.error); }); }
 
 /* ---------- 启动与保存 ---------- */
 function bookShortTitle(sentences) { const t = String((sentences && sentences[0]) || '').replace(/\s+/g, ' ').trim(); return t.length > 26 ? t.slice(0, 26) + '…' : (t || '未命名的材料'); }
@@ -340,11 +348,18 @@ async function flushState() {
   }
 }
 async function openBook(id) {
-  let b = null;
-  try { b = await idbGet('books', id); } catch (e) {}
+  let b = null, err = null;
+  for (let k = 0; k < 3 && !b; k++) {                // 读取失败多试几次；绝不因为一次读失败就把材料从“我的学习”里删掉
+    try { b = await idbGet('books', id); err = null; } catch (e) { err = e; }
+    if (!b && k < 2) await new Promise(r => setTimeout(r, 250));
+  }
   if (!b || !Array.isArray(b.sentences)) {
-    shelfSet(shelfGet().filter(x => x.id !== id));
-    toast('这个材料的数据没有找到，已移除', 4000); render(); return;
+    if (err) { toast('打开失败（手机存储暂时读不出来），请稍等再点一次。你的材料和进度都还在。', 5000); render(); return; }
+    const sid = /^story-/.test(id) ? id.slice(6) : '';
+    showPop('<h3 style="margin:0 0 6px">这份材料的内容找不到了</h3><div class="note">可能是手机清理了浏览器存储。' + (sid ? '学习材料里的内容可以重新下载，读到哪里会接着读。' : '自己导入的材料需要重新导入一次。') + '</div>' +
+      '<div class="row" style="margin-top:12px;gap:8px">' + (sid ? '<button onclick="redownload(\'' + esc(sid) + '\')">重新下载</button>' : '<button onclick="closePop();openImportPop()">重新导入</button>') +
+      '<button class="ghost" onclick="if(confirm(\'从“我的学习”里移除这份材料吗？\')){shelfSet(shelfGet().filter(x=>x.id!==\'' + esc(id) + '\'));closePop();render();}">移除</button></div>');
+    return;
   }
   if (!b.bookId) b.bookId = id;
   b.prog = b.prog || {}; b.cache = b.cache || {}; delete b.wordCache;
@@ -362,6 +377,7 @@ function closeBook() {
   stopSpeech(); try { pgPlayStop(); pgCancel(); } catch (e) {} clearCurImages();
   flushState();
   state = null; render();
+  if (window.__swPending) setTimeout(() => location.reload(), 300);
 }
 let shelfSel = null;                     // 选择模式下，已勾选的书的 id 集合；null 表示不在选择模式
 function toggleShelfSel() { shelfSel = shelfSel ? null : new Set(); render(); }
@@ -673,14 +689,20 @@ function stripGutenberg(text) {
 let importTitle = '', importBookId = '', importNatVoice = '', importNatSrc = '';
 async function finalizeImport(sentences, imageRanges, bookId, extraToast, toc, bil) {
   if (!sentences.length) { alert('没有识别到英文句子，请检查导入的内容。扫描版或英文画在图里的材料，软件暂不支持识别图片里的文字。'); return; }
-  const startIdx = detectStart(sentences);
-  state = { natVoice: importNatVoice || '', natSrc: importNatSrc || '', bookId: bookId || importBookId || ('b' + Date.now()), sentences, idx: startIdx, prog: {}, cache: {}, startDate: Date.now(), totalCompleted: 0, imageRanges: imageRanges || [], toc: toc || buildTextToc(sentences, startIdx), zh: (bil && bil.zh) || {}, zhp: (bil && bil.para) || {}, zhOff: {} };
+  let startIdx = detectStart(sentences);
+  const prevState = state, newId = bookId || importBookId || ('b' + Date.now());
+  const e0 = shelfGet().find(x => x.id === newId); let oldB = null;
+  if (e0) { try { oldB = await idbGet('books', newId); } catch (e) {} if (typeof e0.idx === 'number') startIdx = Math.max(0, Math.min(e0.idx, sentences.length)); }   // 同一份材料重新下载/更新：读到哪里、学习进度都保留
+  state = { natVoice: importNatVoice || '', natSrc: importNatSrc || '', bookId: newId, sentences, idx: startIdx, prog: {}, cache: {}, startDate: Date.now(), totalCompleted: 0, imageRanges: imageRanges || [], toc: toc || buildTextToc(sentences, startIdx), zh: (bil && bil.zh) || {}, zhp: (bil && bil.para) || {}, zhOff: {} };
   state.title = (importTitle || '').trim() || bookShortTitle(sentences);
+  if (oldB && oldB.prog) state.prog = oldB.prog;
+  if (oldB && oldB.gstruct) state.gstruct = oldB.gstruct;
   importTitle = ''; importBookId = ''; importNatVoice = ''; importNatSrc = '';
-  const entry = { id: state.bookId, title: state.title, addedAt: Date.now(), lastAt: Date.now(), total: sentences.length, idx: startIdx, nv: state.natVoice ? 1 : 0 };
+  const entry = Object.assign({}, e0 || {}, { id: state.bookId, title: state.title, addedAt: (e0 && e0.addedAt) || Date.now(), lastAt: Date.now(), total: sentences.length, idx: startIdx, nv: state.natVoice ? 1 : (e0 && e0.nv) || 0 });
   await flushState();
   const l = shelfGet().filter(x => x.id !== entry.id); l.unshift(entry); shelfSet(l);
-  state = null; closePop(); render();                           // 导入后回到“我的学习”，点封面开始读
+  if (prevState && prevState.bookId !== entry.id) state = prevState;      // 正在读别的材料时（比如后台下载完成），不要把正在读的那份关掉
+  else { state = null; closePop(); render(); }                           // 导入后回到“我的学习”，点封面开始读
   const msgs = [];
   if (startIdx > 0) msgs.push('已跳过开头 ' + startIdx + ' 句目录/版权信息，从正文开始，打开后可点顶部“目录”调整');
   if (extraToast) msgs.push(extraToast);
@@ -1254,7 +1276,13 @@ function playListen() {
   markStopped();
   const u = new SpeechSynthesisUtterance(state.sentences[idx]);
   applyVoiceSync(u); u.rate = getRate();
-  u.onstart = () => { if (!u._stopped && state.idx === idx) startEstimator(u, u.text); };
+  u.onstart = () => { u._began = true; if (!u._stopped && state.idx === idx) startEstimator(u, u.text); };
+  setTimeout(() => {                              // 3 秒还没开始念：多半是这台设备的系统朗读不可用，别让用户以为点了没反应
+    if (u._began || u._stopped || lastListenUtt !== u) return;
+    try { speechSynthesis.cancel(); } catch (e) {}
+    if (listenState.idx === idx) { listenState = { idx: -1, playing: false, paused: false }; if (state && state.idx === idx) render(); }
+    toast('没能播放声音：这台设备的系统朗读好像不可用。请检查手机是否静音、音量是否调低；也可以在左下角换一个声音再试。', 6000);
+  }, 3000);
   u.onboundary = ev => {                        // 声音引擎报告“念到哪个词了”
     if (u._stopped || state.idx !== idx || (ev.name && ev.name !== 'word')) return;
     u._gotBoundary = true; stopEstimator();
@@ -1267,7 +1295,7 @@ function playListen() {
     if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false };
     if (state.idx === idx) render();
   };
-  u.onerror = () => { if (u._stopped) return; clearSpeakHighlight(); if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false }; if (state.idx === idx) render(); };
+  u.onerror = ev => { if (u._stopped) return; u._began = true; if (ev && ev.error && !/interrupted|canceled/.test(ev.error)) toast('朗读出错了（' + ev.error + '），请再点一次，或换一个声音。', 4000); clearSpeakHighlight(); if (listenState.idx === idx) listenState = { idx: -1, playing: false, paused: false }; if (state.idx === idx) render(); };
   lastListenUtt = u;
   listenState = { idx, playing: true, paused: false };
   speakNow(u);
@@ -1868,7 +1896,7 @@ async function devNewFile(ev) {
 }
 async function devNewGo() {
   if (!devNew || devGenBusy) return;
-  const title = document.getElementById('dnTitle').value.trim(), zh = document.getElementById('dnZh').value.trim(), level = document.getElementById('dnLevel').value.trim();
+  const title = document.getElementById('dnTitle').value.trim(), zh = document.getElementById('dnZh').value.trim(), level = lvLabel(document.getElementById('dnLevel').value.trim());
   const price = Math.max(0, parseFloat(document.getElementById('dnPrice').value) || 0), wantVoice = document.getElementById('dnVoice').checked;
   if (!title) { setScStatus('请填英文标题'); return; }
   const id = devSlug(title) || ('s' + Date.now().toString(36));
@@ -1973,7 +2001,7 @@ function devEditInfo(id) {
 async function devEditInfoSave(id) {
   const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it) return;
   const g = k => document.getElementById(k).value.trim();
-  const title = g('deTitle'), zh = g('deZh'), level = g('deLevel');
+  const title = g('deTitle'), zh = g('deZh'), level = lvLabel(g('deLevel'));
   if (!title) { setScStatus('英文标题不能为空'); return; }
   const entry = Object.assign({}, it, { kind: 'story', title });
   if (zh) entry.titleZh = zh; else delete entry.titleZh;
@@ -2196,9 +2224,11 @@ function storyBuddy(it, have) {                    // 学习材料里每个材�
   '</div>';
 }
 let scQ = '', scF = 'all', scLv = '', scN = 20, scObs = null;           // 学习材料的搜索 / 筛选 / 已显示数量
+const LV_CN = { A1: 'A1 入门', A2: 'A2 初级', B1: 'B1 中级', B2: 'B2 中高级', C1: 'C1 高级', C2: 'C2 精通' };
+function lvLabel(l) { const m = /\b([ABC][12])\b/i.exec(String(l || '')); return m ? LV_CN[m[1].toUpperCase()] : String(l || '').trim(); }   // 难度标签统一写成“B2 中高级”
 function scCard(it, owned) {
   const have = owned.has('story-' + it.id), free = !it.price;
-  const meta = [freeNow(it) ? '限时免费 · 到' + fmtDay(it.freeUntil - 1) : '', it.level, it.count ? it.count + ' 句' : '', it.voice ? '🎧 含自然语音' : ''].filter(Boolean).join(' · ');
+  const meta = [freeNow(it) ? '限时免费 · 到' + fmtDay(it.freeUntil - 1) : '', lvLabel(it.level), it.count ? it.count + ' 句' : '', it.voice ? '🎧 含自然语音' : ''].filter(Boolean).join(' · ');
   const prev = (it.preview || []).map(p => '<div style="margin:6px 0"><div>' + esc(p.en || '') + '</div><div class="note">' + esc(p.zh || '') + '</div></div>').join('');
   return '<div class="card" style="display:flex;gap:12px;margin-bottom:10px;padding:12px">' + storyBuddy(it, have) +
     '<div style="flex:1;min-width:0"><div style="font-size:16px;color:var(--ink)">' + esc(it.title) + (it.titleZh ? ' <span class="note">' + esc(it.titleZh) + '</span>' : '') + '</div>' +
@@ -2287,6 +2317,16 @@ async function fetchStoryCat() {
   const cat = Object.assign({}, base, { items: [...byId.values()] });
   catCacheSet(cat);
   return cat;
+}
+async function redownload(sid) {                    // “我的学习”里的学习材料内容丢了：重新下载，进度保留
+  closePop(); toast('正在重新下载…', 2500);
+  if (!storyCat) storyCat = catCacheGet();
+  { const cat = await fetchStoryCat(); if (cat) storyCat = cat; }
+  const it = ((storyCat && storyCat.items) || []).find(x => x.id === sid);
+  if (!it) { toast('学习材料里已经没有这份材料了，可以移除它', 4000); return; }
+  const e = shelfGet().find(x => x.id === 'story-' + sid);
+  if (e && e.sample) await getSample(sid); else await getStory(sid);
+  render();
 }
 async function openStoryCity(fresh) {               // fresh = 刚上架/修改完，要等最新目录
   if (!storyCat && !fresh) storyCat = catCacheGet();
@@ -2516,20 +2556,27 @@ let recBusy = false;
 async function toggleRecord() {
   if (rec.on) { if (rec.mr && rec.mr.state === 'recording') rec.mr.stop(); return; }
   if (recBusy) return;                                   // 正在等麦克风权限时，防止连点启动出两个录音
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
-    alert('这个浏览器不支持录音。请用最新版 Chrome、Edge 或 Safari 打开。'); return;
-  }
-  recBusy = true;
+  const recFail = m => { recWait = false; render(); showPop('<h3 style="margin:0 0 6px">🎙 没能开始录音</h3><div class="note" style="font-size:14px;color:var(--ink)">' + m + '</div>'); };   // 不用 alert：有的浏览器会把弹框静默挡掉，看起来像“点了没反应”
+  if (!window.isSecureContext) { recFail('录音只能在 https 网址下使用。请用正式网址打开软件。'); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) { recFail('这个浏览器不支持录音。iPhone 请用 Safari，安卓或电脑请用最新版 Chrome / Edge。如果是在微信里打开的，请点右上角“…”选择“在浏览器打开”。'); return; }
+  recBusy = true; recWait = true; render();          // 先让按钮变成“正在打开麦克风…”，用户知道点上了
+  const waitTip = setTimeout(() => { if (recWait) toast('请在弹出的提示里点“允许”使用麦克风', 4000); }, 1500);
   try {
     stopSpeech();
     let stream;
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-    catch (e) { alert('没有拿到麦克风权限。请在浏览器地址栏左侧的权限设置里允许使用麦克风，然后再试。'); return; }
+    catch (e) {
+      const n = (e && e.name) || '';
+      recFail(n === 'NotAllowedError' || n === 'SecurityError' ? '没有拿到麦克风权限。<br>· iPhone：设置 → Safari → 麦克风 → 允许；或者点地址栏左边的“大小”图标 → 网站设置 → 麦克风 → 允许。<br>· 电脑：点地址栏左边的锁形图标，把麦克风改成“允许”。<br>改完后回到这里再点一次“🎙 跟读”。'
+        : n === 'NotFoundError' || n === 'OverconstrainedError' ? '没有找到麦克风。请检查耳机或麦克风有没有插好、有没有被别的软件占用。' : n === 'NotReadableError' ? '麦克风正被别的软件占用（比如正在通话、录屏），请关掉它再试。' : '打开麦克风失败（' + esc(n || (e && e.message) || '未知原因') + '）。');
+      return;
+    }
+    recWait = false;
     if (!state) { stream.getTracks().forEach(t => t.stop()); return; }
     const chunks = [];
     let mr;
     try { mr = new MediaRecorder(stream); }
-    catch (e) { stream.getTracks().forEach(t => t.stop()); alert('这个浏览器无法开始录音：' + e.message); return; }
+    catch (e) { stream.getTracks().forEach(t => t.stop()); recFail('这个浏览器无法开始录音：' + esc(e.message)); return; }
     const idxAtStart = state.idx, keyAtStart = recKey(), start = Date.now();
     mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
     mr.onerror = () => { try { if (mr.state !== 'inactive') mr.stop(); } catch (e) {} };
@@ -2552,12 +2599,12 @@ async function toggleRecord() {
       if (msg) toast(msg, 3000);
     };
     try { mr.start(); }
-    catch (e) { stream.getTracks().forEach(t => t.stop()); alert('开始录音失败：' + e.message); return; }
+    catch (e) { stream.getTracks().forEach(t => t.stop()); recFail('开始录音失败：' + esc(e.message)); return; }
     rec = { mr, on: true, start, timer: setInterval(() => { const el = document.getElementById('recTime'); if (el) el.textContent = ((Date.now() - start) / 1000).toFixed(1) + ' 秒'; }, 200) };
     render();
-  } finally { recBusy = false; }
+  } finally { recBusy = false; recWait = false; clearTimeout(waitTip); }
 }
-let recAudio = null, recIdx = -1;
+let recAudio = null, recIdx = -1; var recWait = false;
 function recStop() { if (recAudio) { try { recAudio.pause(); } catch (e) {} recAudio = null; } const b = document.getElementById('recp-' + recIdx); if (b) b.innerHTML = SPK_OFF; recIdx = -1; }
 function recPlay(i) {                               // 播放自己的跟读录音：喇叭打开=正在播放，再点一下停止
   const was = recIdx; recStop();
@@ -2670,9 +2717,10 @@ async function wordClick(i, el) {
   let html = head, ent = '';
   if (!res.length) html += '<div class="note" style="margin-top:10px">词典里没有找到这个词，可能是人名、地名或较生僻的词。' + (navigator.onLine ? '' : '（当前离线）') + '</div>';
   res.forEach(r => {
+    const td = r.t ? defSplit(r.t) : null;
     ent += '<div class="dentry"><div><b>' + esc(r.head) + '</b>' + (r.p ? '<span class="ph">/' + esc(r.p) + '/</span>' : '') + '<span class="src">' + r.src + '</span></div>' +
       (r.note ? '<div class="note">' + esc(r.note) + '</div>' : '') +
-      (r.t ? '<div class="zhdef">' + fmt(r.t) + '</div>' : '') +
+      (td ? '<div class="zhdef">' + fmt(td.main) + '</div>' + (td.rest ? '<details class="defmore"><summary>更多释义（含不常用的意思）</summary><div class="zhdef" style="color:var(--sub)">' + fmt(td.rest) + '</div></details>' : '') : '') +
       (r.d ? '<div class="endef">' + fmt(r.d) + '</div>' : '') + '</div>';
     if (!curWordZh) curWordZh = r.t || r.d || '';
   });
@@ -2687,6 +2735,17 @@ async function wordClick(i, el) {
   if (!dictInfo || !dictInfo.count) html += '<div class="note" style="margin-top:12px">现在用的是内置基础词典（常用词）。完整离线词典还没就绪，' + '<button class="link" onclick="closeWordPop();openDictSettings()">查看词典状态</button></div>';
   document.getElementById('wpBody').innerHTML = html;
   positionWordPop(rect);
+}
+function defSplit(t) {                              // 词典释义只先显示最常用的：第一个词性最多 2 个意思，其余词性各 1 个；冷门意思（如 kitten“卖弄风情”）收进“更多释义”
+  const lines = String(t).split(/\n+/).map(x => x.trim()).filter(Boolean), main = [], rest = [];
+  lines.forEach((ln, i) => {
+    const m = /^((?:[a-z]+\.\s*)+|\[[^\]]+\]\s*)?(.*)$/.exec(ln), pos = (m[1] || ''), body = m[2] || '';
+    const parts = body.split(/[,，;；]\s*/).map(x => x.trim()).filter(Boolean), keep = i === 0 ? (parts.length >= 3 ? 2 : 1) : i < 3 ? 1 : 0;
+    if (parts.length <= keep || !parts.length) { (keep ? main : rest).push(ln); return; }
+    if (keep) main.push(pos + parts.slice(0, keep).join('，'));
+    if (parts.length > keep) rest.push(pos + parts.slice(keep).join('，'));
+  });
+  return { main: main.join('\n') || lines[0] || '', rest: rest.join('\n') };
 }
 /* ---------- 本句意思：用这句的中文译文（自带译文优先，其次机器翻译）对照词典释义，挑出这句里用到的那个意思 ---------- */
 function ctxZh(idx) {
@@ -3189,7 +3248,7 @@ function openToc(query) {
     showPop(html);
     return;
   }
-  html += '<div class="note" style="margin-bottom:8px">点任意一项，直接跳到那里开始学习。开头自动跳过不准时，可以搜索材料开头的几个词（比如 Chapter 1）。' + (toc.kind === 'page' ? '灰色的页是没读到英文的（可能只有图片或中文）。' : toc.kind === 'segment' ? '这个材料没有识别到章节标题，按每 50 句分段。' : '') + '</div>';
+  html += '<div class="note" style="margin-bottom:8px">点任意一项，直接跳到那里开始学习。开头自动跳过得不准确时，可以搜索材料开头的几个词（比如 Chapter 1）。' + (toc.kind === 'page' ? '灰色的页是没读到英文的（可能只有图片或中文）。' : toc.kind === 'segment' ? '这个材料没有识别到章节标题，按每 50 句分段。' : '') + '</div>';
   items.forEach((it, i) => {
     const empty = !it.e, sent = it.e ? state.sentences[it.s] : '';
     const label = toc.kind === 'page' ? '第 ' + it.n + ' 页' : (it.t || '第 ' + it.n + ' 节');
@@ -3504,7 +3563,7 @@ function render() {
       '<div class="row onerow">' +
           voiceSelectHtml() +
           '<button class="ghost sm" onclick="cycleRate()" aria-label="语速" title="' + (rateIgnored[voiceKeyNow()] ? '这个声音不支持调速' : '语速，点一下换一档') + '">' + getRate() + 'x' + (rateIgnored[voiceKeyNow()] ? ' ⚠' : '') + '</button>' +
-          '<button class="recbtn ' + (rec.on ? 'on' : '') + '" onclick="toggleRecord()">' + (rec.on ? '■ 停止 <span id="recTime">0.0 秒</span>' : '🎙 跟读') + '</button>' +
+          '<button class="recbtn ' + (rec.on ? 'on' : '') + '" onclick="toggleRecord()">' + (rec.on ? '■ 停止 <span id="recTime">0.0 秒</span>' : recWait ? '⏳ 正在打开麦克风…' : '🎙 跟读') + '</button>' +
         '</div>' + '</div>' +
     '<div class="bbin">' +
       '<button class="ghost" onclick="prevSentence()" ' + (state.idx > 0 && !rec.on ? '' : 'disabled') + '>上一句</button>' +
