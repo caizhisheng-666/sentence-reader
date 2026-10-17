@@ -159,6 +159,11 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.72}}
 @media (prefers-reduced-motion: reduce){.recbtn.on{animation:none}}
 .recitem{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:var(--sub)}
+.recitem.sel{background:var(--soft);border-radius:10px}
+.recitem{padding:4px 6px;cursor:pointer}
+.recsc{font-weight:700;font-size:15px;min-width:52px}
+.recup{color:#2e8b47;font-weight:600}.recdn{color:#d0453d;font-weight:600}
+.recbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .recplay{width:38px;height:38px;min-width:0;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--soft);color:var(--accent)}
 .gsum{display:inline-block;background:var(--pop);border-radius:8px;padding:4px 10px;font-size:13px;margin-bottom:6px}
 .gi{padding:10px 0;border-bottom:1px solid var(--line)}
@@ -225,7 +230,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-124';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-125';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1097,6 +1102,7 @@ function getAnalysis() {
 }
 
 async function loadCurrent() {
+  try { if (recAudio || cmpOn) recStop(); } catch (e) {}   // 换句时停掉正在播的录音 / 对比
   if (!state || state.idx >= state.sentences.length) { render(); return; }
   const idx = state.idx, key = String(idx);
   render();
@@ -2618,7 +2624,8 @@ async function loadRecs() {
   let arr = [];
   try { arr = (await idbGet('recs', key)) || []; } catch (e) {}
   if (!state || recKey() !== key) return;
-  recView = { key, urls: arr.map(r => ({ url: URL.createObjectURL(r.blob), t: r.t, dur: r.dur })) };
+  recView = { key, urls: arr.map(r => ({ url: URL.createObjectURL(r.blob), t: r.t, dur: r.dur, res: r.res || null, curves: r.curves || null })) };
+  if (!(pronView.key === key && pronView.loading) && recView.urls[0] && recView.urls[0].res) { const u = recView.urls[0]; pronView = { key, loading: false, res: u.res, err: '', curves: u.curves, t: u.t, old: true }; }   // 回到这一句时，显示上次的分数
   render();
 }
 let recBusy = false;
@@ -2657,12 +2664,13 @@ async function toggleRecord() {
       let msg = '';
       if (blob.size > 0 && dur >= 0.8) {
         spokeOnce(keyAtStart);                      // 已读 = 自己跟读过的句子（同一句读几遍只算一句）
-        if (state && state.sentences[idxAtStart]) pronScore(blob, keyAtStart, state.sentences[idxAtStart]);
+        const t0 = Date.now();
         try {
           const arr = (await idbGet('recs', keyAtStart)) || [];
-          arr.unshift({ blob, t: Date.now(), dur });
+          arr.unshift({ blob, t: t0, dur });
           await idbPut('recs', arr.slice(0, 3), keyAtStart);
         } catch (e) { msg = '录音保存失败（浏览器存储不可用或空间已满）。'; }
+        if (state && state.sentences[idxAtStart]) pronScore(blob, keyAtStart, state.sentences[idxAtStart], t0);
       } else if (blob.size === 0) { msg = '没有录到声音，请检查麦克风后再试。'; }
       else { msg = '录音太短（不到 1 秒），没有保存。'; }
       if (state && state.idx === idxAtStart) await loadRecs(); else render();
@@ -2724,8 +2732,12 @@ function curveSvg(curves) {                            // 两条线：原声（�
   return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:70px;background:rgba(0,0,0,.03);border-radius:8px">' + (curves.orig ? line(curves.orig, '#9a9a9a') : '') + line(curves.me, '#e07b2a') + '</svg>' +
     '<div class="note" style="font-size:12px">' + (curves.orig ? '<span style="color:#9a9a9a">━ 原声</span>　' : '') + '<span style="color:#e07b2a">━ 你</span>　语调曲线：看高低起伏像不像，' + (curves.orig ? '不用和原声一样高' : '这句是系统朗读，没有原声曲线') + '</div>';
 }
-async function pronScore(blob, key, text) {
-  pronView = { key, loading: true, res: null, err: '', curves: null }; render();
+async function recSaveScore(key, t, res, curves) {     // 把分数存进这条录音，下次回来还能看、能比进步
+  try { const arr = (await idbGet('recs', key)) || [], it = arr.find(r => r.t === t); if (it) { it.res = res; it.curves = curves || null; await idbPut('recs', arr, key); } } catch (e) {}
+  if (recView.key === key) { const u = recView.urls.find(x => x.t === t); if (u) { u.res = res; u.curves = curves || null; } }
+}
+async function pronScore(blob, key, text, t) {
+  pronView = { key, loading: true, res: null, err: '', curves: null, t }; render();
   let f32 = null;
   try { f32 = await decodeMono16k(blob); } catch (e) { pronView = { key, loading: false, res: null, err: '这个浏览器没法分析录音，打分不可用。', curves: null }; render(); return; }
   try {                                                 // 语调曲线（不联网也能看）
@@ -2739,7 +2751,7 @@ async function pronScore(blob, key, text) {
     const r = await fetchT(SHOP_BASE + '/pron?text=' + encodeURIComponent(text.slice(0, 400)), 20000, { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: wav16k(f32) });
     const j = await r.json().catch(() => ({}));
     if (pronView.key !== key) return;
-    if (r.ok && j.ok) pronView.res = j;
+    if (r.ok && j.ok) { pronView.res = j; if (t) await recSaveScore(key, t, j, pronView.curves); }
     else pronView.err = j.status === 'NoMatch' || j.status === 'InitialSilenceTimeout' ? '没听清你读的内容，靠近手机、大声一点再读一遍试试。'
       : j.error === 'not-configured' ? '跟读打分还没开通（服务器还没配置）。' : j.error === 'too-many' ? '打分太频繁了，休息一下再试。' : j.error === 'daily-limit' ? '今天的打分次数用完了，明天再来。' : '打分暂时不可用（' + (j.error || ('HTTP ' + r.status)) + '），录音已保存。';
   } catch (e) { if (pronView.key === key) pronView.err = '网络不通，这次没能打分，录音已保存。'; }
@@ -2748,6 +2760,7 @@ async function pronScore(blob, key, text) {
 function pronHtml() {
   if (!state || pronView.key !== recKey()) return '';
   const v = pronView; let h = '<div class="pron">';
+  if (v.res && v.t && recView.urls.length > 1) { const k = recView.urls.findIndex(u => u.t === v.t); if (k >= 0) h += '<div class="note" style="margin:-2px 0 6px">这是' + (k === 0 ? '最新一次' : '第 ' + (k + 1) + ' 条') + '录音的分数' + (v.old ? '' : '') + '</div>'; }
   if (v.loading) h += '<div class="note">⏳ 正在给你的发音打分…</div>';
   if (v.res) {
     const r = v.res, t = r.total, face = t >= 90 ? '🌟 太棒了！' : t >= 75 ? '👍 读得不错！' : t >= 60 ? '🙂 还可以，再读一遍会更好' : '💪 多听几遍原声，再试一次';
@@ -2763,16 +2776,78 @@ function pronHtml() {
   if (v.curves) h += curveSvg(v.curves);
   return h + '</div>';
 }
-function recStop() { if (recAudio) { try { recAudio.pause(); } catch (e) {} recAudio = null; } const b = document.getElementById('recp-' + recIdx); if (b) b.innerHTML = SPK_OFF; recIdx = -1; }
-function recPlay(i) {                               // 播放自己的跟读录音：喇叭打开=正在播放，再点一下停止
+const IC_PLAY = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>';
+const IC_PAUSE = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="6.5" y="5.5" width="4" height="13" rx="1" fill="currentColor"/><rect x="13.5" y="5.5" width="4" height="13" rx="1" fill="currentColor"/></svg>';
+let cmpRun = 0;
+function recStop() {
+  cmpRun++; const cb = document.getElementById('cmpbtn'); if (cb) cb.textContent = '🔁 对比听（原声 → 我的）';
+  if (cmpOn) { cmpOn = false; try { speechSynthesis.cancel(); } catch (e) {} }
+  if (recAudio) { try { recAudio.pause(); } catch (e) {} recAudio = null; }
+  const b = document.getElementById('recp-' + recIdx); if (b) b.innerHTML = IC_PLAY; recIdx = -1;
+}
+function recPlayP(i) {                              // 播放第 i 条录音，播完 resolve
+  return new Promise(ok => {
+    const u = recView.urls[i]; if (!u) return ok();
+    recAudio = new Audio(u.url); recIdx = i;
+    const b = document.getElementById('recp-' + i); if (b) b.innerHTML = IC_PAUSE;
+    const done = () => { if (recIdx === i) { const bb = document.getElementById('recp-' + i); if (bb) bb.innerHTML = IC_PLAY; recIdx = -1; recAudio = null; } ok(); };
+    recAudio.onended = recAudio.onerror = done;
+    recAudio.play().catch(done);
+  });
+}
+function recPlay(i, ev) {                           // ▶ 播放自己的跟读录音，再点一下停止
+  if (ev) ev.stopPropagation();
   const was = recIdx; recStop();
   if (was === i) return;
+  stopSpeech(); recPlayP(i);
+}
+function recShow(i) {                               // 点某条录音：看那一次的分数卡片
   const u = recView.urls[i]; if (!u) return;
-  stopSpeech();
-  recAudio = new Audio(u.url); recIdx = i;
-  const b = document.getElementById('recp-' + i); if (b) b.innerHTML = SPK_ON;
-  recAudio.onended = recAudio.onerror = () => { if (recIdx === i) recStop(); };
-  recAudio.play().catch(() => recStop());
+  if (!u.res) { toast('这条录音没有分数（当时没联网或打分失败）', 2500); return; }
+  pronView = { key: recKey(), loading: false, res: u.res, err: '', curves: u.curves, t: u.t, old: i > 0 };
+  render();
+}
+function origPlayP(text) {                          // 播放这一句的原声（真人音频 / 自然语音 / 系统朗读），播完 resolve
+  return new Promise(async ok => {
+    let blob = null;
+    try { blob = (vpCount > 0 ? await vpGet(text) : null) || (state && state.natSrc ? await natFetch(text) : null); } catch (e) {}
+    if (blob) {
+      const a = new Audio(URL.createObjectURL(blob)); recAudio = a;
+      const done = () => { try { URL.revokeObjectURL(a.src); } catch (e) {} ok(); };
+      a.onended = a.onerror = done; a.play().catch(done); return;
+    }
+    try {
+      const u = new SpeechSynthesisUtterance(text); applyVoiceSync(u); u.rate = getRate();
+      let fin = false; const done = () => { if (!fin) { fin = true; ok(); } };
+      u.onend = u.onerror = done; setTimeout(done, 1500 + text.length * 150);
+      speechSynthesis.cancel(); speechSynthesis.speak(u);
+    } catch (e) { ok(); }
+  });
+}
+let cmpOn = false;
+async function recCompare(i) {                      // 🔁 对比听：原声 → 我的录音，连着放；再点一下停止
+  if (cmpOn) { recStop(); return; }
+  recStop(); stopSpeech();
+  const text = state && state.sentences[state.idx]; if (!text) return;
+  const my = cmpRun; cmpOn = true;
+  const btn = document.getElementById('cmpbtn'); if (btn) btn.textContent = '⏹ 停止对比';
+  await origPlayP(text);
+  if (my !== cmpRun) return;
+  await new Promise(r => setTimeout(r, 500));
+  if (my !== cmpRun) return;
+  await recPlayP(i || 0);
+  if (my === cmpRun) recStop();
+}
+function recRowsHtml() {
+  const us = recView.urls, sel = pronView.key === recKey() ? pronView.t : null;
+  return us.map((u, i) => {
+    const sc = u.res ? u.res.total : null, prev = us[i + 1] && us[i + 1].res ? us[i + 1].res.total : null;
+    const col = sc == null ? 'var(--sub)' : sc >= 80 ? '#2e8b47' : sc >= 60 ? '#c78a00' : '#d0453d';
+    const diff = sc != null && prev != null && sc !== prev ? '<span class="' + (sc > prev ? 'recup' : 'recdn') + '">' + (sc > prev ? '↑ 比上次 +' : '↓ 比上次 ') + (sc - prev) + '</span>' : '';
+    return '<div class="recitem' + (sel && sel === u.t ? ' sel' : '') + '" onclick="recShow(' + i + ')"><span style="min-width:44px">' + (i === 0 ? '最新' : '第 ' + (i + 1) + ' 条') + '</span>' +
+      '<button class="recplay" id="recp-' + i + '" onclick="recPlay(' + i + ',event)" aria-label="播放我的录音">' + IC_PLAY + '</button>' +
+      '<span class="recsc" style="color:' + col + '">' + (sc != null ? sc + ' 分' : (i === 0 && pronView.loading ? '打分中…' : '—')) + '</span>' + diff + '</div>';
+  }).join('');
 }
 async function deleteRecs() {
   if (!confirm('删除这一句的所有录音？')) return;
@@ -3697,8 +3772,8 @@ function render() {
     '<div class="note" style="margin-top:6px">' + (gsOk ? '句子结构由句法分析模型自动生成，偶尔会分错，长句请结合上下文理解。' : '当前是离线简版讲解（规则分析）；联网后会显示更准确的句子结构分析。') + '</div></details>';
 
   const recs = pronHtml() + ((recView.key === recKey() && recView.urls.length)
-    ? '<div class="note" style="margin-top:10px">我的录音（最近 3 次，先听原音再点喇叭听自己的，对比发音）：</div>' +
-      recView.urls.map((u, i) => '<div class="recitem"><span style="min-width:44px">' + (i === 0 ? '最新' : '第 ' + (i + 1) + ' 条') + '</span><button class="recplay" id="recp-' + i + '" onclick="recPlay(' + i + ')" aria-label="播放我的录音">' + SPK_OFF + '</button><span>' + (u.dur ? u.dur.toFixed(1) + ' 秒' : '') + '</span></div>').join('') +
+    ? '<div class="note" style="margin-top:10px">我的录音（最近 3 次，点 ▶ 听自己的，点那一行看那次的分数）：</div>' + recRowsHtml() +
+      '<div class="recbar"><button class="ghost sm" id="cmpbtn" onclick="recCompare(0)">' + (cmpOn ? '⏹ 停止对比' : '🔁 对比听（原声 → 我的）') + '</button></div>' +
       '<button class="link" onclick="deleteRecs()">删除这句的录音</button>'
     : '<div class="note" style="margin-top:10px">点“🎙 跟读”录下自己读这一句，读完点“■ 停止”，会自动给你的发音打分，录音保存在本机，可以和原音对比。</div>');
 
