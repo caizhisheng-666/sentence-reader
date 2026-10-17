@@ -210,6 +210,29 @@ function claimLimited(ip) {                       // 限时免费：同一个网
   if (claimLog.size > 5000) for (const [k, v] of claimLog) if (now - v[v.length - 1] > 3600000) claimLog.delete(k);
   return arr.length > 10;
 }
+// ---- 跟读打分：把用户读这一句的录音（16k 单声道 wav）转给 Azure 发音评估，Key 只放在服务器上 ----
+const AZ_KEY = process.env.AZURE_SPEECH_KEY || '', AZ_REGION = process.env.AZURE_SPEECH_REGION || '', AZ_HOST = process.env.AZURE_STT_HOST || '';
+const PRON_DAILY_MAX = +process.env.PRON_DAILY_MAX || 600, PRON_PER_IP_HOUR = +process.env.PRON_PER_IP_HOUR || 120;
+const pronLog = new Map(); let pronDay = { d: '', n: 0 };
+function pronLimited(ip) {
+  const now = Date.now(), arr = (pronLog.get(ip) || []).filter(t => now - t < 3600000); arr.push(now); pronLog.set(ip, arr);
+  if (pronLog.size > 5000) for (const [k, v] of pronLog) if (now - v[v.length - 1] > 3600000) pronLog.delete(k);
+  const d = new Date().toISOString().slice(0, 10); if (pronDay.d !== d) pronDay = { d, n: 0 };
+  if (arr.length > PRON_PER_IP_HOUR) return 'too-many';
+  if (pronDay.n >= PRON_DAILY_MAX) return 'daily-limit';
+  return '';
+}
+function pronAzure(wav, ref) {
+  const pa = Buffer.from(JSON.stringify({ ReferenceText: ref, GradingSystem: 'HundredMark', Granularity: 'Phoneme', Dimension: 'Comprehensive', EnableMiscue: true, EnableProsodyAssessment: true })).toString('base64');
+  const tu = /^http:\/\//.test(AZ_HOST) ? new URL(AZ_HOST) : null, host = tu ? tu.hostname : (AZ_HOST || AZ_REGION + '.stt.speech.microsoft.com');   // http:// 只用于本地测试
+  return new Promise(ok => {
+    const q = (tu ? http : https).request({ host, port: tu ? tu.port : 443, path: '/speech/recognition/conversation/cognitiveservices/v1?language=en-US&format=detailed', method: 'POST', timeout: 15000,
+      headers: { 'Ocp-Apim-Subscription-Key': AZ_KEY, 'Content-Type': 'audio/wav; codecs=audio/pcm; samplerate=16000', 'Pronunciation-Assessment': pa, Accept: 'application/json', 'Content-Length': wav.length } }, r => {
+      const ch = []; r.on('data', c => ch.push(c)); r.on('end', () => ok({ s: r.statusCode, b: Buffer.concat(ch).toString('utf8') }));
+    });
+    q.on('timeout', () => q.destroy(new Error('timeout'))); q.on('error', e => ok({ s: 0, b: String(e && e.message) })); q.end(wav);
+  });
+}
 const GRAMMAR_URL = process.env.GRAMMAR_URL || 'http://127.0.0.1:8791', gramCache = new Map(), gramLog = new Map();
 function gramLimited(ip) {                        // 同一个网络 1 小时最多分析 600 句
   const now = Date.now(), arr = (gramLog.get(ip) || []).filter(t => now - t < 3600000); arr.push(now); gramLog.set(ip, arr);
@@ -225,6 +248,9 @@ function tokenLookup(tk) {                        // 买家凭证 → 他买的�
 }
 function readBody(req, limit) {
   return new Promise((ok, no) => { let raw = '', n = 0; req.on('data', c => { n += c.length; if (n <= limit) raw += c; }); req.on('end', () => n > limit ? no(new Error('too-big')) : ok(raw)); req.on('error', no); });
+}
+function readBodyBuf(req, limit) {
+  return new Promise((ok, no) => { const ch = []; let n = 0; req.on('data', c => { n += c.length; if (n <= limit) ch.push(c); }); req.on('end', () => n > limit ? no(new Error('too-big')) : ok(Buffer.concat(ch))); req.on('error', no); });
 }
 async function shopRoutes(req, res) {
   const url = req.url.split('?')[0];
@@ -257,6 +283,27 @@ async function shopRoutes(req, res) {
     const item = shopRead().items.find(x => x.id === rec.story); if (!item) return out0(404, { error: 'story-gone' });
     rec.uses = (rec.uses || 0) + 1; rec.lastAt = new Date().toISOString(); if (!rec.tk) rec.tk = crypto.randomBytes(16).toString('hex');
     codesWrite(j); return out0(200, { ok: true, tk: rec.tk, item, left: CODE_MAX_USES - rec.uses });
+  }
+  if (req.method === 'POST' && url === '/pron') {     // 跟读打分
+    const origin0 = req.headers.origin, okO0 = origin0 && ALLOW.includes(origin0) ? origin0 : null;
+    const hd0 = { 'Content-Type': 'application/json; charset=utf-8' }; if (okO0) { hd0['Access-Control-Allow-Origin'] = okO0; hd0.Vary = 'Origin'; }
+    const out0 = (c, o) => { res.writeHead(c, hd0); res.end(JSON.stringify(o)); return true; };
+    if (!okO0) return out0(403, { error: 'origin-not-allowed' });
+    if (!AZ_KEY || !(AZ_REGION || AZ_HOST)) return out0(503, { error: 'not-configured' });
+    const ref = String(new URL(req.url, 'http://x').searchParams.get('text') || '').replace(/\s+/g, ' ').trim().slice(0, 400);
+    if (!ref || !/[A-Za-z]/.test(ref)) return out0(400, { error: 'no-text' });
+    const lim = pronLimited(ip); if (lim) return out0(429, { error: lim });
+    let wav; try { wav = await readBodyBuf(req, 1200000); } catch (e) { return out0(413, { error: 'too-large' }); }
+    if (!wav || wav.length < 1000 || wav.slice(0, 4).toString() !== 'RIFF') return out0(400, { error: 'bad-audio' });
+    pronDay.n++;
+    const r = await pronAzure(wav, ref);
+    if (r.s === 401 || r.s === 403) return out0(502, { error: 'azure-key' });
+    if (r.s !== 200) return out0(502, { error: 'azure-failed', code: r.s });
+    let j; try { j = JSON.parse(r.b); } catch (e) { return out0(502, { error: 'azure-bad-reply' }); }
+    if (j.RecognitionStatus && j.RecognitionStatus !== 'Success') return out0(200, { ok: false, status: j.RecognitionStatus });
+    const nb = (j.NBest || [])[0] || {}, pa = nb.PronunciationAssessment || {};
+    const words = (nb.Words || []).map(w => ({ w: w.Word, s: Math.round(((w.PronunciationAssessment || {}).AccuracyScore) || 0), e: ((w.PronunciationAssessment || {}).ErrorType) || 'None' }));
+    return out0(200, { ok: true, total: Math.round(pa.PronScore || 0), acc: Math.round(pa.AccuracyScore || 0), flu: Math.round(pa.FluencyScore || 0), comp: Math.round(pa.CompletenessScore || 0), pros: pa.ProsodyScore != null ? Math.round(pa.ProsodyScore) : null, heard: nb.Display || '', words });
   }
   if (req.method === 'POST' && url === '/grammar') {  // 句子结构分析：转给本机的 spaCy 服务（proxy/grammar/server.py）
     const origin0 = req.headers.origin, okO0 = origin0 && ALLOW.includes(origin0) ? origin0 : null;

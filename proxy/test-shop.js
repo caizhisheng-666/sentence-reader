@@ -1,6 +1,6 @@
 // 故事城后台接口测试（不涉及真实密钥）
 process.env.VOLC_AK = 'A'; process.env.VOLC_SK = 'S'; process.env.ALLOW_ORIGINS = 'https://ok.example';
-process.env.ADMIN_TOKEN = 'test-admin-token-1234567890'; process.env.USAGE_FILE = '/tmp/shoptest/usage.json'; process.env.MAX_UPLOAD = '2000'; process.env.GRAMMAR_URL = 'http://127.0.0.1:9923';
+process.env.ADMIN_TOKEN = 'test-admin-token-1234567890'; process.env.USAGE_FILE = '/tmp/shoptest/usage.json'; process.env.MAX_UPLOAD = '2000'; process.env.GRAMMAR_URL = 'http://127.0.0.1:9923'; process.env.AZURE_SPEECH_KEY = 'k'; process.env.AZURE_STT_HOST = 'http://127.0.0.1:9924';
 require('child_process').execSync('rm -rf /tmp/shoptest');
 const http = require('http'), assert = require('assert');
 const { server } = require('./server.js'); server.listen(9922);
@@ -114,6 +114,16 @@ const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-toke
   r = await call('/grammar', { m: 'POST', h: O, body: '{"s":"She gave me a book."}' }); assert.equal(r.s, 200); assert.equal(JSON.parse(r.b).r.echo, 'She gave me a book.');
   gs.close();
   r = await call('/grammar', { m: 'POST', h: O, body: '{"s":"She gave me a book."}' }); assert.equal(r.s, 200);   // 缓存
+  // 跟读打分：转给 Azure 发音评估
+  const wavHdr = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(2000)]);
+  r = await call('/pron?text=Hello%20world', { m: 'POST', h: { 'Content-Type': 'audio/wav' }, body: wavHdr }); assert.equal(r.s, 403);
+  const az = http.createServer((q, w) => { const ch = []; q.on('data', c => ch.push(c)); q.on('end', () => {
+    const pa = JSON.parse(Buffer.from(q.headers['pronunciation-assessment'], 'base64').toString()); assert.equal(pa.ReferenceText, 'Hello world'); assert.equal(q.headers['ocp-apim-subscription-key'], 'k');
+    w.writeHead(200, { 'Content-Type': 'application/json' }); w.end(JSON.stringify({ RecognitionStatus: 'Success', NBest: [{ Display: 'Hello world.', PronunciationAssessment: { AccuracyScore: 91.2, FluencyScore: 80, CompletenessScore: 100, PronScore: 88.6 }, Words: [{ Word: 'hello', PronunciationAssessment: { AccuracyScore: 95, ErrorType: 'None' } }, { Word: 'world', PronunciationAssessment: { AccuracyScore: 55, ErrorType: 'Mispronunciation' } }] }] })); }); }).listen(9924);
+  r = await call('/pron?text=Hello%20world', { m: 'POST', h: { Origin: 'https://ok.example', 'Content-Type': 'audio/wav' }, body: wavHdr }); assert.equal(r.s, 200);
+  { const pj = JSON.parse(r.b); assert.equal(pj.total, 89); assert.equal(pj.words[1].e, 'Mispronunciation'); assert.equal(pj.words[1].s, 55); }
+  r = await call('/pron?text=Hello', { m: 'POST', h: { Origin: 'https://ok.example', 'Content-Type': 'audio/wav' }, body: Buffer.from('nope') }); assert.equal(r.s, 400);
+  az.close();
   // 限时免费
   r = await call('/claim', { m: 'POST', h: O, body: '{"story":"pay1"}' }); assert.equal(r.s, 403);
   r = await call('/admin/item', { m: 'POST', h: A, body: JSON.stringify({ id: 'pay1', kind: 'story', title: 'Paid', price: 29, freeUntil: Date.now() + 86400000 }) }); assert.equal(r.s, 200);

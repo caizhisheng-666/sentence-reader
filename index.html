@@ -95,6 +95,21 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .r-c{background:rgba(171,71,188,.18);border-bottom:2px solid #ab47bc}
 .r-oc{background:rgba(255,112,67,.18);border-bottom:2px solid #ff7043}
 .r-a{background:rgba(251,188,5,.16);border-bottom:2px dotted #c99400}
+.pron{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--pop)}
+.ptop{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+.pscore{font-size:40px;font-weight:700;line-height:1}
+.prbar{display:flex;align-items:center;gap:8px;font-size:13px;line-height:20px;margin:4px 0}
+.prbar .pl{flex:none;width:5em;color:var(--sub)}
+.prbar .pt{flex:1;height:8px;background:rgba(0,0,0,.08);border-radius:4px;overflow:hidden}
+.prbar .pf{height:100%;border-radius:4px}
+.prbar .pv{flex:none;width:2.2em;text-align:right;color:var(--ink)}
+.pwords{margin:8px 0 4px;line-height:2.1;font-size:16px}
+.pw{padding:2px 5px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.pw sub{font-size:10px;margin-left:2px;opacity:.75}
+.pw.ok{background:rgba(52,168,83,.15);color:#1e7a3a}
+.pw.mid{background:rgba(242,179,58,.2);color:#9a6a00}
+.pw.bad{background:rgba(229,83,75,.16);color:#c0392b}
+.pw.om{background:rgba(0,0,0,.06);color:#999;text-decoration:line-through}
 .scChips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
 .scChip{background:var(--chip,rgba(0,0,0,.05));color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:13px;cursor:pointer}
 .scChip.on{background:var(--accent);color:#fff;border-color:var(--accent)}
@@ -210,7 +225,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-122';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-123';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2641,6 +2656,7 @@ async function toggleRecord() {
       let msg = '';
       if (blob.size > 0 && dur >= 0.8) {
         spokeOnce(keyAtStart);                      // 已读 = 自己跟读过的句子（同一句读几遍只算一句）
+        if (state && state.sentences[idxAtStart]) pronScore(blob, keyAtStart, state.sentences[idxAtStart]);
         try {
           const arr = (await idbGet('recs', keyAtStart)) || [];
           arr.unshift({ blob, t: Date.now(), dur });
@@ -2658,6 +2674,84 @@ async function toggleRecord() {
   } finally { recBusy = false; recWait = false; clearTimeout(waitTip); }
 }
 let recAudio = null, recIdx = -1; var recWait = false;
+/* ---------- 跟读打分：录音转成 16k 单声道 wav → 服务器 → Azure 发音评估；同时画原声和你的“语调曲线” ---------- */
+let pronView = { key: '', loading: false, res: null, err: '', curves: null };
+async function decodeMono16k(blob) {
+  const ab = await blob.arrayBuffer(), AC = window.AudioContext || window.webkitAudioContext, ac = new AC();
+  const buf = await new Promise((ok, no) => { const p = ac.decodeAudioData(ab.slice(0), ok, no); if (p && p.then) p.then(ok, no); });
+  try { ac.close(); } catch (e) {}
+  const len = Math.max(1, Math.ceil(buf.duration * 16000)), off = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, len, 16000);
+  const src = off.createBufferSource(); src.buffer = buf; src.connect(off.destination); src.start(0);
+  const r = await off.startRendering(); return r.getChannelData(0);
+}
+function wav16k(f32) {
+  const n = f32.length, b = new ArrayBuffer(44 + n * 2), v = new DataView(b), w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 16000, true); v.setUint32(28, 32000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+  let peak = 0; for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(f32[i])); const g = peak > 0 && peak < 0.3 ? 0.3 / peak : 1;   // 声音太小就放大一点
+  for (let i = 0; i < n; i++) { const x = Math.max(-1, Math.min(1, f32[i] * g)); v.setInt16(44 + i * 2, x < 0 ? x * 0x8000 : x * 0x7fff, true); }
+  return new Blob([b], { type: 'audio/wav' });
+}
+function pitchCurve(x) {                               // 每 20 毫秒估一次音高（自相关法），没声音的地方为 null
+  const fr = 640, hop = 320, out = []; let maxE = 0;
+  const es = []; for (let i = 0; i + fr <= x.length; i += hop) { let e = 0; for (let j = 0; j < fr; j += 2) e += x[i + j] * x[i + j]; es.push(e); if (e > maxE) maxE = e; }
+  for (let k = 0, i = 0; i + fr <= x.length; i += hop, k++) {
+    if (es[k] < maxE * 0.02) { out.push(null); continue; }
+    let best = 0, bl = 0; const rs = [];
+    for (let lag = 40; lag <= 213; lag++) { let c = 0, n1 = 0, n2 = 0; for (let j = 0; j < fr - lag; j += 2) { c += x[i + j] * x[i + j + lag]; n1 += x[i + j] * x[i + j]; n2 += x[i + j + lag] * x[i + j + lag]; } const r = c / Math.sqrt(n1 * n2 + 1e-9); rs[lag] = r; if (r > best) best = r; }
+    for (let lag = 41; lag < 213; lag++) if (rs[lag] >= best * 0.9 && rs[lag] >= rs[lag - 1] && rs[lag] >= rs[lag + 1]) { bl = lag; break; }   // 取最短的那个峰，避免把音高估成一半（八度错误）
+    out.push(best > 0.45 && bl ? 16000 / bl : null);
+  }
+  while (out.length && out[0] == null) out.shift(); while (out.length && out[out.length - 1] == null) out.pop();
+  return out;
+}
+function curveSvg(curves) {                            // 两条线：原声（灰）和你（橙），按各自的平均音高对齐，只看起伏走向
+  const W = 300, H = 70, line = (c, color, dash) => {
+    const v = c.filter(x => x), med = v.slice().sort((a, b) => a - b)[Math.floor(v.length / 2)] || 1;
+    let d = '', pen = false;
+    c.forEach((f, i) => { if (!f) { pen = false; return; } const st = 12 * Math.log2(f / med), x = (i / Math.max(1, c.length - 1)) * W, y = H / 2 - Math.max(-H / 2 + 2, Math.min(H / 2 - 2, st * 3)); d += (pen ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1); pen = true; });
+    return '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"' + (dash ? ' stroke-dasharray="1 0"' : '') + '/>';
+  };
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:70px;background:rgba(0,0,0,.03);border-radius:8px">' + (curves.orig ? line(curves.orig, '#9a9a9a') : '') + line(curves.me, '#e07b2a') + '</svg>' +
+    '<div class="note" style="font-size:12px">' + (curves.orig ? '<span style="color:#9a9a9a">━ 原声</span>　' : '') + '<span style="color:#e07b2a">━ 你</span>　语调曲线：看高低起伏像不像，' + (curves.orig ? '不用和原声一样高' : '这句是系统朗读，没有原声曲线') + '</div>';
+}
+async function pronScore(blob, key, text) {
+  pronView = { key, loading: true, res: null, err: '', curves: null }; render();
+  let f32 = null;
+  try { f32 = await decodeMono16k(blob); } catch (e) { pronView = { key, loading: false, res: null, err: '这个浏览器没法分析录音，打分不可用。', curves: null }; render(); return; }
+  try {                                                 // 语调曲线（不联网也能看）
+    const me = pitchCurve(f32); let orig = null;
+    try { const ob = (vpCount > 0 ? await vpGet(text) : null) || (state && state.natSrc ? await natFetch(text) : null); if (ob) orig = pitchCurve(await decodeMono16k(ob)); } catch (e) {}
+    if (me.length > 4) pronView.curves = { me, orig: orig && orig.length > 4 ? orig : null };
+  } catch (e) {}
+  if (!navigator.onLine) { pronView.loading = false; pronView.err = '当前离线，联网后跟读才能打分。'; if (pronView.key === key) render(); return; }
+  try {
+    const r = await fetchT(SHOP_BASE + '/pron?text=' + encodeURIComponent(text.slice(0, 400)), 20000, { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: wav16k(f32) });
+    const j = await r.json().catch(() => ({}));
+    if (pronView.key !== key) return;
+    if (r.ok && j.ok) pronView.res = j;
+    else pronView.err = j.status === 'NoMatch' || j.status === 'InitialSilenceTimeout' ? '没听清你读的内容，靠近手机、大声一点再读一遍试试。'
+      : j.error === 'not-configured' ? '跟读打分还没开通（服务器还没配置）。' : j.error === 'too-many' ? '打分太频繁了，休息一下再试。' : j.error === 'daily-limit' ? '今天的打分次数用完了，明天再来。' : '打分暂时不可用（' + (j.error || ('HTTP ' + r.status)) + '），录音已保存。';
+  } catch (e) { if (pronView.key === key) pronView.err = '网络不通，这次没能打分，录音已保存。'; }
+  pronView.loading = false; if (pronView.key === key) render();
+}
+function pronHtml() {
+  if (!state || pronView.key !== recKey()) return '';
+  const v = pronView; let h = '<div class="pron">';
+  if (v.loading) h += '<div class="note">⏳ 正在给你的发音打分…</div>';
+  if (v.res) {
+    const r = v.res, t = r.total, face = t >= 90 ? '🌟 太棒了！' : t >= 75 ? '👍 读得不错！' : t >= 60 ? '🙂 还可以，再读一遍会更好' : '💪 多听几遍原声，再试一次';
+    const bar = (n, x) => x == null ? '' : '<div class="prbar"><div class="pl">' + n + '</div><div class="pt"><div class="pf" style="width:' + x + '%;background:' + (x >= 80 ? '#34a853' : x >= 60 ? '#f2b33a' : '#e5534b') + '"></div></div><div class="pv">' + x + '</div></div>';
+    h += '<div class="ptop"><div class="pscore" style="color:' + (t >= 80 ? '#2e8b47' : t >= 60 ? '#c78a00' : '#d0453d') + '">' + t + '</div><div><div style="font-size:16px;color:var(--ink)">' + face + '</div><div class="note">发音总分（满分 100）</div></div></div>' +
+      bar('准确度', r.acc) + bar('流利度', r.flu) + bar('完整度', r.comp) + (r.pros != null ? bar('语调节奏', r.pros) : '');
+    h += '<div class="pwords">' + r.words.filter(w => w.e !== 'Insertion').map(w => '<span class="pw ' + (w.e === 'Omission' ? 'om' : w.s >= 80 ? 'ok' : w.s >= 60 ? 'mid' : 'bad') + '" onclick="speakText(\'' + esc(String(w.w).replace(/'/g, '')) + '\')">' + esc(w.w) + (w.e === 'Omission' ? '' : '<sub>' + w.s + '</sub>') + '</span>').join(' ') + '</div>';
+    const weak = r.words.filter(w => w.e === 'Omission' || (w.e !== 'Insertion' && w.s < 60));
+    h += '<div class="note">' + (weak.length ? '要多练的词：' + weak.slice(0, 6).map(w => '<b>' + esc(w.w) + '</b>' + (w.e === 'Omission' ? '（漏读）' : '')).join('、') + '。点单词能听它的读音。' : '每个词都读得挺准！') + '</div>';
+  }
+  if (v.err) h += '<div class="note">' + esc(v.err) + '</div>';
+  if (v.curves) h += curveSvg(v.curves);
+  return h + '</div>';
+}
 function recStop() { if (recAudio) { try { recAudio.pause(); } catch (e) {} recAudio = null; } const b = document.getElementById('recp-' + recIdx); if (b) b.innerHTML = SPK_OFF; recIdx = -1; }
 function recPlay(i) {                               // 播放自己的跟读录音：喇叭打开=正在播放，再点一下停止
   const was = recIdx; recStop();
@@ -3591,11 +3685,11 @@ function render() {
       (window.EG && EG.REF[it.key] ? '<button class="link" onclick="openGrammarDict(\'' + it.key + '\')">在语法字典中查看</button>' : '') + '</div>').join('') +
     '<div class="note" style="margin-top:6px">' + (gsOk ? '句子结构由句法分析模型自动生成，偶尔会分错，长句请结合上下文理解。' : '当前是离线简版讲解（规则分析）；联网后会显示更准确的句子结构分析。') + '</div></details>';
 
-  const recs = (recView.key === recKey() && recView.urls.length)
+  const recs = pronHtml() + ((recView.key === recKey() && recView.urls.length)
     ? '<div class="note" style="margin-top:10px">我的录音（最近 3 次，先听原音再点喇叭听自己的，对比发音）：</div>' +
       recView.urls.map((u, i) => '<div class="recitem"><span style="min-width:44px">' + (i === 0 ? '最新' : '第 ' + (i + 1) + ' 条') + '</span><button class="recplay" id="recp-' + i + '" onclick="recPlay(' + i + ')" aria-label="播放我的录音">' + SPK_OFF + '</button><span>' + (u.dur ? u.dur.toFixed(1) + ' 秒' : '') + '</span></div>').join('') +
       '<button class="link" onclick="deleteRecs()">删除这句的录音</button>'
-    : '<div class="note" style="margin-top:10px">点“🎙 跟读”录下自己读这一句，读完点“■ 停止”，录音保存在本机，可以和原音对比。</div>';
+    : '<div class="note" style="margin-top:10px">点“🎙 跟读”录下自己读这一句，读完点“■ 停止”，会自动给你的发音打分，录音保存在本机，可以和原音对比。</div>');
 
   // “更多练习”（听写 / 句子重组 / 跟读打分）已从界面撤下；功能代码还在，想恢复时把下面这行改回按钮即可
   const practiceHtml = '';
