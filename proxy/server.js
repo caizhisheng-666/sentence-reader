@@ -251,8 +251,8 @@ function explainDailyFull() { const d = new Date().toISOString().slice(0, 10); i
 const EXPLAIN_SYS = '你是耐心的英语老师，学生是中国的小学生和他们的家长，英语基础比较弱。用户给你一句英文，你只输出一个 JSON 对象，不要任何别的文字，格式：' +
   '{"zh":"这句话自然流畅的中文意思","words":[{"w":"难词或短语原文","m":"在这句话里的意思，一句话"}],"grammar":"这句话最值得学的一个语法点，用简单的大白话讲，不超过 60 字","tip":"一个帮助记忆或朗读的小提示，可以为空字符串"}。' +
   'words 最多 4 个，只选真正会让学生卡住的词、短语、固定搭配，太简单的词不要选；如果整句都很简单，words 可以为空数组。语法点不要堆术语，要让小学生也能看懂。';
-function arkChat(sentence) {
-  const body = JSON.stringify({ model: ARK_MODEL, messages: [{ role: 'system', content: EXPLAIN_SYS }, { role: 'user', content: sentence }], temperature: 0.3, max_tokens: 700, thinking: { type: 'disabled' } });
+function arkRequest(payload) {
+  const body = JSON.stringify(payload);
   const u = new URL(ARK_HOST), isHttp = u.protocol === 'http:';
   return new Promise(ok => {
     const q = (isHttp ? http : https).request({ hostname: u.hostname, port: u.port || (isHttp ? 80 : 443), path: '/api/v3/chat/completions', method: 'POST', timeout: 25000,
@@ -262,6 +262,9 @@ function arkChat(sentence) {
     q.on('timeout', () => q.destroy(new Error('timeout'))); q.on('error', e => ok({ s: 0, b: String(e && e.message) })); q.end(body);
   });
 }
+function arkChat(sentence) {
+  return arkRequest({ model: ARK_MODEL, messages: [{ role: 'system', content: EXPLAIN_SYS }, { role: 'user', content: sentence }], temperature: 0.3, max_tokens: 700, thinking: { type: 'disabled' } });
+}
 function parseExplain(text) {                       // 模型偶尔会在 JSON 外面套 ```json，宽松地取出来，并把字段整理干净
   const m = /\{[\s\S]*\}/.exec(String(text || '')); if (!m) return null;
   let j; try { j = JSON.parse(m[0]); } catch (e) { return null; }
@@ -269,6 +272,34 @@ function parseExplain(text) {                       // 模型偶尔会在 JSON �
   const zh = str(j.zh, 300); if (!zh) return null;
   const words = (Array.isArray(j.words) ? j.words : []).slice(0, 4).map(x => ({ w: str(x && x.w, 60), m: str(x && x.m, 120) })).filter(x => x.w && x.m);
   return { zh, words, grammar: str(j.grammar, 200), tip: str(j.tip, 150) };
+}
+/* ---------- AI 对话：围绕当前这一句，和 AI 老师用简单英语聊几句。对话不能缓存，所以单独限次数 ---------- */
+const CHAT_DAILY_MAX = +process.env.CHAT_DAILY_MAX || 200, CHAT_PER_IP_HOUR = +process.env.CHAT_PER_IP_HOUR || 40;
+const chatLog = new Map(); let chatDay = { d: '', n: 0 };
+function chatLimited(ip) {
+  const now = Date.now(), arr = (chatLog.get(ip) || []).filter(t => now - t < 3600000); arr.push(now); chatLog.set(ip, arr);
+  if (chatLog.size > 5000) for (const [k, v] of chatLog) if (now - v[v.length - 1] > 3600000) chatLog.delete(k);
+  return arr.length > CHAT_PER_IP_HOUR;
+}
+function chatDailyFull() { const d = new Date().toISOString().slice(0, 10); if (chatDay.d !== d) chatDay = { d, n: 0 }; return chatDay.n >= CHAT_DAILY_MAX; }
+const CHAT_SYS = '你是一位温柔、有耐心的英语口语老师，正在和一个中国的小学生（或英语基础很弱的家长）练习英语对话。对话围绕学生正在读的这一句英文展开。规则：' +
+  '1）你说的英语要非常简单（相当于小学三四年级水平），每次最多 2 句，最后用一个简短的问题引导学生继续说；' +
+  '2）如果学生的英语有错误或不自然，在 fix 里给出更好的说法，并在 fixZh 里用一句中文讲清楚为什么；没有错就让 fix 和 fixZh 为空字符串；' +
+  '3）如果学生用中文提问或回答，你可以先用一句中文简短回答，再引导他尝试用英语说；' +
+  '4）多鼓励，但不要夸张；不聊和学习无关、不适合儿童的话题，遇到就温和地把话题拉回这一句。' +
+  '只输出一个 JSON 对象，不要任何别的文字：{"en":"你说的英语","zh":"上面英语的中文意思","fix":"","fixZh":""}。';
+function arkChatTurn(sentence, hist, msg) {
+  const messages = [{ role: 'system', content: CHAT_SYS + '\n学生正在读的这一句：' + sentence }];
+  for (const h of hist) messages.push({ role: h.r === 'me' ? 'user' : 'assistant', content: h.t });
+  messages.push({ role: 'user', content: msg || '（学生刚打开对话，请你先用一个简单的英语问题开场）' });
+  return arkRequest({ model: ARK_MODEL, messages, temperature: 0.6, max_tokens: 500, thinking: { type: 'disabled' } });
+}
+function parseChat(text) {
+  const m = /\{[\s\S]*\}/.exec(String(text || '')); if (!m) return null;
+  let j; try { j = JSON.parse(m[0]); } catch (e) { return null; }
+  const str = (x, n) => String(x == null ? '' : x).trim().slice(0, n);
+  const en = str(j.en, 400); if (!en) return null;
+  return { en, zh: str(j.zh, 300), fix: str(j.fix, 300), fixZh: str(j.fixZh, 300) };
 }
 const GRAMMAR_URL = process.env.GRAMMAR_URL || 'http://127.0.0.1:8791', gramCache = new Map(), gramLog = new Map();
 function gramLimited(ip) {                        // 同一个网络 1 小时最多分析 600 句
@@ -363,6 +394,27 @@ async function shopRoutes(req, res) {
     let content = ''; try { content = JSON.parse(r2.b).choices[0].message.content; } catch (e) {}
     const r3 = parseExplain(content); if (!r3) return out0(502, { error: 'ark-bad-reply' });
     explainCache.set(s0, r3); explainDirty = true; if (explainCache.size > 20000) explainCache.delete(explainCache.keys().next().value);
+    return out0(200, { ok: true, r: r3 });
+  }
+  if (req.method === 'POST' && url === '/chat') {     // AI 对话
+    const origin0 = req.headers.origin, okO0 = origin0 && ALLOW.includes(origin0) ? origin0 : null;
+    const hd0 = { 'Content-Type': 'application/json; charset=utf-8' }; if (okO0) { hd0['Access-Control-Allow-Origin'] = okO0; hd0.Vary = 'Origin'; }
+    const out0 = (c, o) => { res.writeHead(c, hd0); res.end(JSON.stringify(o)); return true; };
+    if (!okO0) return out0(403, { error: 'origin-not-allowed' });
+    if (!ARK_KEY) return out0(503, { error: 'not-configured' });
+    let b0; try { b0 = JSON.parse(await readBody(req, 8000)) || {}; } catch (e) { return out0(400, { error: 'bad-request' }); }
+    const s0 = String(b0.s || '').replace(/\s+/g, ' ').trim().slice(0, 600), m0 = String(b0.m || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+    const h0 = (Array.isArray(b0.h) ? b0.h : []).slice(-8).map(x => ({ r: x && x.r === 'me' ? 'me' : 'ai', t: String((x && x.t) || '').slice(0, 400) })).filter(x => x.t);
+    if (!s0 || !/[A-Za-z]/.test(s0)) return out0(400, { error: 'empty' });
+    if (chatLimited(ip)) return out0(429, { error: 'too-many' });
+    if (chatDailyFull()) return out0(429, { error: 'daily-limit' });
+    chatDay.n++;
+    const r2 = await arkChatTurn(s0, h0, m0);
+    if (r2.s === 401 || r2.s === 403) return out0(502, { error: 'ark-key' });
+    if (r2.s === 429) return out0(503, { error: 'ark-busy' });
+    if (r2.s !== 200) return out0(502, { error: 'ark-failed', code: r2.s });
+    let content = ''; try { content = JSON.parse(r2.b).choices[0].message.content; } catch (e) {}
+    const r3 = parseChat(content); if (!r3) return out0(502, { error: 'ark-bad-reply' });
     return out0(200, { ok: true, r: r3 });
   }
   if (req.method === 'POST' && url === '/grammar') {  // 句子结构分析：转给本机的 spaCy 服务（proxy/grammar/server.py）

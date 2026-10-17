@@ -171,6 +171,19 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .recup{color:#2e8b47;font-weight:600}.recdn{color:#d0453d;font-weight:600}
 .recbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .recplay{width:38px;height:38px;min-width:0;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--soft);color:var(--accent)}
+.chat{margin-top:10px;background:var(--pop);border-radius:12px;padding:12px}
+.chead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:14px}
+.clog{max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
+.cai,.cme{display:flex;flex-direction:column;max-width:88%}
+.cai{align-self:flex-start}.cme{align-self:flex-end}
+.cb{border-radius:14px;padding:8px 12px;font-size:15px;line-height:1.55}
+.cai .cb{background:var(--soft);color:var(--ink);border-top-left-radius:4px}
+.cme .cb{background:var(--accent);color:#fff;border-top-right-radius:4px}
+.czh{font-size:13px;color:var(--sub);margin-top:4px}
+.cfix{margin-top:4px;font-size:13px;color:var(--ink);background:rgba(46,139,71,.12);border-radius:10px;padding:6px 10px;line-height:1.6}
+.cwait{opacity:.7}
+.cin{display:flex;gap:8px;margin-top:8px}
+.cin input{flex:1;min-width:0;border:1px solid var(--line);border-radius:999px;padding:9px 14px;font-size:16px;background:var(--bg,transparent);color:var(--ink);font-family:inherit}
 .aiex{background:var(--pop);border-radius:12px;padding:12px 14px}
 .aiex .aiz{font-size:16px;color:var(--ink);line-height:1.7}
 .aiex .ait{margin-top:10px;font-weight:600;font-size:13px;color:var(--accent2)}
@@ -240,7 +253,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.18-132';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.18-133';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -732,7 +745,7 @@ async function finalizeImport(sentences, imageRanges, bookId, extraToast, toc, b
   state = { natVoice: importNatVoice || '', natSrc: importNatSrc || '', bookId: newId, sentences, idx: startIdx, prog: {}, cache: {}, startDate: Date.now(), totalCompleted: 0, imageRanges: imageRanges || [], toc: toc || buildTextToc(sentences, startIdx), zh: (bil && bil.zh) || {}, zhp: (bil && bil.para) || {}, zhOff: {} };
   state.title = (importTitle || '').trim() || bookShortTitle(sentences);
   if (oldB && oldB.prog) state.prog = oldB.prog;
-  if (oldB && oldB.gstruct) state.gstruct = oldB.gstruct; if (oldB && oldB.aiex) state.aiex = oldB.aiex;
+  if (oldB && oldB.gstruct) state.gstruct = oldB.gstruct; if (oldB && oldB.aiex) state.aiex = oldB.aiex; if (oldB && oldB.chats) state.chats = oldB.chats;
   importTitle = ''; importBookId = ''; importNatVoice = ''; importNatSrc = '';
   const entry = Object.assign({}, e0 || {}, { id: state.bookId, title: state.title, addedAt: (e0 && e0.addedAt) || Date.now(), lastAt: Date.now(), total: sentences.length, idx: startIdx, nv: state.natVoice ? 1 : (e0 && e0.nv) || 0 });
   await flushState();
@@ -1112,6 +1125,53 @@ function aiHtml() {
     '<div class="note" style="margin-top:8px;font-size:12px">由 AI 生成，偶尔会有不准确的地方，仅供参考。</div></div>';
   if (aiBusy === s) return '<div class="note">🤖 AI 老师正在备课，大约要几秒钟…</div>';
   return (aiErr ? '<div class="note" style="color:#b94a48;margin-bottom:6px">' + esc(aiErr) + '</div>' : '') + '<button class="ghost sm" onclick="aiExplain()">🤖 请 AI 老师讲讲这一句</button>';
+}
+/* ---------- AI 对话：围绕这一句，和 AI 老师用简单英语聊几句。聊天记录按句子存在本机 ---------- */
+let chatOpen = '', chatBusy = false, chatErr = '', chatDraft = '';
+function chatGet(s) { return (state && state.chats && state.chats[s]) || []; }
+function chatSet(st, s, arr) {
+  st.chats = st.chats || {}; st.chats[s] = arr.slice(-16);
+  const ks = Object.keys(st.chats); if (ks.length > 30) delete st.chats[ks[0]];     // 最多记 30 句的聊天，太旧的丢掉
+  saveState();
+}
+function chatToggle() {
+  const s = state.sentences[state.idx];
+  if (chatOpen === s) { chatOpen = ''; render(); return; }
+  chatOpen = s; chatErr = ''; render();
+  if (!chatGet(s).length) chatSend(true);              // 第一次打开：AI 老师先开场提问
+}
+async function chatSend(first) {
+  if (!state || chatBusy) return;
+  const st = state, s = st.sentences[st.idx], inp = document.getElementById('chatIn');
+  const msg = first === true ? '' : String(chatDraft || (inp && inp.value) || '').trim();
+  if (first !== true && !msg) return;
+  if (!navigator.onLine) { chatErr = '现在没有网络，联网后才能和 AI 老师聊天。'; render(); return; }
+  const hist = chatGet(s).map(m => ({ r: m.r, t: m.t })), log = chatGet(s).slice();
+  if (msg) { log.push({ r: 'me', t: msg }); chatSet(st, s, log); }
+  chatDraft = ''; chatBusy = true; chatErr = ''; render(); chatScroll();
+  try {
+    const r = await fetchT(SHOP_BASE + '/chat', 30000, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ s, h: hist.slice(-8), m: msg }) });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok && j.ok && j.r) { const l2 = chatGet(s).slice(); l2.push({ r: 'ai', t: j.r.en, zh: j.r.zh, fix: j.r.fix, fixZh: j.r.fixZh }); chatSet(st, s, l2); }
+    else chatErr = j.error === 'daily-limit' ? '今天 AI 老师聊天的次数用完了，明天再来聊。' : j.error === 'too-many' ? '聊得太快了，休息一会儿再继续。' : j.error === 'not-configured' ? 'AI 老师还没开通。' : 'AI 老师暂时没回应（' + (j.error || ('HTTP ' + r.status)) + '），稍后再试。';
+  } catch (e) { chatErr = '网络不太好，AI 老师没连上，稍后再试。'; }
+  chatBusy = false; if (state === st) { render(); chatScroll(); }
+}
+function chatScroll() { setTimeout(() => { const el = document.getElementById('chatLog'); if (el) el.scrollTop = el.scrollHeight; const i = document.getElementById('chatIn'); if (i && !chatBusy) { try { i.focus({ preventScroll: true }); } catch (e) {} } }, 30); }
+function chatClear() { const s = state.sentences[state.idx]; if (state.chats) delete state.chats[s]; saveState(); chatErr = ''; render(); chatSend(true); }
+function chatHtml() {
+  const s = state.sentences[state.idx], open = chatOpen === s;
+  if (!open) return '<button class="ghost sm" style="margin-top:8px" onclick="chatToggle()">💬 和 AI 老师聊聊这一句' + (chatGet(s).length ? '（继续）' : '') + '</button>';
+  const log = chatGet(s);
+  return '<div class="chat"><div class="chead"><b>💬 和 AI 老师聊聊</b><span><button class="link" onclick="chatClear()">重新开始</button> <button class="link" onclick="chatToggle()">收起</button></span></div>' +
+    '<div class="clog" id="chatLog">' + log.map(m => m.r === 'me'
+      ? '<div class="cme"><div class="cb">' + esc(m.t) + '</div></div>'
+      : '<div class="cai"><div class="cb">' + esc(m.t) + (m.zh ? '<div class="czh">' + esc(m.zh) + '</div>' : '') + '</div>' + (m.fix ? '<div class="cfix">✏️ 更好的说法：<b>' + esc(m.fix) + '</b>' + (m.fixZh ? '<br>' + esc(m.fixZh) : '') + '</div>' : '') + '</div>').join('') +
+      (chatBusy ? '<div class="cai"><div class="cb cwait">AI 老师正在想…</div></div>' : '') + '</div>' +
+    (chatErr ? '<div class="note" style="color:#b94a48;margin:6px 0">' + esc(chatErr) + '</div>' : '') +
+    '<div class="cin"><input id="chatIn" type="text" maxlength="200" autocomplete="off" placeholder="用英语（或中文）回答…" value="' + esc(chatDraft) + '" oninput="chatDraft=this.value" onkeydown="if(event.key===\'Enter\'){event.preventDefault();chatSend()}"' + (chatBusy ? ' disabled' : '') + '>' +
+    '<button class="sm" onclick="chatSend()"' + (chatBusy ? ' disabled' : '') + '>发送</button></div>' +
+    '<div class="note" style="margin-top:6px;font-size:12px">由 AI 生成，偶尔会有不准确的地方。键盘上的 🎤 可以语音输入。</div></div>';
 }
 const GS_ROLE = { S: ['主语', 'r-s'], V: ['谓语', 'r-v'], O: ['宾语', 'r-o'], IO: ['间接宾语', 'r-io'], C: ['表语', 'r-c'], OC: ['宾补', 'r-oc'], A: ['状语', 'r-a'] };
 function gsHtml(g) {
@@ -3831,7 +3891,7 @@ function render() {
       '</div>' +
       '<div class="section">' + recs + '</div>' +
       practiceHtml +
-      '<div class="section">' + aiHtml() + '</div>' +
+      '<div class="section">' + aiHtml() + chatHtml() + '</div>' +
       gHtml +
     '</div>' +
     '<div class="bottombar"><div class="bprog"><div style="width:' + pct + '%"></div></div>' +

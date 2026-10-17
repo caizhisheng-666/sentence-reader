@@ -1,6 +1,6 @@
 // 故事城后台接口测试（不涉及真实密钥）
 process.env.VOLC_AK = 'A'; process.env.VOLC_SK = 'S'; process.env.ALLOW_ORIGINS = 'https://ok.example';
-process.env.ADMIN_TOKEN = 'test-admin-token-1234567890'; process.env.USAGE_FILE = '/tmp/shoptest/usage.json'; process.env.MAX_UPLOAD = '2000'; process.env.GRAMMAR_URL = 'http://127.0.0.1:9923'; process.env.AZURE_SPEECH_KEY = 'k'; process.env.AZURE_STT_HOST = 'http://127.0.0.1:9924'; process.env.ARK_API_KEY = 'ark-test'; process.env.ARK_HOST = 'http://127.0.0.1:9925'; process.env.EXPLAIN_PER_IP_HOUR = '3';
+process.env.ADMIN_TOKEN = 'test-admin-token-1234567890'; process.env.USAGE_FILE = '/tmp/shoptest/usage.json'; process.env.MAX_UPLOAD = '2000'; process.env.GRAMMAR_URL = 'http://127.0.0.1:9923'; process.env.AZURE_SPEECH_KEY = 'k'; process.env.AZURE_STT_HOST = 'http://127.0.0.1:9924'; process.env.ARK_API_KEY = 'ark-test'; process.env.ARK_HOST = 'http://127.0.0.1:9925'; process.env.EXPLAIN_PER_IP_HOUR = '3'; process.env.CHAT_PER_IP_HOUR = '3';
 require('child_process').execSync('rm -rf /tmp/shoptest');
 const http = require('http'), assert = require('assert');
 const { server } = require('./server.js'); server.listen(9922);
@@ -119,6 +119,7 @@ const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-toke
     assert.equal(q.headers.authorization, 'Bearer ark-test'); const b = JSON.parse(Buffer.concat(ch).toString()); assert.equal(b.messages[1].content.length > 0, true);
     if (arkMode === 'bad') { w.writeHead(200); return w.end(JSON.stringify({ choices: [{ message: { content: '抱歉我讲不了' } }] })); }
     if (arkMode === '401') { w.writeHead(401); return w.end('{}'); }
+    if (arkMode === 'chat') { global.__chatLast = b; w.writeHead(200, { 'Content-Type': 'application/json' }); return w.end(JSON.stringify({ choices: [{ message: { content: '{"en":"Do you like cats? What colour is your cat?","zh":"你喜欢猫吗？","fix":"I like cats.","fixZh":"like 后面直接接名词复数。"}' } }] })); }
     w.writeHead(200, { 'Content-Type': 'application/json' }); w.end(JSON.stringify({ choices: [{ message: { content: '```json\n{"zh":"爱丽丝开始觉得很累了。","words":[{"w":"tired of","m":"对……感到厌倦"},{"w":"","m":"空的会被丢掉"}],"grammar":"was beginning to 表示过去快要开始做某事。","tip":""}\n```' } }] })); }); }).listen(9925);
   const EX = { m: 'POST', h: { Origin: 'https://ok.example' } };
   r = await call('/explain', { m: 'POST', h: { Origin: 'https://bad.example' }, body: '{"s":"Alice was tired."}' }); assert.equal(r.s, 403);
@@ -129,6 +130,17 @@ const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-toke
   arkMode = 'bad'; r = await call('/explain', Object.assign({ body: '{"s":"I like cats."}' }, EX)); assert.equal(r.s, 502); assert.equal(JSON.parse(r.b).error, 'ark-bad-reply');
   arkMode = '401'; r = await call('/explain', Object.assign({ body: '{"s":"I like dogs."}' }, EX)); assert.equal(r.s, 502); assert.equal(JSON.parse(r.b).error, 'ark-key');
   arkMode = 'ok'; r = await call('/explain', Object.assign({ body: '{"s":"I like birds."}' }, EX)); assert.equal(r.s, 429);   // 同一网络 1 小时限 3 次（缓存命中不算）
+  // AI 对话：带上这一句和前面的对话，一轮一轮聊（沿用上面的假豆包，按请求内容判断）
+  arkMode = 'chat';
+  r = await call('/chat', { m: 'POST', h: { Origin: 'https://bad.example' }, body: '{"s":"The cat sat."}' }); assert.equal(r.s, 403);
+  r = await call('/chat', Object.assign({ body: '{"s":"The cat sat on the mat.","h":[],"m":""}' }, EX)); assert.equal(r.s, 200);
+  { const j = JSON.parse(r.b); assert.equal(j.ok, true); assert.equal(j.r.en, 'Do you like cats? What colour is your cat?'); assert.equal(j.r.fix, 'I like cats.'); }
+  assert.ok(global.__chatLast.messages[0].content.includes('The cat sat on the mat.'));       // 系统提示里带着这一句
+  assert.ok(/刚打开对话/.test(global.__chatLast.messages[1].content));                          // 第一轮由 AI 开场
+  r = await call('/chat', Object.assign({ body: JSON.stringify({ s: 'The cat sat on the mat.', h: [{ r: 'ai', t: 'Do you like cats?' }], m: 'I likes cat' }) }, EX)); assert.equal(r.s, 200);
+  { const ms = global.__chatLast.messages; assert.equal(ms.length, 3); assert.equal(ms[1].role, 'assistant'); assert.equal(ms[2].role, 'user'); assert.equal(ms[2].content, 'I likes cat'); }
+  r = await call('/chat', Object.assign({ body: '{"s":"The cat sat on the mat.","m":"hi"}' }, EX)); assert.equal(r.s, 200);
+  r = await call('/chat', Object.assign({ body: '{"s":"The cat sat on the mat.","m":"hi"}' }, EX)); assert.equal(r.s, 429);   // 同一网络 1 小时限 3 次
   ark.close();
   r = await call('/grammar', { m: 'POST', h: O, body: '{"s":"She gave me a book."}' }); assert.equal(r.s, 200);   // 缓存
   // 跟读打分：转给 Azure 发音评估
