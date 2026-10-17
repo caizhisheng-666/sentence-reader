@@ -210,7 +210,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-121';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-122';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -336,7 +336,7 @@ function saveState() {
   if (e) {
     e.idx = state.idx; e.lastAt = Date.now(); e.total = state.sentences.length;
     e.max = Math.max(e.max || 0, e.idx);                 // 最远读到哪里：往回翻、从目录跳回前面，都不会把“读完”/进度冲掉
-    if (e.idx >= e.total) e.done = 1;
+    if (e.idx >= e.total - 1) e.done = 1;               // 看到最后一句就算读完
     shelfSet(l);
   }
   clearTimeout(saveTimer); saveTimer = setTimeout(flushState, 500);       // 整本书的数据比较大，隔一会儿再写一次
@@ -425,15 +425,15 @@ function shelfHtml() {
     return html;
   }
   html += '<div class="shelf">' + l.map(b => {
-    const far = Math.max(b.max || 0, b.idx || 0), done = !!b.done || (b.total && far >= b.total);
-    const pct = b.total ? Math.min(100, Math.round(far / b.total * 100)) : 0;
-    const status = !b.total ? '' : (done ? '读完' : (far > 0 ? pct + '%' : '未读'));
+    const far = Math.max(b.max || 0, b.idx || 0), done = !!b.done || (b.total && far >= b.total - 1 && b.max != null);
+    const pct = b.total ? Math.min(100, Math.round((far + 1) / b.total * 100)) : 0;     // 读到第 n 句 = n / 总句数
+    const status = !b.total ? '' : (done ? '读完' : (b.max != null ? pct + '%' : '未读'));
     const on = sel && sel.has(b.id);
     return '<div class="bk' + (on ? ' on' : '') + '" onclick="shelfTap(\'' + b.id + '\')">' +
       '<div class="cover house">' + buddySvg(b.id, far > 0) + '<span><b>' + esc(b.title || '') + '</b></span>' +
       (b.sample ? '<i class="done" style="background:#6f9fd8">试读</i>' : done ? '<i class="done">读完</i>' : '') +
       (sel ? '<i class="chk">' + (on ? '✓' : '') + '</i>' : '') + '</div>' +
-      '<div class="bs">' + (done ? (b.idx < b.total ? '重读中 ' + Math.round((b.idx || 0) / b.total * 100) + '%' : '&nbsp;') : status || '&nbsp;') + '</div></div>';
+      '<div class="bs">' + (done ? '100%' : status || '&nbsp;') + '</div></div>';
   }).join('') + '</div>';
   if (sel) html += '<div class="selbar"><span class="note">已选 ' + sel.size + ' 个</span><button ' + (sel.size ? '' : 'disabled ') + 'style="background:#b94a48" onclick="deleteSelectedBooks()">删除</button></div>';
   return html;
@@ -2796,7 +2796,7 @@ function defSplit(t) {                              // 词典释义只先显示�
     const parts = body.split(/[,，;；]\s*/).map(x => x.trim()).filter(Boolean), keep = i === 0 ? (parts.length >= 3 ? 2 : 1) : i < 3 ? 1 : 0;
     if (parts.length <= keep || !parts.length) { (keep ? main : rest).push(ln); return; }
     if (keep) main.push(pos + parts.slice(0, keep).join('，'));
-    if (parts.length > keep) rest.push(pos + parts.slice(keep).join('，'));
+    if (parts.length > keep && parts.length >= 3) rest.push(pos + parts.slice(keep).join('，'));   // 只有两个意思的，第二个多半是冷门引申义（如 kitten“淘气姑娘”），直接不显示
   });
   return { main: main.join('\n') || lines[0] || '', rest: rest.join('\n') };
 }
@@ -3361,7 +3361,8 @@ function pgWordsHtml(idx) {
   return String(state.sentences[idx]).split(/(\s+)/).map(tok => {
     if (!tok || /^\s+$/.test(tok)) return tok;
     if (!/[A-Za-z]/.test(tok)) return esc(tok);
-    return '<span class="w" data-k="' + (k++) + '" data-t="' + esc(tok) + '" data-s="' + idx + '" tabindex="0" role="button" onclick="wordClick(0,this)" onkeydown="if(event.key===\'Enter\')wordClick(0,this)">' + esc(tok) + '</span>';
+    const m = /^([^A-Za-z0-9]*)(.*[A-Za-z0-9])([^A-Za-z0-9]*)$/.exec(tok) || ['', '', tok, ''];   // 标点放在单词按钮外面
+    return esc(m[1]) + '<span class="w" data-k="' + (k++) + '" data-t="' + esc(m[2]) + '" data-s="' + idx + '" tabindex="0" role="button" onclick="wordClick(0,this)" onkeydown="if(event.key===\'Enter\')wordClick(0,this)">' + esc(m[2]) + '</span>' + esc(m[3]);
   }).join('');
 }
 function pgRowHtml(idx) {
