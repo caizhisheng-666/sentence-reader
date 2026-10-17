@@ -1,6 +1,6 @@
 // 故事城后台接口测试（不涉及真实密钥）
 process.env.VOLC_AK = 'A'; process.env.VOLC_SK = 'S'; process.env.ALLOW_ORIGINS = 'https://ok.example';
-process.env.ADMIN_TOKEN = 'test-admin-token-1234567890'; process.env.USAGE_FILE = '/tmp/shoptest/usage.json'; process.env.MAX_UPLOAD = '2000'; process.env.GRAMMAR_URL = 'http://127.0.0.1:9923'; process.env.AZURE_SPEECH_KEY = 'k'; process.env.AZURE_STT_HOST = 'http://127.0.0.1:9924';
+process.env.ADMIN_TOKEN = 'test-admin-token-1234567890'; process.env.USAGE_FILE = '/tmp/shoptest/usage.json'; process.env.MAX_UPLOAD = '2000'; process.env.GRAMMAR_URL = 'http://127.0.0.1:9923'; process.env.AZURE_SPEECH_KEY = 'k'; process.env.AZURE_STT_HOST = 'http://127.0.0.1:9924'; process.env.ARK_API_KEY = 'ark-test'; process.env.ARK_HOST = 'http://127.0.0.1:9925'; process.env.EXPLAIN_PER_IP_HOUR = '3';
 require('child_process').execSync('rm -rf /tmp/shoptest');
 const http = require('http'), assert = require('assert');
 const { server } = require('./server.js'); server.listen(9922);
@@ -113,6 +113,23 @@ const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-toke
   const gs = http.createServer((q, w) => { let b = ''; q.on('data', c => b += c); q.on('end', () => { w.writeHead(200, { 'Content-Type': 'application/json' }); w.end(JSON.stringify({ ok: true, r: { echo: JSON.parse(b).s } })); }); }).listen(9923);
   r = await call('/grammar', { m: 'POST', h: O, body: '{"s":"She gave me a book."}' }); assert.equal(r.s, 200); assert.equal(JSON.parse(r.b).r.echo, 'She gave me a book.');
   gs.close();
+  // AI 讲解：转给豆包（这里用假的），同一句只调一次
+  let arkN = 0, arkMode = 'ok';
+  const ark = http.createServer((q, w) => { const ch = []; q.on('data', c => ch.push(c)); q.on('end', () => { arkN++;
+    assert.equal(q.headers.authorization, 'Bearer ark-test'); const b = JSON.parse(Buffer.concat(ch).toString()); assert.equal(b.messages[1].content.length > 0, true);
+    if (arkMode === 'bad') { w.writeHead(200); return w.end(JSON.stringify({ choices: [{ message: { content: '抱歉我讲不了' } }] })); }
+    if (arkMode === '401') { w.writeHead(401); return w.end('{}'); }
+    w.writeHead(200, { 'Content-Type': 'application/json' }); w.end(JSON.stringify({ choices: [{ message: { content: '```json\n{"zh":"爱丽丝开始觉得很累了。","words":[{"w":"tired of","m":"对……感到厌倦"},{"w":"","m":"空的会被丢掉"}],"grammar":"was beginning to 表示过去快要开始做某事。","tip":""}\n```' } }] })); }); }).listen(9925);
+  const EX = { m: 'POST', h: { Origin: 'https://ok.example' } };
+  r = await call('/explain', { m: 'POST', h: { Origin: 'https://bad.example' }, body: '{"s":"Alice was tired."}' }); assert.equal(r.s, 403);
+  r = await call('/explain', Object.assign({ body: '{"s":"12345"}' }, EX)); assert.equal(r.s, 400);
+  r = await call('/explain', Object.assign({ body: '{"s":"Alice was beginning to get very tired."}' }, EX)); assert.equal(r.s, 200);
+  { const j = JSON.parse(r.b); assert.equal(j.ok, true); assert.equal(j.r.zh, '爱丽丝开始觉得很累了。'); assert.equal(j.r.words.length, 1); assert.equal(j.r.words[0].w, 'tired of'); assert.ok(!j.cached); }
+  r = await call('/explain', Object.assign({ body: '{"s":"Alice  was beginning to get very tired."}' }, EX)); assert.equal(r.s, 200); assert.equal(JSON.parse(r.b).cached, true); assert.equal(arkN, 1);   // 空白不同也算同一句，命中缓存，不再调用
+  arkMode = 'bad'; r = await call('/explain', Object.assign({ body: '{"s":"I like cats."}' }, EX)); assert.equal(r.s, 502); assert.equal(JSON.parse(r.b).error, 'ark-bad-reply');
+  arkMode = '401'; r = await call('/explain', Object.assign({ body: '{"s":"I like dogs."}' }, EX)); assert.equal(r.s, 502); assert.equal(JSON.parse(r.b).error, 'ark-key');
+  arkMode = 'ok'; r = await call('/explain', Object.assign({ body: '{"s":"I like birds."}' }, EX)); assert.equal(r.s, 429);   // 同一网络 1 小时限 3 次（缓存命中不算）
+  ark.close();
   r = await call('/grammar', { m: 'POST', h: O, body: '{"s":"She gave me a book."}' }); assert.equal(r.s, 200);   // 缓存
   // 跟读打分：转给 Azure 发音评估
   const wavHdr = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(2000)]);

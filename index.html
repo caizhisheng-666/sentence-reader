@@ -171,6 +171,10 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .recup{color:#2e8b47;font-weight:600}.recdn{color:#d0453d;font-weight:600}
 .recbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .recplay{width:38px;height:38px;min-width:0;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--soft);color:var(--accent)}
+.aiex{background:var(--pop);border-radius:12px;padding:12px 14px}
+.aiex .aiz{font-size:16px;color:var(--ink);line-height:1.7}
+.aiex .ait{margin-top:10px;font-weight:600;font-size:13px;color:var(--accent2)}
+.aiex .aiw{font-size:14px;line-height:1.7;margin-top:2px}
 .gsum{display:inline-block;background:var(--pop);border-radius:8px;padding:4px 10px;font-size:13px;margin-bottom:6px}
 .gi{padding:10px 0;border-bottom:1px solid var(--line)}
 .gi:last-child{border-bottom:none}
@@ -236,7 +240,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-131';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.18-132';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -728,7 +732,7 @@ async function finalizeImport(sentences, imageRanges, bookId, extraToast, toc, b
   state = { natVoice: importNatVoice || '', natSrc: importNatSrc || '', bookId: newId, sentences, idx: startIdx, prog: {}, cache: {}, startDate: Date.now(), totalCompleted: 0, imageRanges: imageRanges || [], toc: toc || buildTextToc(sentences, startIdx), zh: (bil && bil.zh) || {}, zhp: (bil && bil.para) || {}, zhOff: {} };
   state.title = (importTitle || '').trim() || bookShortTitle(sentences);
   if (oldB && oldB.prog) state.prog = oldB.prog;
-  if (oldB && oldB.gstruct) state.gstruct = oldB.gstruct;
+  if (oldB && oldB.gstruct) state.gstruct = oldB.gstruct; if (oldB && oldB.aiex) state.aiex = oldB.aiex;
   importTitle = ''; importBookId = ''; importNatVoice = ''; importNatSrc = '';
   const entry = Object.assign({}, e0 || {}, { id: state.bookId, title: state.title, addedAt: (e0 && e0.addedAt) || Date.now(), lastAt: Date.now(), total: sentences.length, idx: startIdx, nv: state.natVoice ? 1 : (e0 && e0.nv) || 0 });
   await flushState();
@@ -1082,6 +1086,32 @@ async function gsFetch(idx) {
     else gsMem.set(s, { fail: r.status });
   } catch (e) {}
   if (gsBusy === s) gsBusy = '';
+}
+/* ---------- AI 讲解：服务器上的豆包大模型，把这一句的意思、难词、语法点讲清楚。同一句服务器只讲一次，讲过的存在本机 ---------- */
+const aiMem = new Map(); let aiBusy = '', aiErr = '';
+function aiGet(s) { return (state && state.aiex && state.aiex[s]) || aiMem.get(s) || null; }
+async function aiExplain() {
+  if (!state) return;
+  const st = state, idx = st.idx, s = st.sentences[idx]; if (!s || aiGet(s) || aiBusy) return;
+  if (!navigator.onLine) { aiErr = '现在没有网络，联网后才能请 AI 老师讲解。'; render(); return; }
+  aiBusy = s; aiErr = ''; render();
+  try {
+    const r = await fetchT(SHOP_BASE + '/explain', 30000, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ s }) });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok && j.ok && j.r) { aiMem.set(s, j.r); if (state === st) { st.aiex = st.aiex || {}; st.aiex[s] = j.r; saveState(); } }
+    else aiErr = j.error === 'daily-limit' ? '今天 AI 讲解的次数用完了，明天再来（以前讲过的句子随时能看）。' : j.error === 'too-many' ? '点得太快了，休息一会儿再讲解下一句。' : j.error === 'not-configured' ? 'AI 讲解还没开通。' : 'AI 老师暂时没能讲解（' + (j.error || ('HTTP ' + r.status)) + '），稍后再试。';
+  } catch (e) { aiErr = '网络不太好，AI 老师没连上，稍后再试。'; }
+  aiBusy = ''; if (state === st) render();
+}
+function aiHtml() {
+  const s = state.sentences[state.idx], r = aiGet(s);
+  if (r) return '<div class="aiex"><div class="aiz">' + esc(r.zh) + '</div>' +
+    (r.words && r.words.length ? '<div class="ait">难点词</div>' + r.words.map(w => '<div class="aiw"><b>' + esc(w.w) + '</b>　' + esc(w.m) + '</div>').join('') : '') +
+    (r.grammar ? '<div class="ait">语法小课堂</div><div class="aiw">' + esc(r.grammar) + '</div>' : '') +
+    (r.tip ? '<div class="ait">小提示</div><div class="aiw">' + esc(r.tip) + '</div>' : '') +
+    '<div class="note" style="margin-top:8px;font-size:12px">由 AI 生成，偶尔会有不准确的地方，仅供参考。</div></div>';
+  if (aiBusy === s) return '<div class="note">🤖 AI 老师正在备课，大约要几秒钟…</div>';
+  return (aiErr ? '<div class="note" style="color:#b94a48;margin-bottom:6px">' + esc(aiErr) + '</div>' : '') + '<button class="ghost sm" onclick="aiExplain()">🤖 请 AI 老师讲讲这一句</button>';
 }
 const GS_ROLE = { S: ['主语', 'r-s'], V: ['谓语', 'r-v'], O: ['宾语', 'r-o'], IO: ['间接宾语', 'r-io'], C: ['表语', 'r-c'], OC: ['宾补', 'r-oc'], A: ['状语', 'r-a'] };
 function gsHtml(g) {
@@ -3801,6 +3831,7 @@ function render() {
       '</div>' +
       '<div class="section">' + recs + '</div>' +
       practiceHtml +
+      '<div class="section">' + aiHtml() + '</div>' +
       gHtml +
     '</div>' +
     '<div class="bottombar"><div class="bprog"><div style="width:' + pct + '%"></div></div>' +

@@ -233,6 +233,43 @@ function pronAzure(wav, ref) {
     q.on('timeout', () => q.destroy(new Error('timeout'))); q.on('error', e => ok({ s: 0, b: String(e && e.message) })); q.end(wav);
   });
 }
+/* ---------- AI 讲解：把一句英文交给豆包（火山方舟）讲清楚意思、难点词、语法。同一句只讲一次，结果存在服务器上，以后谁点都直接取 ---------- */
+const ARK_KEY = process.env.ARK_API_KEY || '', ARK_MODEL = process.env.ARK_MODEL || 'doubao-seed-2-1-lite-260915', ARK_HOST = process.env.ARK_HOST || 'https://ark.cn-beijing.volces.com';
+const EXPLAIN_DAILY_MAX = +process.env.EXPLAIN_DAILY_MAX || 300, EXPLAIN_PER_IP_HOUR = +process.env.EXPLAIN_PER_IP_HOUR || 30;
+const EXPLAIN_FILE = path.join(SHOP_DIR, 'explain-cache.json');
+const explainCache = new Map(); try { for (const [k, v] of JSON.parse(fs.readFileSync(EXPLAIN_FILE, 'utf8'))) explainCache.set(k, v); } catch (e) {}
+let explainDirty = false;
+setInterval(() => { if (!explainDirty) return; explainDirty = false; try { fs.mkdirSync(SHOP_DIR, { recursive: true }); const t = EXPLAIN_FILE + '.tmp'; fs.writeFileSync(t, JSON.stringify([...explainCache])); fs.renameSync(t, EXPLAIN_FILE); } catch (e) {} }, 30000).unref();
+const explainLog = new Map(); let explainDay = { d: '', n: 0 };
+function explainLimited(ip) {
+  const now = Date.now(), arr = (explainLog.get(ip) || []).filter(t => now - t < 3600000); arr.push(now); explainLog.set(ip, arr);
+  if (explainLog.size > 5000) for (const [k, v] of explainLog) if (now - v[v.length - 1] > 3600000) explainLog.delete(k);
+  if (arr.length > EXPLAIN_PER_IP_HOUR) return 'too-many';
+  return '';
+}
+function explainDailyFull() { const d = new Date().toISOString().slice(0, 10); if (explainDay.d !== d) explainDay = { d, n: 0 }; return explainDay.n >= EXPLAIN_DAILY_MAX; }
+const EXPLAIN_SYS = '你是耐心的英语老师，学生是中国的小学生和他们的家长，英语基础比较弱。用户给你一句英文，你只输出一个 JSON 对象，不要任何别的文字，格式：' +
+  '{"zh":"这句话自然流畅的中文意思","words":[{"w":"难词或短语原文","m":"在这句话里的意思，一句话"}],"grammar":"这句话最值得学的一个语法点，用简单的大白话讲，不超过 60 字","tip":"一个帮助记忆或朗读的小提示，可以为空字符串"}。' +
+  'words 最多 4 个，只选真正会让学生卡住的词、短语、固定搭配，太简单的词不要选；如果整句都很简单，words 可以为空数组。语法点不要堆术语，要让小学生也能看懂。';
+function arkChat(sentence) {
+  const body = JSON.stringify({ model: ARK_MODEL, messages: [{ role: 'system', content: EXPLAIN_SYS }, { role: 'user', content: sentence }], temperature: 0.3, max_tokens: 700, thinking: { type: 'disabled' } });
+  const u = new URL(ARK_HOST), isHttp = u.protocol === 'http:';
+  return new Promise(ok => {
+    const q = (isHttp ? http : https).request({ hostname: u.hostname, port: u.port || (isHttp ? 80 : 443), path: '/api/v3/chat/completions', method: 'POST', timeout: 25000,
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + ARK_KEY, 'Content-Length': Buffer.byteLength(body) } }, r => {
+      const ch = []; r.on('data', c => ch.push(c)); r.on('end', () => ok({ s: r.statusCode, b: Buffer.concat(ch).toString('utf8') }));
+    });
+    q.on('timeout', () => q.destroy(new Error('timeout'))); q.on('error', e => ok({ s: 0, b: String(e && e.message) })); q.end(body);
+  });
+}
+function parseExplain(text) {                       // 模型偶尔会在 JSON 外面套 ```json，宽松地取出来，并把字段整理干净
+  const m = /\{[\s\S]*\}/.exec(String(text || '')); if (!m) return null;
+  let j; try { j = JSON.parse(m[0]); } catch (e) { return null; }
+  const str = (x, n) => String(x == null ? '' : x).trim().slice(0, n);
+  const zh = str(j.zh, 300); if (!zh) return null;
+  const words = (Array.isArray(j.words) ? j.words : []).slice(0, 4).map(x => ({ w: str(x && x.w, 60), m: str(x && x.m, 120) })).filter(x => x.w && x.m);
+  return { zh, words, grammar: str(j.grammar, 200), tip: str(j.tip, 150) };
+}
 const GRAMMAR_URL = process.env.GRAMMAR_URL || 'http://127.0.0.1:8791', gramCache = new Map(), gramLog = new Map();
 function gramLimited(ip) {                        // 同一个网络 1 小时最多分析 600 句
   const now = Date.now(), arr = (gramLog.get(ip) || []).filter(t => now - t < 3600000); arr.push(now); gramLog.set(ip, arr);
@@ -306,6 +343,27 @@ async function shopRoutes(req, res) {
     const words = (nb.Words || []).map(w => { const wp = Object.assign({}, w, w.PronunciationAssessment || {}); return { w: w.Word, s: Math.round(wp.AccuracyScore || 0), e: wp.ErrorType || 'None' }; });
     if (pa.PronScore == null && pa.AccuracyScore != null) pa.PronScore = (pa.AccuracyScore || 0) * 0.6 + (pa.FluencyScore || 0) * 0.2 + (pa.CompletenessScore || 0) * 0.2;
     return out0(200, { ok: true, total: Math.round(pa.PronScore || 0), acc: Math.round(pa.AccuracyScore || 0), flu: Math.round(pa.FluencyScore || 0), comp: Math.round(pa.CompletenessScore || 0), pros: pa.ProsodyScore != null ? Math.round(pa.ProsodyScore) : null, heard: nb.Display || '', words });
+  }
+  if (req.method === 'POST' && url === '/explain') {  // AI 讲解
+    const origin0 = req.headers.origin, okO0 = origin0 && ALLOW.includes(origin0) ? origin0 : null;
+    const hd0 = { 'Content-Type': 'application/json; charset=utf-8' }; if (okO0) { hd0['Access-Control-Allow-Origin'] = okO0; hd0.Vary = 'Origin'; }
+    const out0 = (c, o) => { res.writeHead(c, hd0); res.end(JSON.stringify(o)); return true; };
+    if (!okO0) return out0(403, { error: 'origin-not-allowed' });
+    if (!ARK_KEY) return out0(503, { error: 'not-configured' });
+    let s0; try { s0 = String((JSON.parse(await readBody(req, 4000)) || {}).s || '').replace(/\s+/g, ' ').trim().slice(0, 600); } catch (e) { return out0(400, { error: 'bad-request' }); }
+    if (!s0 || !/[A-Za-z]/.test(s0)) return out0(400, { error: 'empty' });
+    const hit = explainCache.get(s0); if (hit) return out0(200, { ok: true, r: hit, cached: true });     // 讲过的句子：不花钱、不占次数
+    if (explainLimited(ip)) return out0(429, { error: 'too-many' });
+    if (explainDailyFull()) return out0(429, { error: 'daily-limit' });
+    explainDay.n++;
+    const r2 = await arkChat(s0);
+    if (r2.s === 401 || r2.s === 403) return out0(502, { error: 'ark-key' });
+    if (r2.s === 429) return out0(503, { error: 'ark-busy' });
+    if (r2.s !== 200) return out0(502, { error: 'ark-failed', code: r2.s });
+    let content = ''; try { content = JSON.parse(r2.b).choices[0].message.content; } catch (e) {}
+    const r3 = parseExplain(content); if (!r3) return out0(502, { error: 'ark-bad-reply' });
+    explainCache.set(s0, r3); explainDirty = true; if (explainCache.size > 20000) explainCache.delete(explainCache.keys().next().value);
+    return out0(200, { ok: true, r: r3 });
   }
   if (req.method === 'POST' && url === '/grammar') {  // 句子结构分析：转给本机的 spaCy 服务（proxy/grammar/server.py）
     const origin0 = req.headers.origin, okO0 = origin0 && ALLOW.includes(origin0) ? origin0 : null;
