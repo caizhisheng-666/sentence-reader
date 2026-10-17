@@ -236,7 +236,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.17-127';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.17-128';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1402,10 +1402,30 @@ function voiceSelectHtml() {
   return '<select id="voiceSel" class="voicesel" onchange="onVoiceChange(this.value)" aria-label="选择朗读音色">' +
     (state && state.natVoice ? '<option value="__nat"' + (cur === '__nat' ? ' selected' : '') + '>🎧 自然语音' + (natVoiceName(state.natVoice) ? '（' + esc(natVoiceName(state.natVoice)) + '）' : '') + '</option>' : '') +
     '<option value=""' + (cur ? '' : ' selected') + '>' + (state && state.natVoice ? '系统默认音色' : '默认音色') + '</option>' +
-    (saved ? '<optgroup label="当前使用">' + opt(saved, '') + '</optgroup>' : '') + grp('🇺🇸 美音', cv.us.f, cv.us.m) + grp('🇬🇧 英音', cv.gb.f, cv.gb.m) + (cv.other.length ? '<optgroup label="更多">' + cv.other.map(v => opt(v, '')).join('') + '</optgroup>' : '') + '</select>';
+    (saved ? '<optgroup label="当前使用">' + opt(saved, '') + '</optgroup>' : '') + grp('🇺🇸 美音', cv.us.f, cv.us.m) + grp('🇬🇧 英音', cv.gb.f, cv.gb.m) + (cv.other.length ? '<optgroup label="更多">' + cv.other.map(v => opt(v, '')).join('') + '</optgroup>' : '') +
+    '<optgroup label="──────"><option value="__more">➕ 怎么添加更多声音…</option></optgroup></select>';
+}
+function moreVoicesHelp() {                         // 教用户在手机系统里下载更好听的英语声音（免费）
+  const ua = navigator.userAgent, ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1), mac = !ios && /Macintosh/.test(ua), and = /Android/i.test(ua), win = /Windows/i.test(ua);
+  const step = (n, t) => '<div style="display:flex;gap:10px;margin:8px 0"><div style="flex-shrink:0;width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;font-size:13px;display:flex;align-items:center;justify-content:center">' + n + '</div><div style="flex:1;line-height:1.6">' + t + '</div></div>';
+  const iosH = step(1, '打开 iPhone 的 <b>设置</b>') + step(2, '点 <b>辅助功能</b> → <b>朗读内容</b> → <b>声音</b>') + step(3, '点 <b>英语</b>，再点 <b>英语（美国）</b> 或 <b>英语（英国）</b>') +
+    step(4, '点名字后面带 <b>“高级”</b> 或 <b>“增强”</b> 的声音下载（免费，要连 Wi-Fi）。推荐：<br>🇺🇸 <b>Ava（高级）</b>女声、<b>Zoe（高级）</b>女声、<b>Evan（增强）</b>男声、<b>Nathan（增强）</b>男声<br>🇬🇧 <b>Serena（高级）</b>女声、<b>Arthur（增强）</b>男声') +
+    step(5, '下载完，<b>把“一句一读”从后台划掉再重新打开</b>，底部音色菜单里就有新声音了。');
+  const macH = step(1, '打开 <b>系统设置</b> → <b>辅助功能</b> → <b>朗读内容</b>') + step(2, '点“系统声音”旁边的 <b>ⓘ</b>，在 <b>英语</b> 里下载 <b>Ava（高级）</b>、<b>Evan（增强）</b> 等') + step(3, '下载完关掉浏览器重新打开。');
+  const andH = step(1, '打开手机 <b>设置</b>，搜索 <b>“文字转语音”</b>（或 设置 → 辅助功能 → 文字转语音输出）') + step(2, '首选引擎选 <b>Google 语音服务</b>，点旁边的 ⚙ → <b>安装语音数据</b> → <b>英语（美国）/ 英语（英国）</b>，下载后可以选不同的声音') + step(3, '回到软件刷新一下。不同品牌手机菜单位置不太一样，找不到就搜“语音”。');
+  const winH = step(1, '打开 <b>设置</b> → <b>时间和语言</b> → <b>语音</b>') + step(2, '在“管理语音”里点 <b>添加语音</b>，选 <b>英语（美国）</b> 或 <b>英语（英国）</b>') + step(3, '装好后关掉浏览器重新打开。用 Edge 浏览器还能直接用微软的在线自然声音（名字里带 Online）。');
+  const sec = (t, h) => '<div style="margin-top:12px"><div style="font-weight:600;color:var(--ink)">' + t + '</div>' + h + '</div>';
+  const mine = ios ? sec('📱 iPhone / iPad', iosH) : mac ? sec('💻 Mac', macH) : and ? sec('🤖 安卓手机', andH) : win ? sec('💻 Windows 电脑', winH) : '';
+  const others = [!ios && sec('📱 iPhone / iPad', iosH), !and && sec('🤖 安卓手机', andH), !win && sec('💻 Windows 电脑', winH), !mac && sec('💻 Mac', macH)].filter(Boolean).join('');
+  showPop('<h3 style="margin:0 0 6px">🔊 添加更多朗读声音</h3>' +
+    '<div class="note">手机自带的英语声音一般只有一两个。可以在系统设置里<b>免费下载</b>更好听的声音，下载后软件会自动找到它们。</div>' +
+    (mine ? mine : '') + (state && state.natVoice ? '<div class="note" style="margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--soft);color:var(--ink)">💡 这份材料带 <b>🎧 自然语音</b>，是真人感最强的声音，一般选它就够了。</div>' : '') +
+    '<details style="margin-top:12px"><summary class="note" style="cursor:pointer">其他设备怎么弄</summary>' + others + '</details>' +
+    '<div class="row" style="margin-top:14px"><button onclick="closePop()">知道了</button></div>');
 }
 function refreshVoiceSelect() { const el = document.getElementById('voiceSel'); if (el) el.outerHTML = voiceSelectHtml(); }
 function onVoiceChange(uri) {
+  if (uri === '__more') { refreshVoiceSelect(); moreVoicesHelp(); return; }      // 不是音色：恢复原来的选择，弹出教程
   if (uri === '__nat') { if (state) { state.useSys = false; saveState(); } toast('已改用自然语音，点底部的“▶ 朗读”试试', 2200); return; }
   if (state && state.natVoice) { state.useSys = true; saveState(); }      // 这个材料改用系统声音
   localStorage.setItem('sr_voice_uri', uri || '');
@@ -3163,8 +3183,8 @@ function openHelp() {
     '<div class="row" style="margin:12px 0 4px"><button onclick="copyDiag()">复制诊断信息</button>' + (FEEDBACK_URL ? '<button class="ghost" onclick="openFeedback()">打开反馈问卷</button>' : '') + '</div>' +
     '<div class="note">遇到问题（没声音、录不了音、材料导入不对等），先点“复制诊断信息”，粘贴发给发你链接的人。诊断信息只有设备和软件状态，没有材料的内容和你的录音。</div>' +
     sec('快速上手',
-      li('点句子里的<b>单词</b>查词，点哪个词就读哪个词，同时弹出解释。') + li('点底部的 <b>▶ 朗读</b>，念到哪个词哪个词会亮；旁边的下拉菜单可以换美音、英音。') +
-      li('<b>🎙 跟读</b>：录下自己读这一句，保存在本机，可以回放和原音对比。') + li('<b>点“0.9x”这样的语速按钮没变化？</b>有些手机或声音不支持调速，软件会自动检测并提示。这时可以换一个声音试试。') +
+      li('点句子里的<b>单词</b>查词，点哪个词就读哪个词，同时弹出解释。') + li('点底部的 <b>▶ 朗读</b>，念到哪个词哪个词会亮；旁边的下拉菜单可以换美音、英音；想要更多声音，选菜单最下面的<b>“➕ 怎么添加更多声音…”</b>，按步骤在手机设置里免费下载。') +
+      li('<b>🎙 跟读</b>：录下自己读这一句，联网时会给发音打分（每个词都有分）。最近 3 次录音保存在本机，能看进步，点“🔁 对比听”连着听原声和自己的。') + li('<b>点“0.9x”这样的语速按钮没变化？</b>有些手机或声音不支持调速，软件会自动检测并提示。这时可以换一个声音试试。') +
       li('顶部 <b>整页翻译</b> 把一页的句子连同中文一起列出来，点句子就读；<b>目录</b> 可以跳到任意页；右上角 <b>···</b> 里有语音包、词典、语法字典和帮助。') +
       li('装到手机桌面：iPhone 用 Safari，点分享 → 添加到主屏幕；安卓用 Chrome，点 ⋮ → 安装应用。<b>装好后请在桌面图标里导入材料（打开软件先是“我的学习”，点“＋ 导入”）</b>，浏览器和桌面图标的数据是分开的。'), true) +
     sec('隐私与数据',
