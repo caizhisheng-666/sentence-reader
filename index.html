@@ -258,6 +258,13 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 .lbtoc .lbtl{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:8px 14px 24px}
 .lbtoc .it{padding:13px 8px;border-bottom:1px solid var(--line);display:flex;gap:10px;font-size:16px;cursor:pointer}
 .lbtoc .it span{flex:1;min-width:0}.lbtoc .it small{color:var(--sub);flex:none}.lbtoc .it.on{color:var(--accent);font-weight:600}
+.lbbody.pg{padding:0;overflow:hidden;position:relative}
+.lbclip{position:absolute;inset:0;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.lbstrip{position:absolute;column-fill:auto;will-change:transform}
+.lbstrip .lbtxt{font-family:var(--serif);line-height:1.95}
+.lbstrip .lbp{margin:0 0 .6em}
+.lbedge{position:absolute;top:0;bottom:0;width:30px;pointer-events:none;opacity:0;background:linear-gradient(to right,rgba(0,0,0,.22),rgba(0,0,0,0))}
+.lbhome{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:3}
 .lbh{margin:18px 0 8px;font-weight:600;color:var(--sub);font-size:13px}
 </style>
 </head>
@@ -275,7 +282,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.18-139';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.18-140';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -4064,7 +4071,9 @@ function lbJump(i) {
 function lbRestart() { if (lb.on && !lb.paused) { lb.tok++; lbHalt(); lbLoop(); } }
 function lbSpeed() { const r = lbRate(), n = r === 1 ? 1.25 : r === 1.25 ? 1.5 : 1; localStorage.setItem('sr_zl_rate', String(n)); lbBar(); lbRestart(); toast('语速 ' + n + ' 倍', 1400); }
 function lbTimer() { const o = [0, 15, 30, 60], n = o[(o.indexOf(lb.timer) + 1) % o.length]; lb.timer = n; lb.end = n && lb.on ? Date.now() + n * 60000 : 0; lbBar(); toast(n ? '定时：' + n + ' 分钟后自动停止' : '已取消定时', 1800); }
-function lbFont(d) { const n = Math.max(15, Math.min(28, lbFs() + d)); localStorage.setItem('sr_lb_fs', String(n)); const t = document.querySelector('.lbtxt'); if (t) t.style.fontSize = n + 'px'; }
+function lbFont(d) { const n = Math.max(15, Math.min(28, lbFs() + d)); localStorage.setItem('sr_lb_fs', String(n)); if (lbPage()) { lb.browse = false; lbPaint(true, true); return; } const t = document.querySelector('.lbtxt'); if (t) t.style.fontSize = n + 'px'; }
+function lbMode() { const to = lbPage() ? 'scroll' : 'page'; localStorage.setItem('sr_lb_mode', to); lb.browse = false; lb.winA = lb.winB = -1; lbPaint(true, true); lbBar(); toast(to === 'page' ? '翻页：左右滑动或点屏幕边缘翻页' : '滚动：上下滑动阅读', 2200); }
+window.addEventListener('resize', () => { if (lb.screen === 'read' && lbPage() && lb.cur) { lb.browse = false; lbPaint(true, true); } });
 function lbEngine() { const to = lbNat() ? 'sys' : 'nat'; lb.natOff = false; localStorage.setItem('sr_zl_eng', to); toast(to === 'nat' ? '已换成自然人声（需要联网）' : '已换成系统声音', 2000); lbBar(); lbRestart(); }
 function lbVoiceNext() { if (lbNat()) { const i = LB_NAT.findIndex(x => x[0] === lbNatVoice()[0]), n = LB_NAT[(i + 1) % LB_NAT.length]; localStorage.setItem('sr_zl_nv', n[0]); toast('声音：' + n[1], 2000); lbBar(); lbRestart(); return; } const vs = lbVoices(); if (vs.length < 2) { toast(vs.length ? '这台设备只有一个中文声音' : '这台设备没有找到中文声音', 2500); return; } const c = lbVoice(), n = vs[(vs.findIndex(v => c && v.voiceURI === c.voiceURI) + 1) % vs.length]; localStorage.setItem('sr_zl_voice', n.voiceURI); toast('声音：' + n.name, 1800); lbRestart(); }
 /* ---- 界面 ---- */
@@ -4138,8 +4147,71 @@ async function lbOpenItem(id) {
   lbPaint(false, true); lbBar();
   if (it.kind === 'en') lbPrefetch(it.idx);
 }
-function lbSentHtml(i) { const b = lb.cur, t = lbPeek(i); return '<span class="lbs' + (t ? '' : ' wait') + (i === b.it.idx ? ' cur' : '') + '" data-i="' + i + '" onclick="lbJump(' + i + ')">' + (t ? esc(t) : '……') + '</span>'; }
+function lbSentHtml(i) { const b = lb.cur, t = lbPeek(i); return '<span class="lbs' + (t ? '' : ' wait') + (i === b.it.idx ? ' cur' : '') + '" data-i="' + i + '"' + (lbPage() ? '' : ' onclick="lbJump(' + i + ')"') + '>' + (t ? esc(t) : '……') + '</span>'; }
+const lbPage = () => localStorage.getItem('sr_lb_mode') !== 'scroll';
+function lbParas(a, z) {
+  const b = lb.cur; let h = '';
+  if (b.en) { let buf = ''; for (let k = a; k < z; k++) { buf += lbSentHtml(k); if ((k + 1) % 6 === 0) { h += '<p class="lbp">' + buf + '</p>'; buf = ''; } } if (buf) h += '<p class="lbp">' + buf + '</p>'; }
+  else { const ps = b.p; let pi = 0; while (pi + 1 < ps.length && ps[pi + 1] <= a) pi++; for (; pi < ps.length && ps[pi] < z; pi++) { const s0 = Math.max(ps[pi], a), s1 = Math.min(pi + 1 < ps.length ? ps[pi + 1] : b.n, z); let buf = ''; for (let k = s0; k < s1; k++) buf += lbSentHtml(k); h += '<p class="lbp">' + buf + '</p>'; } }
+  return h;
+}
+/* ---- 翻页模式：像苹果图书那样左右滑动翻页 ---- */
+const LB_PAD = 22, LB_VPAD = 18;
+function lbPitch() { const c = document.getElementById('lbClip'); return c ? c.clientWidth : 0; }
+function lbPgSet(p, anim, from) {
+  const st = document.getElementById('lbStrip'); if (!st) return; const pitch = lbPitch(); lb.pgI = Math.max(0, Math.min(lb.pgN - 1, p));
+  if (from !== undefined) { st.style.transition = 'none'; st.style.transform = 'translate3d(' + from + 'px,0,0)'; void st.offsetWidth; }
+  st.style.transition = anim ? 'transform .42s cubic-bezier(.2,.85,.25,1)' : 'none'; st.style.transform = 'translate3d(' + (-lb.pgI * pitch) + 'px,0,0)';
+  const pc = document.getElementById('lbPct'); if (pc && lb.cur) pc.textContent = lbPct(lb.cur.it) + '% · ' + (lb.pgI + 1) + '/' + lb.pgN;
+}
+function lbPgOf(i) {                                 // 第 i 句在窗口的第几页（用屏幕位置算，各浏览器都准）
+  const st = document.getElementById('lbStrip'), el = st && st.querySelector('.lbs[data-i="' + i + '"]'); if (!el) return -1;
+  const r = el.getClientRects()[0], sr = st.getBoundingClientRect(), pitch = lbPitch(); if (!r || !pitch) return -1;
+  return Math.max(0, Math.min(lb.pgN - 1, Math.floor((r.left - sr.left + 2) / pitch)));
+}
+function lbRenderPage(a, z, startAt) {
+  const b = lb.cur, body = document.getElementById('lbBody'); lb.winA = a; lb.winB = z; body.classList.add('pg');
+  body.innerHTML = '<div class="lbclip" id="lbClip"><div class="lbstrip" id="lbStrip"><div class="lbtxt" style="font-size:' + lbFs() + 'px">' + lbParas(a, z) + '</div></div><div class="lbedge" id="lbEdge"></div>' + (lb.browse ? '<button class="ghost sm lbhome">📍 回到正在读的位置</button>' : '') + '</div>';
+  const clip = document.getElementById('lbClip'), st = document.getElementById('lbStrip'), W = clip.clientWidth - LB_PAD * 2, H = clip.clientHeight - LB_VPAD * 2;
+  st.style.cssText += ';left:' + LB_PAD + 'px;top:' + LB_VPAD + 'px;width:' + W + 'px;height:' + H + 'px;column-width:' + W + 'px;column-gap:' + (LB_PAD * 2) + 'px';
+  lb.pgN = Math.max(1, Math.round((st.scrollWidth + LB_PAD * 2) / (W + LB_PAD * 2)));
+  let pg = startAt === 'end' ? lb.pgN - 1 : startAt === 'start' ? 0 : lbPgOf(b.it.idx); if (pg < 0) pg = 0;
+  lbPgSet(pg, false); lbBindSwipe(clip);
+}
+function lbTurn(d) {
+  const p = lb.pgI + d, b = lb.cur, pitch = lbPitch();
+  if (p >= 0 && p < lb.pgN) { lb.browse = lb.browse || lbPgOf(b.it.idx) !== p; lbPgSet(p, true); lbBrowseUi(); return; }
+  if (d > 0 && lb.winB < b.n) { lb.browse = true; lbRenderPage(lb.winB, Math.min(b.n, lb.winB + 90), 'start'); lbPgSet(0, true, pitch); if (lbPgOf(b.it.idx) === 0) lb.browse = false; lbBrowseUi(); return; }
+  if (d < 0 && lb.winA > 0) { lb.browse = true; lbRenderPage(Math.max(0, lb.winA - 90), lb.winA, 'end'); lbPgSet(lb.pgN - 1, true, -(lb.pgN - 1) * pitch - pitch); lbBrowseUi(); return; }
+  lbPgSet(lb.pgI, true); toast(d > 0 ? '已经是最后一页了' : '这是第一页', 1200);
+}
+function lbBrowseUi() {                              // 翻到别处看时，出现“回到正在读的位置”
+  const clip = document.getElementById('lbClip'); if (!clip) return; const h = clip.querySelector('.lbhome');
+  if (lb.browse && !h) { const e = document.createElement('button'); e.className = 'ghost sm lbhome'; e.textContent = '📍 回到正在读的位置'; clip.appendChild(e); }
+  if (!lb.browse && h) h.remove();
+}
+function lbBindSwipe(clip) {
+  let sx = 0, sy = 0, st0 = 0, dx = 0, drag = false, down = false, tgt = null; const edge = document.getElementById('lbEdge');
+  const pitch = () => clip.clientWidth, strip = document.getElementById('lbStrip');
+  clip.onpointerdown = e => { down = true; drag = false; sx = e.clientX; sy = e.clientY; st0 = Date.now(); dx = 0; tgt = e.target; };
+  clip.onpointermove = e => {
+    if (!down) return; dx = e.clientX - sx; if (!drag && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(e.clientY - sy)) { drag = true; try { clip.setPointerCapture(e.pointerId); } catch (x) {} } if (!drag) return;
+    let k = dx; const first = lb.pgI === 0 && lb.winA === 0, last = lb.pgI === lb.pgN - 1 && lb.winB >= lb.cur.n;
+    if ((dx > 0 && first) || (dx < 0 && last)) k = dx * 0.3;            // 到头了，拉不动（有点弹性）
+    strip.style.transition = 'none'; strip.style.transform = 'translate3d(' + (-lb.pgI * pitch() + k) + 'px,0,0)';
+    edge.style.opacity = Math.min(1, Math.abs(k) / 90); edge.style.left = (k < 0 ? pitch() + k : k) + 'px'; edge.style.transform = k < 0 ? 'none' : 'scaleX(-1)';
+  };
+  clip.onpointerup = clip.onpointercancel = e => {
+    if (!down) return; down = false; edge.style.opacity = 0;
+    if (drag) { const v = dx / Math.max(1, Date.now() - st0), W = pitch(); if (dx < -W * 0.18 || v < -0.45) lbTurn(1); else if (dx > W * 0.18 || v > 0.45) lbTurn(-1); else lbPgSet(lb.pgI, true); return; }
+    if (tgt && tgt.closest && tgt.closest('.lbhome')) { lbHome(); return; }
+    const r = clip.getBoundingClientRect(), x = (e.clientX - r.left) / r.width, sent = tgt && tgt.closest && tgt.closest('.lbs');
+    if (x < 0.2) lbTurn(-1); else if (x > 0.8) lbTurn(1); else if (sent) lbJump(+sent.dataset.i);
+  };
+}
 function lbRender(a, z) {
+  if (lbPage()) return lbRenderPage(a, z);
+  document.getElementById('lbBody').classList.remove('pg');
   const b = lb.cur, body = document.getElementById('lbBody'); lb.winA = a; lb.winB = z;
   let h = lb.browse ? '<div class="lbpgr"><button class="ghost sm" onclick="lbHome()">📍 回到正在读的位置</button></div>' : '';
   h += a > 0 ? '<div class="lbpgr"><button class="ghost sm" onclick="lbView(-1)">‹ 往前翻一页</button></div>' : '';
@@ -4151,12 +4223,14 @@ function lbRender(a, z) {
 }
 function lbPaint(scroll, force) {
   const b = lb.cur, body = document.getElementById('lbBody'); if (!b || !body) return;
-  const i = b.it.idx, pc = document.getElementById('lbPct'); if (pc) pc.textContent = lbPct(b.it) + '%';
+  const i = b.it.idx, pc = document.getElementById('lbPct'); if (pc) pc.textContent = lbPct(b.it) + '%' + (lbPage() && lb.pgN ? ' · ' + (lb.pgI + 1) + '/' + lb.pgN : '');
   if (lb.browse && !force) return;                    // 你正在翻页看别的地方，不把你拉回朗读的位置
+  if (lbPage() && !force && lb.winA >= 0 && i === lb.winB) { lbRenderPage(i, Math.min(b.n, i + 90), 'start'); lbPgSet(0, true, lbPitch()); return; }   // 读到这一段的末尾：翻到下一段的第一页
+  if (lbPage() && !force && lb.winA >= 0 && i >= lb.winA && i < lb.winB) { body.querySelectorAll('.lbs.cur').forEach(e => e.classList.remove('cur')); const c = body.querySelector('.lbs[data-i="' + i + '"]'); if (c) c.classList.add('cur'); const pg = lbPgOf(i); if (pg >= 0 && pg !== lb.pgI) lbPgSet(pg, true); return; }
   if (force || i < lb.winA + 8 || i > lb.winB - 12 || lb.winA < 0) {            // 只画当前句前后一段，书再长页面也不卡
     lbRender(Math.max(0, i - 30), Math.min(b.n, i + 70)); scroll = true;
   } else { body.querySelectorAll('.lbs.cur').forEach(e => e.classList.remove('cur')); const c = body.querySelector('.lbs[data-i="' + i + '"]'); if (c) c.classList.add('cur'); }
-  if (scroll) { const c = body.querySelector('.lbs.cur'); if (c) c.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+  if (scroll && !lbPage()) { const c = body.querySelector('.lbs.cur'); if (c) c.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
 }
 function lbView(dir) {                               // 翻页：只换你看的地方，不影响正在读的位置
   const b = lb.cur, body = document.getElementById('lbBody'); if (!b || !body) return;
@@ -4190,7 +4264,7 @@ function lbBar() {
   bar.innerHTML = '<div class="note" style="text-align:center">第 ' + Math.min(b.it.idx + 1, b.n) + ' / ' + b.n + ' 句' + (lb.on && !lb.paused ? ' · 正在朗读' : lb.paused ? ' · 已暂停' : '') + '</div>' +
     '<div class="row"><button class="ghost" aria-label="上一句" onclick="lbJump(lbCur().idx-1)">⏮</button><button style="min-width:92px" onclick="lbToggle()">' + (lb.on && !lb.paused ? '⏸ 暂停' : '▶ 播放') + '</button><button class="ghost" aria-label="下一句" onclick="lbJump(lbCur().idx+1)">⏭</button></div>' +
     '<div class="row"><button class="ghost sm" onclick="lbSpeed()">' + r + '×</button><button class="ghost sm" onclick="lbTimer()">' + (lb.timer ? '⏲ ' + lb.timer + ' 分钟' : '⏲ 定时') + '</button><button class="ghost sm" onclick="lbFont(-1)">A−</button><button class="ghost sm" onclick="lbFont(1)">A＋</button><button class="ghost sm" onclick="lbVoiceNext()">🔊 ' + (lbNat() ? lbNatVoice()[1].slice(0, 2) : '声音') + '</button><button class="ghost sm" onclick="lbEngine()">' + (lbNat() ? '🎙 自然' : '🤖 系统') + '</button></div>' +
-    (lbNat() ? '<div class="row"><button class="ghost sm" onclick="lbPregen()">' + (lb.pg ? '⏹ 停止生成' : '📥 整本预生成') + '</button><button class="ghost sm" onclick="lbClearSaved()">🗑 清除已存</button></div>' + (lb.pgTxt ? '<div class="note" style="text-align:center">' + lb.pgTxt + '</div>' : '') : '') +
+    '<div class="row"><button class="ghost sm" onclick="lbMode()">' + (lbPage() ? '📖 翻页' : '📜 滚动') + '</button>' + (lbNat() ? '<button class="ghost sm" onclick="lbPregen()">' + (lb.pg ? '⏹ 停止生成' : '📥 整本预生成') + '</button><button class="ghost sm" onclick="lbClearSaved()">🗑 清除已存</button>' : '') + '</div>' + (lb.pgTxt ? '<div class="note" style="text-align:center">' + lb.pgTxt + '</div>' : '') +
     '<div class="note" style="text-align:center;margin-top:6px;font-size:12px">点任意一句，从那里开始听。' + (lbNat() ? '自然人声会联网合成，听过的句子会存在这台设备上，再听不用联网、不再计费。' : '系统声音在锁屏后可能会停。') + '</div>';
 }
 function lbCur() { return lb.cur.it; }
