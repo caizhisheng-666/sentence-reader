@@ -301,7 +301,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.18-143';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.18-144';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -4093,7 +4093,6 @@ function lbSpeed() { const r = lbRate(), n = r === 1 ? 1.25 : r === 1.25 ? 1.5 :
 function lbTimer() { const o = [0, 15, 30, 60], n = o[(o.indexOf(lb.timer) + 1) % o.length]; lb.timer = n; lb.end = n && lb.on ? Date.now() + n * 60000 : 0; lbBar(); toast(n ? '定时：' + n + ' 分钟后自动停止' : '已取消定时', 1800); }
 function lbFont(d) { const n = Math.max(15, Math.min(34, lbFs() + d)); localStorage.setItem('sr_lb_fs', String(n)); if (lbPage()) { lb.browse = false; lbPaint(true, true); return; } const t = document.querySelector('.lbtxt'); if (t) t.style.fontSize = n + 'px'; }
 function lbFace() { localStorage.setItem('sr_lb_ff', lbSans() ? 'serif' : 'sans'); lbEl().classList.toggle('sans', lbSans()); lbPaint(true, true); lbBar(); }
-function lbMode() { const to = lbPage() ? 'scroll' : 'page'; localStorage.setItem('sr_lb_mode', to); lb.browse = false; lb.winA = lb.winB = -1; lbPaint(true, true); lbBar(); toast(to === 'page' ? '翻页：左右滑动或点屏幕边缘翻页' : '滚动：上下滑动阅读', 2200); }
 window.addEventListener('resize', () => { if (lb.screen === 'read' && lbPage() && lb.cur) { lb.browse = false; lbPaint(true, true); } });
 function lbEngine() { const to = lbNat() ? 'sys' : 'nat'; lb.natOff = false; localStorage.setItem('sr_zl_eng', to); toast(to === 'nat' ? '已换成自然人声（需要联网）' : '已换成系统声音', 2000); lbBar(); lbRestart(); }
 function lbVoiceNext() { if (lbNat()) { const i = LB_NAT.findIndex(x => x[0] === lbNatVoice()[0]), n = LB_NAT[(i + 1) % LB_NAT.length]; localStorage.setItem('sr_zl_nv', n[0]); toast('声音：' + n[1], 2000); lbBar(); lbRestart(); return; } const vs = lbVoices(); if (vs.length < 2) { toast(vs.length ? '这台设备只有一个中文声音' : '这台设备没有找到中文声音', 2500); return; } const c = lbVoice(), n = vs[(vs.findIndex(v => c && v.voiceURI === c.voiceURI) + 1) % vs.length]; localStorage.setItem('sr_zl_voice', n.voiceURI); toast('声音：' + n.name, 1800); lbRestart(); }
@@ -4170,7 +4169,7 @@ async function lbOpenItem(id) {
   if (it.kind === 'en') lbPrefetch(it.idx);
 }
 function lbSentHtml(i) { const b = lb.cur, t = lbPeek(i); return '<span class="lbs' + (t ? '' : ' wait') + (i === b.it.idx ? ' cur' : '') + '" data-i="' + i + '"' + (lbPage() ? '' : ' onclick="lbJump(' + i + ')"') + '>' + (t ? esc(t) : '……') + '</span>'; }
-const lbPage = () => localStorage.getItem('sr_lb_mode') !== 'scroll';
+const lbPage = () => true;                           // 只有翻页模式（滚动模式已去掉）
 function lbParas(a, z) {
   const b = lb.cur; let h = '';
   if (b.en) { let buf = ''; for (let k = a; k < z; k++) { buf += lbSentHtml(k); if ((k + 1) % 6 === 0) { h += '<p class="lbp">' + buf + '</p>'; buf = ''; } } if (buf) h += '<p class="lbp">' + buf + '</p>'; }
@@ -4318,7 +4317,7 @@ function lbSheet(re) {                               // 低频设置收进这里
   e.innerHTML = '<div class="in"><div class="note" style="text-align:center">阅读与朗读设置</div><div class="g">' +
     '<button class="ghost sm" onclick="lbFont(-1)">A− 字小一点</button><button class="ghost sm" onclick="lbFont(1)">A＋ 字大一点</button>' +
     '<button class="ghost sm" onclick="lbFace()">' + (lbSans() ? '字体：黑体' : '字体：宋体') + '</button>' +
-    '<button class="ghost sm" onclick="lbMode()">' + (lbPage() ? '📖 翻页模式' : '📜 滚动模式') + '</button>' +
+    
     '<button class="ghost sm" onclick="lbVoiceNext()">🔊 声音：' + (nat ? lbNatVoice()[1].slice(0, 2) : '系统') + '</button>' +
     '<button class="ghost sm" onclick="lbEngine()">' + (nat ? '🎙 自然人声' : '🤖 系统声音') + '</button>' +
     (nat ? '<button class="ghost sm" onclick="lbPregen()">' + (lb.pg ? '⏹ 停止生成' : '📥 整本预生成') + '</button><button class="ghost sm" onclick="lbClearSaved()">🗑 清除已存</button>' : '') +
