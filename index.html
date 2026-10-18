@@ -238,9 +238,26 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 .finish{text-align:center;padding:30px 0}
 .toastPlus{position:fixed;bottom:calc(24px + env(safe-area-inset-bottom,0px));left:50%;transform:translate(-50%,10px);background:var(--accent2);color:#fff;padding:9px 20px;border-radius:16px;font-size:14px;font-weight:600;opacity:0;transition:opacity .25s,transform .25s;z-index:70;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.25);max-width:min(90vw,420px);text-align:center;line-height:1.4}
 .toastPlus.show{opacity:1;transform:translate(-50%,0)}
+
+#lbov{position:fixed;inset:0;z-index:40;background:var(--bg);color:var(--ink);display:none;flex-direction:column;font-family:var(--sans)}
+#lbov.show{display:flex}
+.lbtop{display:flex;align-items:center;gap:8px;padding:10px 14px;padding-top:max(10px,env(safe-area-inset-top));border-bottom:1px solid var(--line);background:var(--bar)}
+.lbtop b{flex:1;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lbbody{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:16px 18px 24px}
+.lbtxt{font-family:var(--serif);line-height:1.95}
+.lbp{margin:0 0 1em;text-indent:2em}
+.lbs{border-radius:6px;cursor:pointer;transition:background .25s}
+.lbs.cur{background:var(--soft)}
+.lbs.wait{color:var(--sub)}
+.lbbar{border-top:1px solid var(--line);background:var(--card);padding:10px 12px calc(10px + env(safe-area-inset-bottom))}
+.lbbar .row{justify-content:center;gap:8px;margin-top:8px}
+.lbitem{padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:var(--card);margin-bottom:10px;display:flex;gap:10px;align-items:center}
+.lbitem .t{flex:1;min-width:0}.lbitem .t b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lbh{margin:18px 0 8px;font-weight:600;color:var(--sub);font-size:13px}
 </style>
 </head>
 <body>
+<div id="lbov"></div>
 <div id="app"><div id="loading">加载中…</div></div>
 <div id="overlay" onpointerdown="window.__ovDown=(event.target.id==='overlay')" onpointerup="window.__ovUp=(event.target.id==='overlay')" onclick="if(event.target.id==='overlay'&&window.__ovDown&&window.__ovUp)closePop();window.__ovDown=window.__ovUp=false"><div id="pop" role="dialog" aria-modal="true"></div></div>
 <div id="wordpop" class="wordpop" role="dialog" aria-live="polite" hidden><div class="wp-arrow"></div><div id="wpBody"></div></div>
@@ -253,7 +270,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.18-135';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.18-136';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -422,7 +439,7 @@ async function openBook(id) {
 }
 function closeBook() {
   if (rec.on) { toast('正在录音，先点停止再返回', 2000); return; }
-  stopSpeech(); try { pgPlayStop(); pgCancel(); } catch (e) {} clearCurImages();
+  lbStop(); stopSpeech(); try { pgPlayStop(); pgCancel(); } catch (e) {} clearCurImages();
   flushState();
   state = null; render();
   if (window.__swPending) setTimeout(() => location.reload(), 300);
@@ -461,7 +478,8 @@ function shelfHtml() {
   const sel = shelfSel;
   const sh = statsHtml();
   let html = '<div class="shelfbar"><h2>我的学习</h2>' + (l.length ? '<button class="link shsel" onclick="toggleShelfSel()">' + (sel ? '取消' : '选择') + '</button>' : '') + '</div>' +
-    '<div class="shacts"><button onclick="openStoryCity()">📚 学习材料</button><button class="ghost" onclick="openImportPop()">＋ 导入材料</button></div>';
+    '<div class="shacts"><button onclick="openStoryCity()">📚 学习材料</button><button class="ghost" onclick="openImportPop()">＋ 导入材料</button></div>' +
+    '<div class="shacts" style="margin-top:-6px"><button class="ghost" onclick="lbOpenShelf()">🎧 中文听书</button></div>';
   if (sh) html += '<div class="levelbar" style="margin:-6px 0 14px"><div id="statsLine">' + sh + '</div></div>';
   if (!l.length) {
     html += '<div class="card" style="text-align:center;padding:36px 20px"><div style="font-size:38px">📚</div><div style="margin:10px 0 4px;font-size:17px;color:var(--ink)">还没有学习材料</div><div class="note">点上面的“学习材料”挑一本材料，<br>或“导入材料”添加你自己的英文内容（epub、PDF、文本），也可以粘贴一段英文。</div></div>';
@@ -1391,6 +1409,7 @@ function recordRateProbe(key, rate, ms) {
 }
 function playListen() {
   if (rec.on) { toast('正在录音，先点停止再朗读', 2000); return; }
+  if (lb.on) lbStop();
   const idx = state.idx;
   if (azLoading && listenState.idx === idx) { stopSpeech(); render(); return; }       // 正在生成自然语音时再点一下 = 取消
   if (listenState.idx === idx && listenState.playing && !listenState.paused) {
@@ -2737,6 +2756,7 @@ async function loadRecs() {
 }
 let recBusy = false;
 async function toggleRecord() {
+  if (lb.on) lbStop();
   if (rec.on) { if (rec.mr && rec.mr.state === 'recording') rec.mr.stop(); return; }
   if (recBusy) return;                                   // 正在等麦克风权限时，防止连点启动出两个录音
   const recFail = m => { recWait = false; render(); showPop('<h3 style="margin:0 0 6px">🎙 没能开始录音</h3><div class="note" style="font-size:14px;color:var(--ink)">' + m + '</div>'); };   // 不用 alert：有的浏览器会把弹框静默挡掉，看起来像“点了没反应”
@@ -3838,6 +3858,218 @@ async function pgStartTranslate(auto) {
   if (pgJobId === my) { const b = document.getElementById('pgTransBtn'); if (b) b.remove(); const p = document.getElementById('pgProgress'); if (p) p.textContent = '整页翻译完成。'; }
 }
 
+
+/* ---------- 中文听书：单独的区域。看中文、听中文，像微信读书那样一句接一句连续朗读；书可以是你导入的中文书，也可以是书架上的英文书（读中文译文） ---------- */
+const LB_KEY = 'lbidx';
+const lb = { on: false, paused: false, tok: 0, end: 0, timer: 0, fails: 0, list: [], cur: null, screen: '', winA: 0, winB: 0, pre: new Map() };
+const lbSleep = ms => new Promise(r => setTimeout(r, ms));
+const lbEl = () => document.getElementById('lbov');
+async function lbLoadList() { try { lb.list = (await idbGet('meta', LB_KEY)) || []; } catch (e) { lb.list = []; } }
+async function lbSaveList() { try { await idbPut('meta', lb.list, LB_KEY); } catch (e) {} }
+function lbFs() { const n = parseInt(localStorage.getItem('sr_lb_fs')); return n >= 15 && n <= 28 ? n : 19; }
+function lbRate() { const r = parseFloat(localStorage.getItem('sr_zl_rate')); return r === 1.25 || r === 1.5 ? r : 1; }
+function lbVoices() { try { return (speechSynthesis.getVoices() || []).filter(v => /^zh/i.test(v.lang)); } catch (e) { return []; } }
+function lbVoice() {
+  const vs = lbVoices(), uri = localStorage.getItem('sr_zl_voice') || '';
+  const saved = uri && vs.find(v => v.voiceURI === uri); if (saved) return saved;
+  return vs.find(v => /zh[-_]CN/i.test(v.lang) && /ting|lili|yu-?shu|xiao|hui|yao|kang/i.test(v.name)) || vs.find(v => /zh[-_]CN/i.test(v.lang)) || vs[0] || null;
+}
+/* 把一大段中文切成适合朗读的句子，并记下每个自然段从第几句开始 */
+function lbSplit(text) {
+  text = String(text || '').replace(/\r/g, '').replace(/　/g, ' ');
+  const paras = text.split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(x => x && /[㐀-鿿A-Za-z0-9]/.test(x));
+  const sents = [], pst = [];
+  for (const para of paras) {
+    if (sents.length > 200000) break;
+    pst.push(sents.length);
+    const parts = para.match(/[^。！？!?；;…]+(?:[。！？!?；;…]+["”’）)」』]*)?/g) || [para];
+    const out = [];
+    for (let x of parts) {
+      x = x.trim(); if (!x) continue;
+      if (out.length && x.length < 6 && out[out.length - 1].length < 100) { out[out.length - 1] += x; continue; }
+      while (x.length > 120) { let k = x.slice(0, 120).search(/[，、,：:][^，、,：:]*$/); if (k < 30) k = 119; out.push(x.slice(0, k + 1)); x = x.slice(k + 1).trim(); }
+      if (x) out.push(x);
+    }
+    sents.push(...out);
+  }
+  return { s: sents, p: pst };
+}
+/* ---- 当前这本书：统一成“第 i 句的中文是什么” ---- */
+async function lbOpenBookObj(it) {
+  if (it.kind === 'zh') { const d = await idbGet('meta', 'lb:' + it.id); if (!d || !d.s) throw new Error('这本书的内容找不到了，请删除后重新导入'); return { it, n: d.s.length, s: d.s, p: d.p || [0] }; }
+  const o = (state && state.bookId === it.bookId) ? state : await idbGet('books', it.bookId); if (!o) throw new Error('书架上找不到这本书了');
+  return { it, o, n: o.sentences.length, en: true };
+}
+function lbZhOf(o, i) { return (o.zh && o.zh[i] && !(o.zhOff && o.zhOff[i])) ? o.zh[i] : ''; }
+function lbPeek(i) {
+  const b = lb.cur; if (!b) return '';
+  if (!b.en) return b.s[i] || '';
+  const z = lbZhOf(b.o, i); if (z) return z;
+  const c = b.o.cache && b.o.cache[String(i)]; return c && c.translation ? c.translation : '';
+}
+async function lbGet(i) {
+  const t = lbPeek(i); if (t) return t;
+  const b = lb.cur; if (!b || !b.en) return '';
+  if (lb.pre.has(i)) { try { await lb.pre.get(i); } catch (e) {} const t2 = lbPeek(i); if (t2) return t2; }
+  if (!navigator.onLine) throw new Error('offline');
+  const r = await translateText(b.o.sentences[i]);
+  lbPutTr(b, i, r); return r;
+}
+function lbPutTr(b, i, t) { b.o.cache = b.o.cache || {}; b.o.cache[String(i)] = { translation: t }; if (b.o === state) saveState(); else idbPut('books', b.o, b.it.bookId).catch(() => {}); const sp = document.querySelector('.lbs[data-i="' + i + '"]'); if (sp) { sp.textContent = t; sp.classList.remove('wait'); } }
+function lbPrefetch(from) {                          // 边听边把后面几句先翻好
+  const b = lb.cur; if (!b || !b.en || !navigator.onLine) return;
+  for (let k = 0; k <= 4; k++) {
+    const i = from + k; if (i >= b.n || lbPeek(i) || lb.pre.has(i)) continue;
+    const pr = translateText(b.o.sentences[i], { bulk: true }).then(t => { if (lb.cur === b) lbPutTr(b, i, t); }).catch(() => {}).finally(() => lb.pre.delete(i));
+    lb.pre.set(i, pr);
+  }
+}
+/* ---- 播放 ---- */
+function lbSay(text, tok) {
+  return new Promise(res => {
+    let done = false, began = false; const fin = () => { if (!done) { done = true; res(); } };
+    try {
+      const u = new SpeechSynthesisUtterance(String(text).replace(/\s+/g, ' ').trim());
+      const v = lbVoice(); u.lang = v ? v.lang : 'zh-CN'; if (v) u.voice = v; u.rate = lbRate();
+      u.onstart = () => { began = true; }; u.onend = fin; u.onerror = fin;
+      speakNow(u);
+      setTimeout(() => { if (!done && !began && tok === lb.tok) { try { if (speechSynthesis.speaking || speechSynthesis.pending) return; } catch (e) {} lb.fails = 99; fin(); } }, 6000);
+    } catch (e) { lb.fails = 99; fin(); }
+  });
+}
+async function lbLoop() {
+  const my = ++lb.tok, b = lb.cur;
+  while (lb.on && !lb.paused && my === lb.tok && lb.cur === b) {
+    if (b.it.idx >= b.n) { lbStop(); lbBar(); toast('这本书听完了 🎉', 3000); return; }
+    const i = b.it.idx; lbPrefetch(i); lbPaint(true);
+    let text = '';
+    try { text = await lbGet(i); lb.fails = 0; }
+    catch (e) {
+      if (my !== lb.tok) return;
+      if (++lb.fails >= 3) { lbStop(); toast('现在连不上翻译服务，听书停下了。联网后再点播放。', 5000); return; }
+      b.it.idx++; await lbSleep(300); continue;
+    }
+    if (my !== lb.tok || lb.cur !== b) return;
+    lbPaint(true);
+    await lbSay(text, my);
+    if (my !== lb.tok || lb.cur !== b) return;
+    if (lb.fails === 99) { lbStop(); toast('没能播放声音：这台设备的系统朗读好像不可用，请检查是否静音、音量是否调低。', 6000); return; }
+    if (lb.end && Date.now() > lb.end) { b.it.idx++; lbSaveProg(); lbStop(); toast('定时时间到，已停止。晚安 🌙', 5000); return; }
+    b.it.idx++; if (b.it.idx % 5 === 0) lbSaveProg();
+    await lbSleep(150);
+  }
+}
+function lbSaveProg() { const b = lb.cur; if (!b) return; b.it.at = Date.now(); lbSaveList(); }
+function lbPlay() { if (!lb.cur) return; if (lb.cur.it.idx >= lb.cur.n) lb.cur.it.idx = 0; stopSpeech(); lb.on = true; lb.paused = false; lb.fails = 0; if (lb.timer && !lb.end) lb.end = Date.now() + lb.timer * 60000; lbBar(); lbLoop(); }
+function lbStop() {
+  const was = lb.on; lb.on = false; lb.paused = false; lb.tok++; lb.end = 0;
+  try { speechSynthesis.cancel(); } catch (e) {}
+  if (lb.cur) lbSaveProg();
+  if (was && lb.screen === 'read') lbBar();
+}
+function lbToggle() { if (!lb.on) { lbPlay(); return; } if (lb.paused) { lb.paused = false; lbBar(); lbLoop(); } else { lb.paused = true; lb.tok++; try { speechSynthesis.cancel(); } catch (e) {} lbBar(); } }
+function lbJump(i) {
+  const b = lb.cur; if (!b) return; b.it.idx = Math.max(0, Math.min(b.n - 1, i)); lbPaint(true); lbBar();
+  if (lb.on && !lb.paused) { lb.tok++; try { speechSynthesis.cancel(); } catch (e) {} lbLoop(); } else lbSaveProg();
+}
+function lbRestart() { if (lb.on && !lb.paused) { lb.tok++; try { speechSynthesis.cancel(); } catch (e) {} lbLoop(); } }
+function lbSpeed() { const r = lbRate(), n = r === 1 ? 1.25 : r === 1.25 ? 1.5 : 1; localStorage.setItem('sr_zl_rate', String(n)); lbBar(); lbRestart(); toast('语速 ' + n + ' 倍', 1400); }
+function lbTimer() { const o = [0, 15, 30, 60], n = o[(o.indexOf(lb.timer) + 1) % o.length]; lb.timer = n; lb.end = n && lb.on ? Date.now() + n * 60000 : 0; lbBar(); toast(n ? '定时：' + n + ' 分钟后自动停止' : '已取消定时', 1800); }
+function lbFont(d) { const n = Math.max(15, Math.min(28, lbFs() + d)); localStorage.setItem('sr_lb_fs', String(n)); const t = document.querySelector('.lbtxt'); if (t) t.style.fontSize = n + 'px'; }
+function lbVoiceNext() { const vs = lbVoices(); if (vs.length < 2) { toast(vs.length ? '这台设备只有一个中文声音' : '这台设备没有找到中文声音', 2500); return; } const c = lbVoice(), n = vs[(vs.findIndex(v => c && v.voiceURI === c.voiceURI) + 1) % vs.length]; localStorage.setItem('sr_zl_voice', n.voiceURI); toast('声音：' + n.name, 1800); lbRestart(); }
+/* ---- 界面 ---- */
+function lbShow(html) { const e = lbEl(); e.innerHTML = html; e.classList.add('show'); }
+function lbClose() { lbStop(); lb.cur = null; lb.screen = ''; const e = lbEl(); e.classList.remove('show'); e.innerHTML = ''; }
+function lbBack() { if (lb.screen === 'read') { lbStop(); lb.cur = null; lbOpenShelf(); } else lbClose(); }
+function lbPct(it) { return it.n ? Math.min(100, Math.round(it.idx / it.n * 100)) : 0; }
+async function lbOpenShelf() {
+  lb.screen = 'shelf'; await lbLoadList();
+  const shelf = (() => { try { return shelfGet(); } catch (e) { return []; } })();
+  const mine = lb.list.slice().sort((a, b) => (b.at || 0) - (a.at || 0));
+  const item = (it) => '<div class="lbitem" onclick="lbOpenItem(\'' + it.id + '\')"><div class="t"><b>' + esc(it.title) + '</b><span class="note">' + (it.kind === 'zh' ? '中文书' : '英文书·听中文译文') + ' · 听到 ' + lbPct(it) + '%</span></div><button class="ghost sm" onclick="event.stopPropagation();lbDelete(\'' + it.id + '\')">删除</button></div>';
+  const enRows = shelf.filter(b => !b.sample || true).map(b => '<div class="lbitem" onclick="lbOpenEn(\'' + b.id + '\')"><div class="t"><b>' + esc(b.title || '') + '</b><span class="note">用中文译文来听</span></div><span class="note">›</span></div>').join('');
+  lbShow('<div class="lbtop"><button class="iconbtn" onclick="lbClose()" style="font-size:15px">‹ 返回</button><b>🎧 中文听书</b></div><div class="lbbody">' +
+    '<div class="note" style="margin-bottom:12px">像微信读书一样：直接看中文，眼睛累了就听，睡前也能听。可以导入你自己的中文书，也可以把书架上的英文书变成中文来听。</div>' +
+    '<div class="filebtn" style="margin-bottom:8px"><button type="button" tabindex="-1">＋ 导入中文书（txt / epub / docx / md / mobi）</button><input type="file" accept=".txt,.md,.markdown,.epub,.docx,.mobi,.azw3,.azw" onchange="lbImportFile(event)"></div>' +
+    '<div class="row" style="margin:8px 0 4px"><button class="ghost sm" onclick="lbPasteBox()">粘贴一段中文来听</button></div><div id="lbStatus" class="note" style="min-height:20px"></div>' +
+    (mine.length ? '<div class="lbh">继续听</div>' + mine.map(item).join('') : '') +
+    (enRows ? '<div class="lbh">书架上的英文书（听中文译文）</div>' + enRows : '') + '</div>');
+}
+function lbStatus(m) { const e = document.getElementById('lbStatus'); if (e) e.textContent = m || ''; }
+function lbPasteBox() {
+  lbShow('<div class="lbtop"><button class="iconbtn" onclick="lbOpenShelf()" style="font-size:15px">‹ 返回</button><b>粘贴中文</b></div><div class="lbbody"><textarea id="lbPaste" placeholder="把中文文章粘贴到这里…" style="width:100%;min-height:240px;box-sizing:border-box"></textarea><div class="row" style="margin-top:10px"><button onclick="lbImportText(document.getElementById(\'lbPaste\').value,\'粘贴的文章\')">开始听</button></div></div>');
+}
+function lbDecode(buf) { try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { try { return new TextDecoder('gb18030').decode(buf); } catch (e2) { return new TextDecoder('utf-8').decode(buf); } } }
+async function lbImportFile(ev) {
+  const f = ev.target.files[0]; if (!f) return; const n = f.name.toLowerCase(), title = f.name.replace(/\.[^.]+$/, '');
+  lbStatus('正在读取 ' + f.name + ' …');
+  try {
+    let text = '';
+    if (n.endsWith('.txt') || n.endsWith('.md') || n.endsWith('.markdown')) { text = lbDecode(await readAsArrayBuffer(f)); if (!n.endsWith('.txt')) text = mdToText(text); }
+    else if (n.endsWith('.epub')) { const bl = await parseEpub(await readAsArrayBuffer(f)); text = bl.map(x => (x.title && !x.text.startsWith(x.title) ? x.title + '\n' : '') + x.text).join('\n\n'); }
+    else if (n.endsWith('.docx')) text = await parseDocx(await readAsArrayBuffer(f));
+    else if (/\.(mobi|azw3?|azw)$/.test(n)) text = parseMobi(await readAsArrayBuffer(f));
+    else { alert('请选择 .txt、.md、.epub、.docx、.mobi 或 .azw3 文件。'); lbStatus(''); return; }
+    await lbImportText(text, title);
+  } catch (e) { alert('文件读取失败：' + (e && e.message ? e.message : '未知错误')); lbStatus(''); }
+}
+async function lbImportText(text, title) {
+  const cjk = (String(text).match(/[㐀-鿿]/g) || []).length;
+  if (cjk < 20) { alert('这里面几乎没有中文。英文书请用“学习材料/导入材料”，再回到这里选“听中文译文”。'); lbStatus(''); return; }
+  if (cjk < String(text).length * 0.25 && !confirm('这份文件里中文不多，可能是英文书。仍然当作中文书来听吗？')) { lbStatus(''); return; }
+  const sp = lbSplit(text); if (sp.s.length < 1) { alert('没有读到可以朗读的文字。'); return; }
+  const id = 'z' + Date.now();
+  await idbPut('meta', sp, 'lb:' + id);
+  await lbLoadList(); lb.list.push({ id, title: (title || '中文书').slice(0, 60), kind: 'zh', n: sp.s.length, idx: 0, at: Date.now() }); await lbSaveList();
+  lbOpenItem(id);
+}
+async function lbDelete(id) {
+  const it = lb.list.find(x => x.id === id); if (!it || !confirm('删除《' + it.title + '》的听书记录？' + (it.kind === 'zh' ? '\n导入的中文内容也会一起删除。' : '（英文书本身不会删除）'))) return;
+  if (lb.cur && lb.cur.it.id === id) { lbStop(); lb.cur = null; }
+  lb.list = lb.list.filter(x => x.id !== id); await lbSaveList(); if (it.kind === 'zh') { try { await idbDel('meta', 'lb:' + id); } catch (e) {} }
+  lbOpenShelf();
+}
+async function lbOpenEn(bookId) {                    // 书架上的英文书：第一次进来从“读到的位置”开始听
+  await lbLoadList();
+  let it = lb.list.find(x => x.kind === 'en' && x.bookId === bookId);
+  if (!it) {
+    const sh = shelfGet().find(x => x.id === bookId), o = (state && state.bookId === bookId) ? state : await idbGet('books', bookId); if (!o) { toast('找不到这本书', 2500); return; }
+    it = { id: 'e' + bookId, kind: 'en', bookId, title: (sh && sh.title) || o.title || '英文书', n: o.sentences.length, idx: Math.min(o.idx || 0, o.sentences.length - 1), at: Date.now() };
+    lb.list.push(it); await lbSaveList();
+  }
+  lbOpenItem(it.id);
+}
+async function lbOpenItem(id) {
+  const it = lb.list.find(x => x.id === id); if (!it) return;
+  try { lb.cur = await lbOpenBookObj(it); } catch (e) { alert(e.message); return; }
+  it.n = lb.cur.n; if (it.idx >= it.n) it.idx = 0; lb.screen = 'read'; lb.winA = lb.winB = -1; lb.fails = 0;
+  lbShow('<div class="lbtop"><button class="iconbtn" onclick="lbBack()" style="font-size:15px">‹ 书单</button><b>' + esc(it.title) + '</b><span class="note" id="lbPct"></span></div><div class="lbbody" id="lbBody"></div><div class="lbbar" id="lbBar"></div>');
+  lbPaint(false, true); lbBar();
+  if (it.kind === 'en') lbPrefetch(it.idx);
+}
+function lbSentHtml(i) { const b = lb.cur, t = lbPeek(i); return '<span class="lbs' + (t ? '' : ' wait') + (i === b.it.idx ? ' cur' : '') + '" data-i="' + i + '" onclick="lbJump(' + i + ')">' + (t ? esc(t) : '……') + '</span>'; }
+function lbPaint(scroll, force) {
+  const b = lb.cur, body = document.getElementById('lbBody'); if (!b || !body) return;
+  const i = b.it.idx;
+  if (force || i < lb.winA + 8 || i > lb.winB - 12 || lb.winA < 0) {            // 只画当前句前后一段，书再长页面也不卡
+    const a = Math.max(0, i - 30), z = Math.min(b.n, i + 70); lb.winA = a; lb.winB = z;
+    let h = '<div class="lbtxt" style="font-size:' + lbFs() + 'px">';
+    if (b.en) { let buf = ''; for (let k = a; k < z; k++) { buf += lbSentHtml(k); if ((k + 1) % 6 === 0) { h += '<p class="lbp">' + buf + '</p>'; buf = ''; } } if (buf) h += '<p class="lbp">' + buf + '</p>'; }
+    else { const ps = b.p; let pi = 0; while (pi + 1 < ps.length && ps[pi + 1] <= a) pi++; for (; pi < ps.length && ps[pi] < z; pi++) { const s0 = Math.max(ps[pi], a), s1 = Math.min(pi + 1 < ps.length ? ps[pi + 1] : b.n, z); let buf = ''; for (let k = s0; k < s1; k++) buf += lbSentHtml(k); h += '<p class="lbp">' + buf + '</p>'; } }
+    body.innerHTML = h + '</div>'; scroll = true;
+  } else { body.querySelectorAll('.lbs.cur').forEach(e => e.classList.remove('cur')); const c = body.querySelector('.lbs[data-i="' + i + '"]'); if (c) c.classList.add('cur'); }
+  const pc = document.getElementById('lbPct'); if (pc) pc.textContent = lbPct(b.it) + '%';
+  if (scroll) { const c = body.querySelector('.lbs.cur'); if (c) c.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+}
+function lbBar() {
+  const bar = document.getElementById('lbBar'), b = lb.cur; if (!bar || !b) return;
+  const r = lbRate();
+  bar.innerHTML = '<div class="note" style="text-align:center">第 ' + Math.min(b.it.idx + 1, b.n) + ' / ' + b.n + ' 句' + (lb.on && !lb.paused ? ' · 正在朗读' : lb.paused ? ' · 已暂停' : '') + '</div>' +
+    '<div class="row"><button class="ghost" aria-label="上一句" onclick="lbJump(lbCur().idx-1)">⏮</button><button style="min-width:92px" onclick="lbToggle()">' + (lb.on && !lb.paused ? '⏸ 暂停' : '▶ 播放') + '</button><button class="ghost" aria-label="下一句" onclick="lbJump(lbCur().idx+1)">⏭</button></div>' +
+    '<div class="row"><button class="ghost sm" onclick="lbSpeed()">' + r + '×</button><button class="ghost sm" onclick="lbTimer()">' + (lb.timer ? '⏲ ' + lb.timer + ' 分钟' : '⏲ 定时') + '</button><button class="ghost sm" onclick="lbFont(-1)">A−</button><button class="ghost sm" onclick="lbFont(1)">A＋</button><button class="ghost sm" onclick="lbVoiceNext()">🔊 声音</button></div>' +
+    '<div class="note" style="text-align:center;margin-top:6px;font-size:12px">点任意一句，从那里开始听。系统声音在锁屏后可能会停。</div>';
+}
+function lbCur() { return lb.cur.it; }
 /* ---------- 界面 ---------- */
 function render() {
   closeWordPop();
@@ -3898,6 +4130,7 @@ function render() {
         '<div class="zh">' + (getShowZh() ? (bz ? '<span class="src" style="margin:0 6px 0 0">自带译文' + (state.zhp && state.zhp[state.idx] ? '·整段' : '') + '</span>' : '') + trans + (hasBz ? ' <button class="link" onclick="toggleBookZh()">' + (bz ? '改看机器翻译' : '改看自带译文') + '</button>' : '') : '<span class="sub">中文翻译已隐藏</span>') + '</div>' +
         '<button class="iconbtn" style="flex-shrink:0" onclick="toggleZh()">' + (getShowZh() ? '隐藏中文' : '显示中文') + '</button>' +
       '</div>' +
+      '<div class="row" style="margin-top:10px"><button class="ghost sm" onclick="lbOpenEn(state.bookId)">🎧 听中文（连续朗读）</button></div>' +
       '<div class="section">' + recs + '</div>' +
       practiceHtml +
       '<div class="section">' + aiHtml() + chatHtml() + '</div>' +
