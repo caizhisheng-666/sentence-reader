@@ -261,8 +261,8 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 .lbbody.pg{padding:0;overflow:hidden;position:relative}
 .lbclip{position:absolute;inset:0;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 .lbstrip{position:absolute;column-fill:auto;will-change:transform}
-.lbstrip .lbtxt{font-family:var(--serif);line-height:1.78;text-align:justify;text-justify:inter-ideograph;-webkit-hyphens:auto}
-.lbstrip .lbp{margin:0 0 .4em}
+.lbstrip .lbtxt{font-family:var(--serif);line-height:1.56;text-align:justify;text-justify:inter-ideograph;-webkit-hyphens:auto}
+.lbstrip .lbp{margin:0}
 .lbedge{position:absolute;top:0;bottom:0;width:30px;pointer-events:none;opacity:0;background:linear-gradient(to right,rgba(0,0,0,.22),rgba(0,0,0,0))}
 .lbhome{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:3}
 .lbfoot{position:absolute;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 6px);text-align:center;font-size:12px;color:var(--sub);pointer-events:none;z-index:2}
@@ -273,6 +273,17 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 .lbsheet{position:absolute;inset:0;z-index:9;background:rgba(0,0,0,.35);display:flex;align-items:flex-end}
 .lbsheet .in{width:100%;background:var(--card);border-radius:18px 18px 0 0;padding:16px 14px calc(18px + env(safe-area-inset-bottom))}
 .lbsheet .g{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:10px}
+.lbhead{position:absolute;left:44px;right:44px;top:calc(env(safe-area-inset-top) + 10px);text-align:center;font-size:13px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;z-index:2}
+#lbov.rd .lbtop{background:none;border:0;box-shadow:none;justify-content:flex-end;padding:calc(env(safe-area-inset-top) + 4px) 14px 0;pointer-events:none}
+#lbov.rd .lbtop b{display:none}
+#lbov.rd .lbtop button{pointer-events:auto;width:44px;height:44px;border-radius:50%;font-size:18px;padding:0}
+#lbov.rd .lbbar{background:none;border:0;box-shadow:none;padding:0 14px calc(env(safe-area-inset-bottom) + 14px);pointer-events:none}
+#lbov.rd .lbbar .row{gap:10px;margin-top:10px}
+#lbov.rd .lbbar .note{display:none}
+#lbov.rd .lbbar button,#lbov.rd .lbtop button{pointer-events:auto;background:rgba(246,241,228,.82);background:color-mix(in srgb,var(--card) 80%,transparent);-webkit-backdrop-filter:blur(22px) saturate(1.6);backdrop-filter:blur(22px) saturate(1.6);color:var(--ink);border:1px solid var(--line);box-shadow:0 4px 18px rgba(0,0,0,.14)}
+#lbov.rd .lbbar button.pri{background:var(--accent);color:#fff;border-color:transparent}
+#lbov.sans .lbtxt{font-family:var(--sans);font-weight:300;letter-spacing:.02em}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) #lbov.rd{background:#000}:root:not([data-theme="light"]) #lbov.rd .lbtxt{color:rgba(237,230,216,.78)}}
 .lbh{margin:18px 0 8px;font-weight:600;color:var(--sub);font-size:13px}
 </style>
 </head>
@@ -290,7 +301,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.18-142';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.18-143';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -3886,7 +3897,8 @@ const lbSleep = ms => new Promise(r => setTimeout(r, ms));
 const lbEl = () => document.getElementById('lbov');
 async function lbLoadList() { try { lb.list = (await idbGet('meta', LB_KEY)) || []; } catch (e) { lb.list = []; } }
 async function lbSaveList() { try { await idbPut('meta', lb.list, LB_KEY); } catch (e) {} }
-function lbFs() { const n = parseInt(localStorage.getItem('sr_lb_fs')); return n >= 15 && n <= 28 ? n : 19; }
+function lbFs() { const n = parseInt(localStorage.getItem('sr_lb_fs')); return n >= 15 && n <= 34 ? n : 22; }
+const lbSans = () => localStorage.getItem('sr_lb_ff') !== 'serif';
 function lbRate() { const r = parseFloat(localStorage.getItem('sr_zl_rate')); return r === 1.25 || r === 1.5 ? r : 1; }
 /* ---- 自然人声（Azure 神经网络语音，经服务器合成成 mp3；只有开发者能用）---- */
 const LB_NAT = [['zh-CN-XiaoxiaoNeural', '晓晓（女·温柔）'], ['zh-CN-YunxiNeural', '云希（男·温和）'], ['zh-CN-XiaoyiNeural', '晓伊（女·清亮）'], ['zh-CN-YunyangNeural', '云扬（男·沉稳）']];
@@ -4079,7 +4091,8 @@ function lbJump(i) {
 function lbRestart() { if (lb.on && !lb.paused) { lb.tok++; lbHalt(); lbLoop(); } }
 function lbSpeed() { const r = lbRate(), n = r === 1 ? 1.25 : r === 1.25 ? 1.5 : 1; localStorage.setItem('sr_zl_rate', String(n)); lbBar(); lbRestart(); toast('语速 ' + n + ' 倍', 1400); }
 function lbTimer() { const o = [0, 15, 30, 60], n = o[(o.indexOf(lb.timer) + 1) % o.length]; lb.timer = n; lb.end = n && lb.on ? Date.now() + n * 60000 : 0; lbBar(); toast(n ? '定时：' + n + ' 分钟后自动停止' : '已取消定时', 1800); }
-function lbFont(d) { const n = Math.max(15, Math.min(28, lbFs() + d)); localStorage.setItem('sr_lb_fs', String(n)); if (lbPage()) { lb.browse = false; lbPaint(true, true); return; } const t = document.querySelector('.lbtxt'); if (t) t.style.fontSize = n + 'px'; }
+function lbFont(d) { const n = Math.max(15, Math.min(34, lbFs() + d)); localStorage.setItem('sr_lb_fs', String(n)); if (lbPage()) { lb.browse = false; lbPaint(true, true); return; } const t = document.querySelector('.lbtxt'); if (t) t.style.fontSize = n + 'px'; }
+function lbFace() { localStorage.setItem('sr_lb_ff', lbSans() ? 'serif' : 'sans'); lbEl().classList.toggle('sans', lbSans()); lbPaint(true, true); lbBar(); }
 function lbMode() { const to = lbPage() ? 'scroll' : 'page'; localStorage.setItem('sr_lb_mode', to); lb.browse = false; lb.winA = lb.winB = -1; lbPaint(true, true); lbBar(); toast(to === 'page' ? '翻页：左右滑动或点屏幕边缘翻页' : '滚动：上下滑动阅读', 2200); }
 window.addEventListener('resize', () => { if (lb.screen === 'read' && lbPage() && lb.cur) { lb.browse = false; lbPaint(true, true); } });
 function lbEngine() { const to = lbNat() ? 'sys' : 'nat'; lb.natOff = false; localStorage.setItem('sr_zl_eng', to); toast(to === 'nat' ? '已换成自然人声（需要联网）' : '已换成系统声音', 2000); lbBar(); lbRestart(); }
@@ -4152,7 +4165,7 @@ async function lbOpenItem(id) {
   const it = lb.list.find(x => x.id === id); if (!it) return;
   try { lb.cur = await lbOpenBookObj(it); } catch (e) { alert(e.message); return; }
   it.n = lb.cur.n; if (it.idx >= it.n) it.idx = 0; lb.screen = 'read'; lb.winA = lb.winB = -1; lb.fails = 0; lb.browse = false;
-  lbShow('<div class="lbtop"><button class="iconbtn" onclick="lbBack()" style="font-size:15px">‹ 书单</button><b>' + esc(it.title) + '</b></div><div class="lbbody" id="lbBody"></div><div class="lbfoot" id="lbPct"></div><div class="lbbar" id="lbBar"></div>'); lbEl().classList.add('rd'); lbUi(true);
+  lbShow('<div class="lbtop"><button class="iconbtn" aria-label="关闭" onclick="lbBack()">✕</button></div><div class="lbbody" id="lbBody"></div><div class="lbhead" id="lbHead"></div><div class="lbfoot" id="lbPct"></div><div class="lbbar" id="lbBar"></div>'); lbEl().classList.add('rd'); lbEl().classList.toggle('sans', lbSans()); lbUi(true);
   lbPaint(false, true); lbBar();
   if (it.kind === 'en') lbPrefetch(it.idx);
 }
@@ -4172,7 +4185,7 @@ function lbPgSet(p, anim, from) {
   const st = document.getElementById('lbStrip'); if (!st) return; const pitch = lbPitch(); lb.pgI = Math.max(0, Math.min(lb.pgN - 1, p));
   if (from !== undefined) { st.style.transition = 'none'; st.style.transform = 'translate3d(' + from + 'px,0,0)'; void st.offsetWidth; }
   st.style.transition = anim ? 'transform .42s cubic-bezier(.2,.85,.25,1)' : 'none'; st.style.transform = 'translate3d(' + (-lb.pgI * pitch) + 'px,0,0)';
-  const pc = document.getElementById('lbPct'); if (pc && lb.cur) pc.textContent = '第 ' + (lb.pgI + 1) + ' / ' + lb.pgN + ' 页 · ' + lbPct(lb.cur.it) + '%';
+  const pc = document.getElementById('lbPct'); if (pc && lb.cur) lbFootUpdate();
 }
 function lbPgOf(i) {                                 // 第 i 句在窗口的第几页（用屏幕位置算，各浏览器都准）
   const st = document.getElementById('lbStrip'), el = st && st.querySelector('.lbs[data-i="' + i + '"]'); if (!el) return -1;
@@ -4182,11 +4195,26 @@ function lbPgOf(i) {                                 // 第 i 句在窗口的第
 function lbRenderPage(a, z, startAt) {
   const b = lb.cur, body = document.getElementById('lbBody'); lb.winA = a; lb.winB = z; body.classList.add('pg');
   body.innerHTML = '<div class="lbclip" id="lbClip"><div class="lbstrip" id="lbStrip"><div class="lbtxt" style="font-size:' + lbFs() + 'px">' + lbParas(a, z) + '</div></div><div class="lbedge" id="lbEdge"></div>' + (lb.browse ? '<button class="ghost sm lbhome">📍 回到正在读的位置</button>' : '') + '</div>';
-  const clip = document.getElementById('lbClip'), st = document.getElementById('lbStrip'), W = clip.clientWidth - LB_PAD * 2, vt = lbSafe().t + 16, vb = lbSafe().b + 36, H = clip.clientHeight - vt - vb;
+  const clip = document.getElementById('lbClip'), st = document.getElementById('lbStrip'), W = clip.clientWidth - LB_PAD * 2, vt = lbSafe().t + 44, vb = lbSafe().b + 40, H = clip.clientHeight - vt - vb;
   st.style.cssText += ';left:' + LB_PAD + 'px;top:' + vt + 'px;width:' + W + 'px;height:' + H + 'px;column-width:' + W + 'px;column-gap:' + (LB_PAD * 2) + 'px';
   lb.pgN = Math.max(1, Math.round((st.scrollWidth + LB_PAD * 2) / (W + LB_PAD * 2)));
   let pg = startAt === 'end' ? lb.pgN - 1 : startAt === 'start' ? 0 : lbPgOf(b.it.idx); if (pg < 0) pg = 0;
   lbPgSet(pg, false); lbBindSwipe(clip);
+}
+/* 底部“第几页/共几页”：按字数估算整本书的页数，和苹果图书一样显示 20/1678页；顶部显示当前章节 */
+function lbPrefix() {
+  const b = lb.cur; if (b.pre) return b.pre; const a = new Uint32Array(b.n + 1);
+  for (let i = 0; i < b.n; i++) { const t = b.en ? lbPeek(i) : b.s[i]; a[i + 1] = a[i] + (t ? t.length : 28); }
+  return b.pre = a;
+}
+function lbFootUpdate() {
+  const b = lb.cur, pc = document.getElementById('lbPct'), hd = document.getElementById('lbHead'); if (!b || !pc) return;
+  const st = document.getElementById('lbStrip'), pitch = lbPitch(); let first = lb.winA;
+  if (st && pitch) { const sr = st.getBoundingClientRect(); for (const el of st.querySelectorAll('.lbs')) { const r = el.getClientRects()[0]; if (r && r.left - sr.left >= lb.pgI * pitch - 2) { first = +el.dataset.i; break; } } }
+  const pre = lbPrefix(), total = pre[b.n]; let cpp = lb.cpp; if (!cpp || lb.cppKey !== lb.winA) { cpp = Math.max(60, (pre[Math.min(b.n, lb.winB)] - pre[lb.winA]) / Math.max(1, lb.pgN)); lb.cpp = cpp; lb.cppKey = lb.winA; }
+  const pages = Math.max(1, Math.round(total / cpp)), cur = Math.min(pages, Math.floor(pre[first] / cpp) + 1);
+  pc.textContent = cur + ' / ' + pages + ' 页';
+  if (hd) { const ch = lbChapters(); let t = ''; if (!ch.auto) { ch.forEach(c => { if (c.i <= first) t = c.t; }); } hd.textContent = t || b.it.title; }
 }
 function lbTurn(d) {
   const p = lb.pgI + d, b = lb.cur, pitch = lbPitch();
@@ -4234,7 +4262,7 @@ function lbRender(a, z) {
 }
 function lbPaint(scroll, force) {
   const b = lb.cur, body = document.getElementById('lbBody'); if (!b || !body) return;
-  const i = b.it.idx, pc = document.getElementById('lbPct'); if (pc) pc.textContent = lbPage() && lb.pgN ? '第 ' + (lb.pgI + 1) + ' / ' + lb.pgN + ' 页 · ' + lbPct(b.it) + '%' : lbPct(b.it) + '%';
+  const i = b.it.idx, pc = document.getElementById('lbPct'); if (pc) if (lbPage() && lb.pgN) lbFootUpdate(); else pc.textContent = lbPct(b.it) + '%';
   if (lb.browse && !force) return;                    // 你正在翻页看别的地方，不把你拉回朗读的位置
   if (lbPage() && !force && lb.winA >= 0 && i === lb.winB) { lbRenderPage(i, Math.min(b.n, i + 90), 'start'); lbPgSet(0, true, lbPitch()); return; }   // 读到这一段的末尾：翻到下一段的第一页
   if (lbPage() && !force && lb.winA >= 0 && i >= lb.winA && i < lb.winB) { body.querySelectorAll('.lbs.cur').forEach(e => e.classList.remove('cur')); const c = body.querySelector('.lbs[data-i="' + i + '"]'); if (c) c.classList.add('cur'); const pg = lbPgOf(i); if (pg >= 0 && pg !== lb.pgI) lbPgSet(pg, true); return; }
@@ -4278,8 +4306,8 @@ function lbGoto(i) { lbTocClose(); lbJump(i); }
 function lbBar() {
   const bar = document.getElementById('lbBar'), b = lb.cur; if (!bar || !b) return;
   bar.innerHTML = '<div class="note" style="text-align:center">第 ' + Math.min(b.it.idx + 1, b.n) + ' / ' + b.n + ' 句' + (lb.on && !lb.paused ? ' · 正在朗读' : lb.paused ? ' · 已暂停' : '') + '</div>' +
-    '<div class="row"><button class="ghost" aria-label="上一章" onclick="lbChap(-1)">⏮</button><button style="min-width:92px" onclick="lbToggle()">' + (lb.on && !lb.paused ? '⏸ 暂停' : '▶ 播放') + '</button><button class="ghost" aria-label="下一章" onclick="lbChap(1)">⏭</button></div>' +
-    '<div class="row"><button class="ghost sm" onclick="lbToc()">☰ 目录</button><button class="ghost sm" onclick="lbSpeed()">' + lbRate() + '×</button><button class="ghost sm" onclick="lbTimer()">' + (lb.timer ? '⏲ ' + lb.timer + ' 分钟' : '⏲ 定时') + '</button><button class="ghost sm" onclick="lbSheet()">⚙ 更多</button></div>';
+    '<div class="row"><button class="ghost" aria-label="上一章" onclick="lbChap(-1)">⏮</button><button class="pri" style="min-width:104px;height:52px;font-size:17px" onclick="lbToggle()">' + (lb.on && !lb.paused ? '⏸ 暂停' : '▶ 播放') + '</button><button class="ghost" aria-label="下一章" onclick="lbChap(1)">⏭</button></div>' +
+    '<div class="row"><button class="ghost sm" onclick="lbToc()">☰ 目录 · ' + lbPct(b.it) + '%</button><button class="ghost sm" onclick="lbSpeed()">' + lbRate() + '×</button><button class="ghost sm" onclick="lbTimer()">' + (lb.timer ? '⏲ ' + lb.timer + ' 分钟' : '⏲ 定时') + '</button><button class="ghost sm" onclick="lbSheet()">⚙ 更多</button></div>';
   if (document.getElementById('lbSheet')) lbSheet(true);
 }
 function lbSheet(re) {                               // 低频设置收进这里
@@ -4289,6 +4317,7 @@ function lbSheet(re) {                               // 低频设置收进这里
   const nat = lbNat();
   e.innerHTML = '<div class="in"><div class="note" style="text-align:center">阅读与朗读设置</div><div class="g">' +
     '<button class="ghost sm" onclick="lbFont(-1)">A− 字小一点</button><button class="ghost sm" onclick="lbFont(1)">A＋ 字大一点</button>' +
+    '<button class="ghost sm" onclick="lbFace()">' + (lbSans() ? '字体：黑体' : '字体：宋体') + '</button>' +
     '<button class="ghost sm" onclick="lbMode()">' + (lbPage() ? '📖 翻页模式' : '📜 滚动模式') + '</button>' +
     '<button class="ghost sm" onclick="lbVoiceNext()">🔊 声音：' + (nat ? lbNatVoice()[1].slice(0, 2) : '系统') + '</button>' +
     '<button class="ghost sm" onclick="lbEngine()">' + (nat ? '🎙 自然人声' : '🤖 系统声音') + '</button>' +
