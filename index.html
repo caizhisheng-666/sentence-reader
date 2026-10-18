@@ -282,7 +282,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.18-140';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.18-141';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -3959,8 +3959,8 @@ function lbMedia() {
     navigator.mediaSession.playbackState = lb.on && !lb.paused ? 'playing' : 'paused';
     navigator.mediaSession.setActionHandler('play', () => lbToggle());
     navigator.mediaSession.setActionHandler('pause', () => lbToggle());
-    navigator.mediaSession.setActionHandler('previoustrack', () => lbJump(lbCur().idx - 1));
-    navigator.mediaSession.setActionHandler('nexttrack', () => lbJump(lbCur().idx + 1));
+    navigator.mediaSession.setActionHandler('previoustrack', () => lbChap(-1));
+    navigator.mediaSession.setActionHandler('nexttrack', () => lbChap(1));
   } catch (e) {}
 }
 function lbVoices() { try { return (speechSynthesis.getVoices() || []).filter(v => /^zh/i.test(v.lang)); } catch (e) { return []; } }
@@ -4250,6 +4250,12 @@ function lbChapters() {
   if (ch.length < 2) { ch = []; const step = Math.max(50, Math.ceil(b.n / 30 / 10) * 10); for (let i = 0; i < b.n; i += step) { const t = lbPeek(i) || (b.en ? b.o.sentences[i] : '') || ''; ch.push({ i, t: '第 ' + (i + 1) + ' 句起 · ' + t.slice(0, 14) + (t.length > 14 ? '…' : '') }); } ch.auto = true; }
   return b.ch = ch;
 }
+function lbChap(d) {                                // 上一章 / 下一章（没有章节标题的书按目录里的分段）
+  const b = lb.cur; if (!b) return; const ch = lbChapters(), i = b.it.idx; let k = 0; ch.forEach((c, j) => { if (c.i <= i) k = j; });
+  let to; if (d > 0) to = ch[k + 1]; else to = (i - ch[k].i > 3 || k === 0) ? ch[k] : ch[k - 1];
+  if (d > 0 && !to) { toast('已经是最后一章了', 1500); return; }
+  lbJump(to ? to.i : 0);
+}
 function lbToc() {
   const b = lb.cur; if (!b) return; const ch = lbChapters(); let cur = 0; ch.forEach((c, k) => { if (c.i <= b.it.idx) cur = k; });
   const e = document.createElement('div'); e.className = 'lbtoc'; e.id = 'lbTocBox';
@@ -4262,7 +4268,7 @@ function lbBar() {
   const bar = document.getElementById('lbBar'), b = lb.cur; if (!bar || !b) return;
   const r = lbRate();
   bar.innerHTML = '<div class="note" style="text-align:center">第 ' + Math.min(b.it.idx + 1, b.n) + ' / ' + b.n + ' 句' + (lb.on && !lb.paused ? ' · 正在朗读' : lb.paused ? ' · 已暂停' : '') + '</div>' +
-    '<div class="row"><button class="ghost" aria-label="上一句" onclick="lbJump(lbCur().idx-1)">⏮</button><button style="min-width:92px" onclick="lbToggle()">' + (lb.on && !lb.paused ? '⏸ 暂停' : '▶ 播放') + '</button><button class="ghost" aria-label="下一句" onclick="lbJump(lbCur().idx+1)">⏭</button></div>' +
+    '<div class="row"><button class="ghost" aria-label="上一章" onclick="lbChap(-1)">⏮</button><button style="min-width:92px" onclick="lbToggle()">' + (lb.on && !lb.paused ? '⏸ 暂停' : '▶ 播放') + '</button><button class="ghost" aria-label="下一章" onclick="lbChap(1)">⏭</button></div>' +
     '<div class="row"><button class="ghost sm" onclick="lbSpeed()">' + r + '×</button><button class="ghost sm" onclick="lbTimer()">' + (lb.timer ? '⏲ ' + lb.timer + ' 分钟' : '⏲ 定时') + '</button><button class="ghost sm" onclick="lbFont(-1)">A−</button><button class="ghost sm" onclick="lbFont(1)">A＋</button><button class="ghost sm" onclick="lbVoiceNext()">🔊 ' + (lbNat() ? lbNatVoice()[1].slice(0, 2) : '声音') + '</button><button class="ghost sm" onclick="lbEngine()">' + (lbNat() ? '🎙 自然' : '🤖 系统') + '</button></div>' +
     '<div class="row"><button class="ghost sm" onclick="lbMode()">' + (lbPage() ? '📖 翻页' : '📜 滚动') + '</button>' + (lbNat() ? '<button class="ghost sm" onclick="lbPregen()">' + (lb.pg ? '⏹ 停止生成' : '📥 整本预生成') + '</button><button class="ghost sm" onclick="lbClearSaved()">🗑 清除已存</button>' : '') + '</div>' + (lb.pgTxt ? '<div class="note" style="text-align:center">' + lb.pgTxt + '</div>' : '') +
     '<div class="note" style="text-align:center;margin-top:6px;font-size:12px">点任意一句，从那里开始听。' + (lbNat() ? '自然人声会联网合成，听过的句子会存在这台设备上，再听不用联网、不再计费。' : '系统声音在锁屏后可能会停。') + '</div>';
