@@ -266,8 +266,9 @@ function arkChat(sentence) {
   return arkRequest({ model: ARK_MODEL, messages: [{ role: 'system', content: EXPLAIN_SYS }, { role: 'user', content: sentence }], temperature: 0.3, max_tokens: 700, thinking: { type: 'disabled' } });
 }
 function parseExplain(text) {                       // 模型偶尔会在 JSON 外面套 ```json，宽松地取出来，并把字段整理干净
-  const m = /\{[\s\S]*\}/.exec(String(text || '')); if (!m) return null;
-  let j; try { j = JSON.parse(m[0]); } catch (e) { return null; }
+  const raw = String(text || '').trim(), m = /\{[\s\S]*\}/.exec(raw);
+  let j = null; if (m) { try { j = JSON.parse(m[0]); } catch (e) {} }
+  if (!j) return null;
   const str = (x, n) => String(x == null ? '' : x).trim().slice(0, n);
   const zh = str(j.zh, 300); if (!zh) return null;
   const words = (Array.isArray(j.words) ? j.words : []).slice(0, 4).map(x => ({ w: str(x && x.w, 60), m: str(x && x.m, 120) })).filter(x => x.w && x.m);
@@ -290,13 +291,14 @@ const CHAT_SYS = '你是一位温柔、有耐心的英语口语老师，正在�
   '只输出一个 JSON 对象，不要任何别的文字：{"en":"你说的英语","zh":"上面英语的中文意思","fix":"","fixZh":""}。';
 function arkChatTurn(sentence, hist, msg) {
   const messages = [{ role: 'system', content: CHAT_SYS + '\n学生正在读的这一句：' + sentence }];
-  for (const h of hist) messages.push({ role: h.r === 'me' ? 'user' : 'assistant', content: h.t });
-  messages.push({ role: 'user', content: msg || '（学生刚打开对话，请你先用一个简单的英语问题开场）' });
+  for (const h of hist) messages.push({ role: h.r === 'me' ? 'user' : 'assistant', content: h.r === 'me' ? h.t : JSON.stringify({ en: h.t, zh: '', fix: '', fixZh: '' }) });   // 老师以前的话也包成 JSON，免得模型学着只回纯文字
+  messages.push({ role: 'user', content: (msg || '（学生刚打开对话，请你先用一个简单的英语问题开场）') + '\n（只输出 JSON 对象，格式同前。）' });
   return arkRequest({ model: ARK_MODEL, messages, temperature: 0.6, max_tokens: 500, thinking: { type: 'disabled' } });
 }
 function parseChat(text) {
-  const m = /\{[\s\S]*\}/.exec(String(text || '')); if (!m) return null;
-  let j; try { j = JSON.parse(m[0]); } catch (e) { return null; }
+  const raw = String(text || '').trim(), m = /\{[\s\S]*\}/.exec(raw);
+  let j = null; if (m) { try { j = JSON.parse(m[0]); } catch (e) {} }
+  if (!j) { const plain = raw.replace(/```[a-z]*|```/g, '').trim().slice(0, 400); return /[A-Za-z]/.test(plain) && !/^[{\[]/.test(plain) ? { en: plain, zh: '', fix: '', fixZh: '' } : null; }   // 模型偶尔不按 JSON 回：把纯文字当作老师的话
   const str = (x, n) => String(x == null ? '' : x).trim().slice(0, n);
   const en = str(j.en, 400); if (!en) return null;
   return { en, zh: str(j.zh, 300), fix: str(j.fix, 300), fixZh: str(j.fixZh, 300) };
