@@ -233,6 +233,23 @@ function pronAzure(wav, ref) {
     q.on('timeout', () => q.destroy(new Error('timeout'))); q.on('error', e => ok({ s: 0, b: String(e && e.message) })); q.end(wav);
   });
 }
+/* ---------- 中文听书的自然人声：Azure 神经网络语音合成。只有开发者令牌能调；同一句只合成一次，存在磁盘上；每天有字数上限 ---------- */
+const TTS_HOST = process.env.AZURE_TTS_HOST || '', TTS_DAILY_CHARS = +process.env.TTS_DAILY_CHARS || 200000;
+const TTS_DIR = path.join(SHOP_DIR, 'tts'), TTS_USE = path.join(SHOP_DIR, 'tts-usage.json');
+const TTS_VOICES = ['zh-CN-XiaoxiaoNeural', 'zh-CN-XiaoyiNeural', 'zh-CN-YunxiNeural', 'zh-CN-YunyangNeural', 'zh-CN-YunjianNeural'];
+let ttsUse = { d: '', n: 0 }; try { ttsUse = JSON.parse(fs.readFileSync(TTS_USE, 'utf8')); } catch (e) {}
+function ttsAzure(text, voice) {
+  const ssml = '<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="zh-CN"><voice name="' + voice + '">' + text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</voice></speak>';
+  const tu = /^http:\/\//.test(TTS_HOST) ? new URL(TTS_HOST) : null, host = tu ? tu.hostname : (TTS_HOST || AZ_REGION + '.tts.speech.microsoft.com');
+  const body = Buffer.from(ssml, 'utf8');
+  return new Promise(ok => {
+    const q = (tu ? http : https).request({ host, port: tu ? tu.port : 443, path: '/cognitiveservices/v1', method: 'POST', timeout: 15000,
+      headers: { 'Ocp-Apim-Subscription-Key': AZ_KEY, 'Content-Type': 'application/ssml+xml', 'X-Microsoft-OutputFormat': 'audio-24khz-48kbitrate-mono-mp3', 'User-Agent': 'sentence-reader', 'Content-Length': body.length } }, r => {
+      const ch = []; r.on('data', c => ch.push(c)); r.on('end', () => ok({ s: r.statusCode, b: Buffer.concat(ch) }));
+    });
+    q.on('timeout', () => q.destroy(new Error('timeout'))); q.on('error', e => ok({ s: 0, b: Buffer.from(String(e && e.message)) })); q.end(body);
+  });
+}
 /* ---------- AI 讲解：把一句英文交给豆包（火山方舟）讲清楚意思、难点词、语法。同一句只讲一次，结果存在服务器上，以后谁点都直接取 ---------- */
 const ARK_KEY = process.env.ARK_API_KEY || '', ARK_MODEL = process.env.ARK_MODEL || 'doubao-seed-2-1-lite-260915', ARK_HOST = process.env.ARK_HOST || 'https://ark.cn-beijing.volces.com';
 const EXPLAIN_DAILY_MAX = +process.env.EXPLAIN_DAILY_MAX || 300, EXPLAIN_PER_IP_HOUR = +process.env.EXPLAIN_PER_IP_HOUR || 30;
@@ -528,6 +545,20 @@ async function shopRoutes(req, res) {
     if (req.method === 'GET' && m) {                   // 这本书服务器上已经有哪些句子的语音（补语音时只做缺的）
       const have = new Set(); for (const base of [SHOP_FILES, SHOP_PRIV]) { try { for (const f of fs.readdirSync(path.join(base, m[1]))) { const h = /^([0-9a-f]{16,64})\.mp3$/.exec(f); if (h) have.add(h[1]); } } catch (e) {} }
       return out(200, { have: [...have] });
+    }
+    if (req.method === 'POST' && url === '/admin/tts') {            // 中文自然人声：{text, voice} → mp3
+      if (!AZ_KEY || (!AZ_REGION && !TTS_HOST)) return out(503, { error: 'not-configured' });
+      const b = JSON.parse(await readBody(req, 5000)), text = String(b.text || '').trim().slice(0, 300), voice = TTS_VOICES.includes(b.voice) ? b.voice : TTS_VOICES[0];
+      if (!text) return out(400, { error: 'empty' });
+      const key = crypto.createHash('sha1').update(voice + '|' + text).digest('hex'), f = path.join(TTS_DIR, key.slice(0, 2), key + '.mp3');
+      const send = buf => { const h2 = { 'Content-Type': 'audio/mpeg', 'Content-Length': buf.length, 'Cache-Control': 'private, max-age=86400' }; if (okO) { h2['Access-Control-Allow-Origin'] = okO; h2.Vary = 'Origin'; } res.writeHead(200, h2); res.end(buf); return true; };
+      try { return send(fs.readFileSync(f)); } catch (e) {}
+      const d = new Date().toISOString().slice(0, 10); if (ttsUse.d !== d) ttsUse = { d, n: 0 };
+      if (ttsUse.n + text.length > TTS_DAILY_CHARS) return out(429, { error: 'daily-limit' });
+      const r = await ttsAzure(text, voice);
+      if (r.s !== 200 || r.b.length < 100) return out(502, { error: 'azure-failed', status: r.s });
+      ttsUse.n += text.length; try { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, r.b); fs.writeFileSync(TTS_USE, JSON.stringify(ttsUse)); } catch (e) {}
+      return send(r.b);
     }
     if (req.method === 'POST' && url === '/admin/codes') {          // 给某本收费故事批量生成兑换码
       const b = JSON.parse(await readBody(req, 2000)), n = Math.max(1, Math.min(200, Math.round(+b.n || 1)));
