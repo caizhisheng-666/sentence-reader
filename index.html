@@ -301,7 +301,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.18-147';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.19-148';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -3915,7 +3915,12 @@ const lbSans = () => localStorage.getItem('sr_lb_ff') !== 'serif';
 function lbRate() { const r = parseFloat(localStorage.getItem('sr_zl_rate')); return r === 1.25 || r === 1.5 ? r : 1; }
 /* ---- 自然人声（Azure 神经网络语音，经服务器合成成 mp3；只有开发者能用）---- */
 const LB_NAT = [['zh-CN-XiaoxiaoNeural', '晓晓（女·温柔）'], ['zh-CN-YunxiNeural', '云希（男·温和）'], ['zh-CN-XiaoyiNeural', '晓伊（女·清亮）'], ['zh-CN-YunyangNeural', '云扬（男·沉稳）']];
-const LB_SIL = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
+function lbSilUrl() {                                // 1 秒静音，两句之间循环播放，让 iPhone 锁屏后仍认为“正在播放”，不把页面挂起
+  if (lb.silUrl) return lb.silUrl; const n = 8000, b = new ArrayBuffer(44 + n), v = new DataView(b), w = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, 'data'); v.setUint32(40, n, true);
+  new Uint8Array(b, 44).fill(128); return lb.silUrl = URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
+}
+function lbFiller() { try { const a = lbAud(); a.loop = true; a.src = lbSilUrl(); a.playbackRate = 1; const p = a.play(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
 function lbNat() { return azReady() && localStorage.getItem('sr_zl_eng') !== 'sys' && !lb.natOff; }
 function lbNatVoice() { const v = localStorage.getItem('sr_zl_nv'); return LB_NAT.find(x => x[0] === v) || LB_NAT[0]; }
 function lbAud() { if (!lb.aud) { lb.aud = new Audio(); lb.aud.preload = 'auto'; lb.aud.setAttribute('playsinline', ''); } return lb.aud; }
@@ -3966,8 +3971,8 @@ function lbNatPre(from) { if (!lbNat() || !lb.cur) return; for (let i = from; i 
 function lbPlayUrl(url, tok) {
   return new Promise(res => {
     const a = lbAud(); let done = false; const fin = () => { if (!done) { done = true; lb.audRes = null; a.onended = a.onerror = null; res(); } };
-    lb.audRes = fin; a.onended = fin; a.onerror = () => { lb.fails = 99; fin(); };
-    a.src = url; a.playbackRate = lbRate(); a.defaultPlaybackRate = lbRate();
+    lb.audRes = fin; a.onended = () => { if (lb.on && !lb.paused) lbFiller(); fin(); }; a.onerror = () => { lb.fails = 99; fin(); };
+    a.loop = false; a.src = url; a.playbackRate = lbRate(); a.defaultPlaybackRate = lbRate();
     const p = a.play(); if (p && p.catch) p.catch(() => { if (tok === lb.tok) { lb.fails = 99; } fin(); });
   });
 }
@@ -4085,11 +4090,11 @@ async function lbLoop() {
     if (lb.fails === 99) { lbStop(); toast('没能播放声音：这台设备的系统朗读好像不可用，请检查是否静音、音量是否调低。', 6000); return; }
     if (lb.end && Date.now() > lb.end) { b.it.idx++; lbSaveProg(); lbStop(); toast('定时时间到，已停止。晚安 🌙', 5000); return; }
     b.it.idx++; if (b.it.idx % 5 === 0) lbSaveProg();
-    await lbSleep(150);
+    await lbSleep(lbNat() ? 0 : 150);
   }
 }
 function lbSaveProg() { const b = lb.cur; if (!b) return; b.it.at = Date.now(); lbSaveList(); }
-function lbPlay() { if (!lb.cur) return; if (lb.cur.it.idx >= lb.cur.n) lb.cur.it.idx = 0; stopSpeech(); lb.on = true; lb.paused = false; lb.fails = 0; lb.natFails = 0; setTimeout(() => { if (lb.on && lb.ui) lbUi(false); }, 1500); if (lb.browse) { lb.browse = false; lbPaint(true, true); } if (lbNat()) { try { const a = lbAud(); a.src = LB_SIL; a.play().catch(() => {}); } catch (e) {} } lbMedia(); if (lb.timer && !lb.end) lb.end = Date.now() + lb.timer * 60000; lbBar(); lbLoop(); }
+function lbPlay() { if (!lb.cur) return; if (lb.cur.it.idx >= lb.cur.n) lb.cur.it.idx = 0; stopSpeech(); lb.on = true; lb.paused = false; lb.fails = 0; lb.natFails = 0; setTimeout(() => { if (lb.on && lb.ui) lbUi(false); }, 1500); if (lb.browse) { lb.browse = false; lbPaint(true, true); } if (lbNat()) { try { lbFiller(); } catch (e) {} } lbMedia(); if (lb.timer && !lb.end) lb.end = Date.now() + lb.timer * 60000; lbBar(); lbLoop(); }
 function lbStop() {
   const was = lb.on; lb.on = false; lb.paused = false; lb.tok++; lb.end = 0;
   lbHalt(); try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'none'; } catch (e) {}
