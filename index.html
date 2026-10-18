@@ -270,7 +270,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.18-137';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.18-138';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -3878,18 +3878,45 @@ function lbChunks(t) {                               // 服务器一次最多 30
   t = String(t).replace(/\s+/g, ' ').trim(); if (t.length <= 260) return t ? [t] : [];
   const out = []; let cur = ''; for (const p of t.split(/(?<=[。！？!?；;，,、])/)) { if ((cur + p).length > 260 && cur) { out.push(cur); cur = ''; } cur += p; while (cur.length > 280) { out.push(cur.slice(0, 280)); cur = cur.slice(280); } } if (cur) out.push(cur); return out;
 }
-function lbMp3(text) {                               // 返回 Promise<blobURL>；同一句不重复请求
-  const v = lbNatVoice()[0], k = v + '|' + text; lb.mp3 = lb.mp3 || new Map();
+const lbKey = text => 'zl:' + lbNatVoice()[0] + '|' + text;
+async function lbFetchBlob(text) {                   // 向服务器要一句的 mp3；成功后存进这台设备，以后不再联网、不再花额度
+  const r = await devAdmin('/admin/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice: lbNatVoice()[0] }) });
+  if (!r.ok) { const e = new Error(r.msg || 'tts'); e.code = /429/.test(r.msg || '') ? 'limit' : 'fail'; throw e; }
+  const bl = await r.res.blob(); if (!bl.size) throw new Error('empty');
+  try { await idbPut('tts', bl, lbKey(text)); } catch (e) {}
+  return bl;
+}
+const lbHas = text => idbRun('tts', 'readonly', (t, res, rej) => { const q = t.objectStore('tts').count(lbKey(text)); q.onsuccess = () => res(q.result > 0); q.onerror = () => rej(q.error); }).catch(() => false);
+function lbMp3(text) {                               // 返回 Promise<blobURL>；先看设备里存过没有，再问服务器
+  const k = lbKey(text); lb.mp3 = lb.mp3 || new Map();
   if (lb.mp3.has(k)) return lb.mp3.get(k);
   const pr = (async () => {
-    const r = await devAdmin('/admin/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice: v }) });
-    if (!r.ok) { const e = new Error(r.msg || 'tts'); e.code = /429/.test(r.msg || '') ? 'limit' : 'fail'; throw e; }
-    const bl = await r.res.blob(); if (!bl.size) throw new Error('empty'); return URL.createObjectURL(bl);
+    try { const bl = await idbGet('tts', k); if (bl && bl.size) return URL.createObjectURL(bl); } catch (e) {}
+    return URL.createObjectURL(await lbFetchBlob(text));
   })();
   lb.mp3.set(k, pr); pr.catch(() => lb.mp3.delete(k));
   while (lb.mp3.size > 24) { const f = lb.mp3.keys().next().value; const old = lb.mp3.get(f); lb.mp3.delete(f); old.then(u => URL.revokeObjectURL(u), () => {}); }
   return pr;
 }
+/* 整本预生成：一次把这本书的语音全部存到设备里，之后随时离线听。已经存过的句子自动跳过。 */
+async function lbPregen() {
+  if (lb.pg) { lb.pg.stop = true; return; }
+  const b = lb.cur; if (!b) return;
+  if (!lbNat()) { toast('先切到“自然”声音，再预生成', 2500); return; }
+  const idx = [], texts = []; for (let i = 0; i < b.n; i++) { const t = lbPeek(i); if (t) { idx.push(i); texts.push(...lbChunks(t)); } }
+  if (!texts.length) { toast('这本书还没有可朗读的中文', 2500); return; }
+  const need = []; for (const t of texts) if (!(await lbHas(t))) need.push(t);
+  const chars = need.reduce((a, t) => a + t.length, 0);
+  if (!need.length) { toast('这本书的语音已经全部存在设备里了', 2500); return; }
+  if (!confirm('要提前生成 ' + need.length + ' 段语音（约 ' + chars + ' 字，用的是你自己的 Azure 额度）。\n生成后存在这台设备上，以后随时离线听。\n' + (b.en ? '（英文书只生成已经翻译好的句子。）\n' : '') + '中途可以再点一次按钮停止。继续吗？')) return;
+  const st = lb.pg = { stop: false, done: 0, total: need.length, err: '' }; let q = 0;
+  const show = () => { lb.pgTxt = st.stop ? '' : '正在生成 ' + st.done + ' / ' + st.total; lbBar(); };
+  const worker = async () => { while (!st.stop && q < need.length) { const t = need[q++]; try { await lbFetchBlob(t); st.done++; } catch (e) { st.err = e.code === 'limit' ? '今天的额度用完了' : '网络或服务器出错'; st.stop = true; } if (st.done % 5 === 0) show(); } };
+  show(); await Promise.all([worker(), worker()]);
+  lb.pg = null; lb.pgTxt = ''; lbBar();
+  toast(st.err ? ('已停止：' + st.err + '，已存 ' + st.done + ' 段，明天再点可继续') : (st.done >= st.total ? '全部生成完了 🎉 以后可以离线听' : '已停止，已存 ' + st.done + ' 段'), 5000);
+}
+async function lbClearSaved() { if (!confirm('清除这台设备上存的所有自然人声语音？（要听时会重新从服务器取，已经生成过的不再花额度）')) return; try { await idbDelPrefix('tts', 'zl:'); } catch (e) {} lb.mp3 = new Map(); toast('已清除', 1800); }
 function lbNatPre(from) { if (!lbNat() || !lb.cur) return; for (let i = from; i < from + 3 && i < lb.cur.n; i++) { const t = lbPeek(i); if (t) lbChunks(t).forEach(c => lbMp3(c).catch(() => {})); } }
 function lbPlayUrl(url, tok) {
   return new Promise(res => {
@@ -4126,7 +4153,8 @@ function lbBar() {
   bar.innerHTML = '<div class="note" style="text-align:center">第 ' + Math.min(b.it.idx + 1, b.n) + ' / ' + b.n + ' 句' + (lb.on && !lb.paused ? ' · 正在朗读' : lb.paused ? ' · 已暂停' : '') + '</div>' +
     '<div class="row"><button class="ghost" aria-label="上一句" onclick="lbJump(lbCur().idx-1)">⏮</button><button style="min-width:92px" onclick="lbToggle()">' + (lb.on && !lb.paused ? '⏸ 暂停' : '▶ 播放') + '</button><button class="ghost" aria-label="下一句" onclick="lbJump(lbCur().idx+1)">⏭</button></div>' +
     '<div class="row"><button class="ghost sm" onclick="lbSpeed()">' + r + '×</button><button class="ghost sm" onclick="lbTimer()">' + (lb.timer ? '⏲ ' + lb.timer + ' 分钟' : '⏲ 定时') + '</button><button class="ghost sm" onclick="lbFont(-1)">A−</button><button class="ghost sm" onclick="lbFont(1)">A＋</button><button class="ghost sm" onclick="lbVoiceNext()">🔊 ' + (lbNat() ? lbNatVoice()[1].slice(0, 2) : '声音') + '</button><button class="ghost sm" onclick="lbEngine()">' + (lbNat() ? '🎙 自然' : '🤖 系统') + '</button></div>' +
-    '<div class="note" style="text-align:center;margin-top:6px;font-size:12px">点任意一句，从那里开始听。' + (lbNat() ? '自然人声会联网合成，听过的句子不再重复计费。' : '系统声音在锁屏后可能会停。') + '</div>';
+    (lbNat() ? '<div class="row"><button class="ghost sm" onclick="lbPregen()">' + (lb.pg ? '⏹ 停止生成' : '📥 整本预生成') + '</button><button class="ghost sm" onclick="lbClearSaved()">🗑 清除已存</button></div>' + (lb.pgTxt ? '<div class="note" style="text-align:center">' + lb.pgTxt + '</div>' : '') : '') +
+    '<div class="note" style="text-align:center;margin-top:6px;font-size:12px">点任意一句，从那里开始听。' + (lbNat() ? '自然人声会联网合成，听过的句子会存在这台设备上，再听不用联网、不再计费。' : '系统声音在锁屏后可能会停。') + '</div>';
 }
 function lbCur() { return lb.cur.it; }
 /* ---------- 界面 ---------- */
