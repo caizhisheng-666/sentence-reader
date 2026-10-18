@@ -301,7 +301,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.18-146';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.18-147';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1865,6 +1865,7 @@ async function admTokSave(t) {
   try { const iv = crypto.getRandomValues(new Uint8Array(12)); const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, azCryptoKey, new TextEncoder().encode(t))); localStorage.setItem('sr_adm_enc', JSON.stringify({ i: u8b64(iv), c: u8b64(ct) })); } catch (e) {}
 }
 async function devAdmin(path, opt) {
+  opt = opt || {};                                     // 调用时可以不传选项（比如访问统计），不能因此报错
   if (!(await admTokLoad())) { const t = (prompt('第一次上架：输入学习材料后台口令（服务器上设置的 ADMIN_TOKEN）。输入一次后，会用你的开发者口令加密保存在这台设备里，以后不用再输。') || '').trim(); if (t) await admTokSave(t); }
   if (!adminTok) return { ok: false, msg: '没有输入后台口令' };
   try {
