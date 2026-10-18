@@ -253,6 +253,11 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 .lbbar .row{justify-content:center;gap:8px;margin-top:8px}
 .lbitem{padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:var(--card);margin-bottom:10px;display:flex;gap:10px;align-items:center}
 .lbitem .t{flex:1;min-width:0}.lbitem .t b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lbpgr{text-align:center;margin:4px 0 14px}.lbpgr button{font-size:14px}
+.lbtoc{position:absolute;inset:0;z-index:5;background:var(--bg);display:flex;flex-direction:column}
+.lbtoc .lbtl{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:8px 14px 24px}
+.lbtoc .it{padding:13px 8px;border-bottom:1px solid var(--line);display:flex;gap:10px;font-size:16px;cursor:pointer}
+.lbtoc .it span{flex:1;min-width:0}.lbtoc .it small{color:var(--sub);flex:none}.lbtoc .it.on{color:var(--accent);font-weight:600}
 .lbh{margin:18px 0 8px;font-weight:600;color:var(--sub);font-size:13px}
 </style>
 </head>
@@ -270,7 +275,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.18-138';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.18-139';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -4044,7 +4049,7 @@ async function lbLoop() {
   }
 }
 function lbSaveProg() { const b = lb.cur; if (!b) return; b.it.at = Date.now(); lbSaveList(); }
-function lbPlay() { if (!lb.cur) return; if (lb.cur.it.idx >= lb.cur.n) lb.cur.it.idx = 0; stopSpeech(); lb.on = true; lb.paused = false; lb.fails = 0; lb.natFails = 0; if (lbNat()) { try { const a = lbAud(); a.src = LB_SIL; a.play().catch(() => {}); } catch (e) {} } lbMedia(); if (lb.timer && !lb.end) lb.end = Date.now() + lb.timer * 60000; lbBar(); lbLoop(); }
+function lbPlay() { if (!lb.cur) return; if (lb.cur.it.idx >= lb.cur.n) lb.cur.it.idx = 0; stopSpeech(); lb.on = true; lb.paused = false; lb.fails = 0; lb.natFails = 0; if (lb.browse) { lb.browse = false; lbPaint(true, true); } if (lbNat()) { try { const a = lbAud(); a.src = LB_SIL; a.play().catch(() => {}); } catch (e) {} } lbMedia(); if (lb.timer && !lb.end) lb.end = Date.now() + lb.timer * 60000; lbBar(); lbLoop(); }
 function lbStop() {
   const was = lb.on; lb.on = false; lb.paused = false; lb.tok++; lb.end = 0;
   lbHalt(); try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'none'; } catch (e) {}
@@ -4053,7 +4058,7 @@ function lbStop() {
 }
 function lbToggle() { if (!lb.on) { lbPlay(); return; } if (lb.paused) { lb.paused = false; lbBar(); lbMedia(); lbLoop(); } else { lb.paused = true; lb.tok++; lbHalt(); lbBar(); } }
 function lbJump(i) {
-  const b = lb.cur; if (!b) return; b.it.idx = Math.max(0, Math.min(b.n - 1, i)); lbPaint(true); lbBar();
+  const b = lb.cur; if (!b) return; lb.browse = false; b.it.idx = Math.max(0, Math.min(b.n - 1, i)); lbPaint(true); lbBar();
   if (lb.on && !lb.paused) { lb.tok++; lbHalt(); lbLoop(); } else lbSaveProg();
 }
 function lbRestart() { if (lb.on && !lb.paused) { lb.tok++; lbHalt(); lbLoop(); } }
@@ -4128,25 +4133,57 @@ async function lbOpenEn(bookId) {                    // 书架上的英文书：
 async function lbOpenItem(id) {
   const it = lb.list.find(x => x.id === id); if (!it) return;
   try { lb.cur = await lbOpenBookObj(it); } catch (e) { alert(e.message); return; }
-  it.n = lb.cur.n; if (it.idx >= it.n) it.idx = 0; lb.screen = 'read'; lb.winA = lb.winB = -1; lb.fails = 0;
-  lbShow('<div class="lbtop"><button class="iconbtn" onclick="lbBack()" style="font-size:15px">‹ 书单</button><b>' + esc(it.title) + '</b><span class="note" id="lbPct"></span></div><div class="lbbody" id="lbBody"></div><div class="lbbar" id="lbBar"></div>');
+  it.n = lb.cur.n; if (it.idx >= it.n) it.idx = 0; lb.screen = 'read'; lb.winA = lb.winB = -1; lb.fails = 0; lb.browse = false;
+  lbShow('<div class="lbtop"><button class="iconbtn" onclick="lbBack()" style="font-size:15px">‹ 书单</button><b>' + esc(it.title) + '</b><button class="iconbtn" onclick="lbToc()" style="font-size:15px">☰ 目录</button><span class="note" id="lbPct"></span></div><div class="lbbody" id="lbBody"></div><div class="lbbar" id="lbBar"></div>');
   lbPaint(false, true); lbBar();
   if (it.kind === 'en') lbPrefetch(it.idx);
 }
 function lbSentHtml(i) { const b = lb.cur, t = lbPeek(i); return '<span class="lbs' + (t ? '' : ' wait') + (i === b.it.idx ? ' cur' : '') + '" data-i="' + i + '" onclick="lbJump(' + i + ')">' + (t ? esc(t) : '……') + '</span>'; }
+function lbRender(a, z) {
+  const b = lb.cur, body = document.getElementById('lbBody'); lb.winA = a; lb.winB = z;
+  let h = lb.browse ? '<div class="lbpgr"><button class="ghost sm" onclick="lbHome()">📍 回到正在读的位置</button></div>' : '';
+  h += a > 0 ? '<div class="lbpgr"><button class="ghost sm" onclick="lbView(-1)">‹ 往前翻一页</button></div>' : '';
+  h += '<div class="lbtxt" style="font-size:' + lbFs() + 'px">';
+  if (b.en) { let buf = ''; for (let k = a; k < z; k++) { buf += lbSentHtml(k); if ((k + 1) % 6 === 0) { h += '<p class="lbp">' + buf + '</p>'; buf = ''; } } if (buf) h += '<p class="lbp">' + buf + '</p>'; }
+  else { const ps = b.p; let pi = 0; while (pi + 1 < ps.length && ps[pi + 1] <= a) pi++; for (; pi < ps.length && ps[pi] < z; pi++) { const s0 = Math.max(ps[pi], a), s1 = Math.min(pi + 1 < ps.length ? ps[pi + 1] : b.n, z); let buf = ''; for (let k = s0; k < s1; k++) buf += lbSentHtml(k); h += '<p class="lbp">' + buf + '</p>'; } }
+  h += '</div>' + (z < b.n ? '<div class="lbpgr"><button class="ghost sm" onclick="lbView(1)">往后翻一页 ›</button></div>' : '');
+  body.innerHTML = h;
+}
 function lbPaint(scroll, force) {
   const b = lb.cur, body = document.getElementById('lbBody'); if (!b || !body) return;
-  const i = b.it.idx;
+  const i = b.it.idx, pc = document.getElementById('lbPct'); if (pc) pc.textContent = lbPct(b.it) + '%';
+  if (lb.browse && !force) return;                    // 你正在翻页看别的地方，不把你拉回朗读的位置
   if (force || i < lb.winA + 8 || i > lb.winB - 12 || lb.winA < 0) {            // 只画当前句前后一段，书再长页面也不卡
-    const a = Math.max(0, i - 30), z = Math.min(b.n, i + 70); lb.winA = a; lb.winB = z;
-    let h = '<div class="lbtxt" style="font-size:' + lbFs() + 'px">';
-    if (b.en) { let buf = ''; for (let k = a; k < z; k++) { buf += lbSentHtml(k); if ((k + 1) % 6 === 0) { h += '<p class="lbp">' + buf + '</p>'; buf = ''; } } if (buf) h += '<p class="lbp">' + buf + '</p>'; }
-    else { const ps = b.p; let pi = 0; while (pi + 1 < ps.length && ps[pi + 1] <= a) pi++; for (; pi < ps.length && ps[pi] < z; pi++) { const s0 = Math.max(ps[pi], a), s1 = Math.min(pi + 1 < ps.length ? ps[pi + 1] : b.n, z); let buf = ''; for (let k = s0; k < s1; k++) buf += lbSentHtml(k); h += '<p class="lbp">' + buf + '</p>'; } }
-    body.innerHTML = h + '</div>'; scroll = true;
+    lbRender(Math.max(0, i - 30), Math.min(b.n, i + 70)); scroll = true;
   } else { body.querySelectorAll('.lbs.cur').forEach(e => e.classList.remove('cur')); const c = body.querySelector('.lbs[data-i="' + i + '"]'); if (c) c.classList.add('cur'); }
-  const pc = document.getElementById('lbPct'); if (pc) pc.textContent = lbPct(b.it) + '%';
   if (scroll) { const c = body.querySelector('.lbs.cur'); if (c) c.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
 }
+function lbView(dir) {                               // 翻页：只换你看的地方，不影响正在读的位置
+  const b = lb.cur, body = document.getElementById('lbBody'); if (!b || !body) return;
+  const a = dir > 0 ? Math.min(lb.winB, Math.max(0, b.n - 1)) : Math.max(0, lb.winA - 80), z = Math.min(b.n, a + 80);
+  lb.browse = true; lbRender(a, z); body.scrollTop = dir > 0 ? 0 : body.scrollHeight;
+}
+function lbHome() { lb.browse = false; lbPaint(true, true); }
+/* ---- 目录 ---- */
+function lbChapters() {
+  const b = lb.cur; if (b.ch) return b.ch;
+  const re = /^(第\s*[0-9零〇一二三四五六七八九十百千两]+\s*[章节回卷部篇集幕]|[序前后]言|后记|尾声|楔子|引子|番外|序章|终章|chapter\s*[0-9ivxlc]+|part\s*[0-9ivxlc]+|prologue|epilogue)/i; let ch = []; const pst = new Set(b.en ? [] : b.p);
+  for (let i = 0; i < b.n; i++) {
+    const t = (b.en ? b.o.sentences[i] : b.s[i]) || ''; if (t.length > 40 || !re.test(t.trim())) continue;
+    if (!b.en && !(pst.has(i) && pst.has(i + 1) || i === b.n - 1 && pst.has(i))) continue;       // 标题单独成段
+    const z = b.en ? lbPeek(i) : ''; ch.push({ i, t: t.trim() + (z && z !== t ? ' · ' + z : '') });
+  }
+  if (ch.length < 2) { ch = []; const step = Math.max(50, Math.ceil(b.n / 30 / 10) * 10); for (let i = 0; i < b.n; i += step) { const t = lbPeek(i) || (b.en ? b.o.sentences[i] : '') || ''; ch.push({ i, t: '第 ' + (i + 1) + ' 句起 · ' + t.slice(0, 14) + (t.length > 14 ? '…' : '') }); } ch.auto = true; }
+  return b.ch = ch;
+}
+function lbToc() {
+  const b = lb.cur; if (!b) return; const ch = lbChapters(); let cur = 0; ch.forEach((c, k) => { if (c.i <= b.it.idx) cur = k; });
+  const e = document.createElement('div'); e.className = 'lbtoc'; e.id = 'lbTocBox';
+  e.innerHTML = '<div class="lbtop"><button class="iconbtn" onclick="lbTocClose()" style="font-size:15px">‹ 返回</button><b>目录 · ' + (ch.auto ? '没找到章节标题，按位置分段' : ch.length + ' 章') + '</b></div><div class="lbtl">' + ch.map((c, k) => '<div class="it' + (k === cur ? ' on' : '') + '" onclick="lbGoto(' + c.i + ')"><span>' + esc(c.t) + '</span><small>' + Math.round(c.i / b.n * 100) + '%</small></div>').join('') + '</div>';
+  lbEl().appendChild(e); const on = e.querySelector('.it.on'); if (on) on.scrollIntoView({ block: 'center' });
+}
+function lbTocClose() { const e = document.getElementById('lbTocBox'); if (e) e.remove(); }
+function lbGoto(i) { lbTocClose(); lbJump(i); }
 function lbBar() {
   const bar = document.getElementById('lbBar'), b = lb.cur; if (!bar || !b) return;
   const r = lbRate();
