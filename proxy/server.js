@@ -303,6 +303,43 @@ function parseChat(text) {
   const en = str(j.en, 400); if (!en) return null;
   return { en, zh: str(j.zh, 300), fix: str(j.fix, 300), fixZh: str(j.fixZh, 300) };
 }
+/* ---------- 访问统计：每台设备一个匿名随机编号，按北京时间的“天”记录。不收集姓名、账号、完整 IP ---------- */
+const VISITS_FILE = path.join(SHOP_DIR, 'visits.json'), VISIT_KEEP_DAYS = 180;
+let visits = {}, visitsDirty = false;
+try { visits = JSON.parse(fs.readFileSync(VISITS_FILE, 'utf8')) || {}; } catch (e) {}
+function flushVisits() { if (!visitsDirty) return; visitsDirty = false; try { fs.mkdirSync(SHOP_DIR, { recursive: true }); const t = VISITS_FILE + '.tmp'; fs.writeFileSync(t, JSON.stringify(visits)); fs.renameSync(t, VISITS_FILE); } catch (e) {} }
+setInterval(flushVisits, 30000).unref(); process.on('SIGTERM', () => { flushVisits(); process.exit(0); });
+const bjDay = ts => new Date(ts + 8 * 3600000).toISOString().slice(0, 10);
+function uaInfo(ua) {
+  ua = String(ua || '');
+  const dv = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /Macintosh/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : '其他';
+  const br = /MicroMessenger/.test(ua) ? '微信' : /Edg\//.test(ua) ? 'Edge' : /(CriOS|Chrome)\//.test(ua) ? 'Chrome' : /(Safari)\//.test(ua) ? 'Safari' : '其他';
+  return { dv, br };
+}
+function ipMask(ip) {                                  // 只留网段，不留完整 IP：1.2.3.4 → 1.2.3.*
+  ip = String(ip || '').replace(/^::ffff:/, '');
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(ip)) return ip.split('.').slice(0, 3).join('.') + '.*';
+  return ip.split(':').slice(0, 3).join(':') + ':*';
+}
+const hitLog = new Map();
+function hitLimited(ip) {
+  const now = Date.now(), arr = (hitLog.get(ip) || []).filter(t => now - t < 3600000); arr.push(now); hitLog.set(ip, arr);
+  if (hitLog.size > 5000) for (const [k, v] of hitLog) if (now - v[v.length - 1] > 3600000) hitLog.delete(k);
+  return arr.length > 120;
+}
+function recordHit(d, ip, ua, v, pwa) {
+  const now = Date.now(), day = bjDay(now), t = visits[day] || (visits[day] = {});
+  const { dv, br } = uaInfo(ua), r = t[d];
+  if (r) { r.l = now; r.n++; r.v = v; r.ip = ipMask(ip); r.pwa = pwa ? 1 : 0; }
+  else if (Object.keys(t).length < 50000) t[d] = { f: now, l: now, n: 1, dv, br, ip: ipMask(ip), v, pwa: pwa ? 1 : 0 };
+  const keys = Object.keys(visits).sort(); while (keys.length > VISIT_KEEP_DAYS) delete visits[keys.shift()];
+  visitsDirty = true;
+}
+function visitsSummary(days) {
+  const keys = Object.keys(visits).sort(), first = new Map();
+  for (const k of keys) for (const d of Object.keys(visits[k])) if (!first.has(d)) first.set(d, k);
+  return keys.slice(-days).reverse().map(k => { const ds = Object.keys(visits[k]); return { date: k, devices: ds.length, hits: ds.reduce((a, d) => a + visits[k][d].n, 0), newDevices: ds.filter(d => first.get(d) === k).length }; }).concat([{ total: first.size }]);
+}
 const GRAMMAR_URL = process.env.GRAMMAR_URL || 'http://127.0.0.1:8791', gramCache = new Map(), gramLog = new Map();
 function gramLimited(ip) {                        // 同一个网络 1 小时最多分析 600 句
   const now = Date.now(), arr = (gramLog.get(ip) || []).filter(t => now - t < 3600000); arr.push(now); gramLog.set(ip, arr);
@@ -376,6 +413,17 @@ async function shopRoutes(req, res) {
     const words = (nb.Words || []).map(w => { const wp = Object.assign({}, w, w.PronunciationAssessment || {}); return { w: w.Word, s: Math.round(wp.AccuracyScore || 0), e: wp.ErrorType || 'None' }; });
     if (pa.PronScore == null && pa.AccuracyScore != null) pa.PronScore = (pa.AccuracyScore || 0) * 0.6 + (pa.FluencyScore || 0) * 0.2 + (pa.CompletenessScore || 0) * 0.2;
     return out0(200, { ok: true, total: Math.round(pa.PronScore || 0), acc: Math.round(pa.AccuracyScore || 0), flu: Math.round(pa.FluencyScore || 0), comp: Math.round(pa.CompletenessScore || 0), pros: pa.ProsodyScore != null ? Math.round(pa.ProsodyScore) : null, heard: nb.Display || '', words });
+  }
+  if (req.method === 'POST' && url === '/hit') {     // 访问统计：App 打开时报一下“匿名设备编号”
+    const origin0 = req.headers.origin, okO0 = origin0 && ALLOW.includes(origin0) ? origin0 : null;
+    const hd0 = { 'Content-Type': 'application/json; charset=utf-8' }; if (okO0) { hd0['Access-Control-Allow-Origin'] = okO0; hd0.Vary = 'Origin'; }
+    const out0 = (c, o) => { res.writeHead(c, hd0); res.end(JSON.stringify(o)); return true; };
+    if (!okO0) return out0(403, { error: 'origin-not-allowed' });
+    let b0; try { b0 = JSON.parse(await readBody(req, 500)) || {}; } catch (e) { return out0(400, { error: 'bad-request' }); }
+    const d0 = String(b0.d || ''); if (!/^[a-z0-9]{12,40}$/.test(d0)) return out0(400, { error: 'bad-id' });
+    if (hitLimited(ip)) return out0(429, { error: 'too-many' });
+    recordHit(d0, ip, req.headers['user-agent'], String(b0.v || '').slice(0, 30), b0.pwa);
+    return out0(200, { ok: true });
   }
   if (req.method === 'POST' && url === '/explain') {  // AI 讲解
     const origin0 = req.headers.origin, okO0 = origin0 && ALLOW.includes(origin0) ? origin0 : null;
@@ -496,6 +544,17 @@ async function shopRoutes(req, res) {
       if (!ent.length) return out(404, { error: 'none-left' });
       ent[0][1].issued = new Date().toISOString(); codesWrite(j);
       return out(200, { ok: true, code: fmtCode(ent[0][0]), left: ent.length - 1 });
+    }
+    if (req.method === 'GET' && url === '/admin/visits') {            // 访问统计：每天多少台设备；带 date 就列出那一天的每台设备
+      const q = new URL(req.url, 'http://x').searchParams, date = q.get('date');
+      if (date) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return out(400, { error: 'bad-date' });
+        const keys = Object.keys(visits).sort(), first = new Map();
+        for (const k of keys) for (const d of Object.keys(visits[k])) if (!first.has(d)) first.set(d, k);
+        const list = Object.entries(visits[date] || {}).map(([d, r]) => ({ id: d.slice(0, 6), dv: r.dv, br: r.br, ip: r.ip, v: r.v, pwa: r.pwa, n: r.n, f: r.f, l: r.l, isNew: first.get(d) === date, days: keys.filter(k => visits[k][d]).length })).sort((a, b) => b.l - a.l);
+        return out(200, { date, list });
+      }
+      return out(200, { days: visitsSummary(Math.min(120, Math.max(1, +q.get('days') || 30))) });
     }
     if (req.method === 'GET' && url === '/admin/codes') {
       const q = new URL(req.url, 'http://x').searchParams.get('story') || '', j = codesRead();

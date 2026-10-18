@@ -253,7 +253,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.18-134';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.18-135';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2469,7 +2469,7 @@ function renderStoryCity0(err) {
     h += (lvs.length ? '<div class="scChips">' + chip('lv', '', '全部', scLv === '', "scSetLv('')") + lvs.map(lv => chip('lv', lv, lv, scLv === lv, "scSetLv('" + lv + "')")).join('') + '<button class="scChip" style="border-style:dashed" onclick="levelHelp()">❓ 怎么选等级</button></div>' : '');
   }
   h += '<div id="scItems">' + scListHtml() + '</div>';
-  h += (azReady() ? '<div class="row" style="margin-top:6px"><button class="sm" onclick="devNewStoryPop()">＋ 上架新材料（开发者）</button></div>' : '') +
+  h += (azReady() ? '<div class="row" style="margin-top:6px"><button class="sm" onclick="devNewStoryPop()">＋ 上架新材料（开发者）</button><button class="sm ghost" onclick="visitsPop()">📊 访问统计</button></div>' : '') +
     '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>';
   showPop(h); scWatchMore();
 }
@@ -3258,7 +3258,7 @@ function openHelp() {
   const li = t => '<li style="margin:5px 0">' + t + '</li>';
   const sec = (title, body, open) => '<details style="margin-top:10px"' + (open ? ' open' : '') + '><summary style="cursor:pointer;font-weight:600">' + title + '</summary><ul class="note" style="line-height:1.7;margin:8px 0 0;padding-left:20px">' + body + '</ul></details>';
   showPop(
-    '<h3 style="margin:0 0 4px">❓ 帮助与反馈</h3><div class="note">试用版 · 版本 <span onclick="devTap()" style="cursor:default;user-select:none">' + esc(APP_VERSION) + '</span></div>' +
+    '<h3 style="margin:0 0 4px">❓ 帮助与反馈</h3><div class="note">试用版 · 版本 <span onclick="devTap()" style="cursor:default;user-select:none">' + esc(APP_VERSION) + '</span></div><div class="note" style="margin-top:4px">为了统计使用人数，会记录一个匿名的设备编号，不收集姓名、账号、手机号。</div>' +
     '<div class="row" style="margin:12px 0 4px"><button onclick="copyDiag()">复制诊断信息</button>' + (FEEDBACK_URL ? '<button class="ghost" onclick="openFeedback()">打开反馈问卷</button>' : '') + '</div>' +
     '<div class="note">遇到问题（没声音、录不了音、材料导入不对等），先点“复制诊断信息”，粘贴发给发你链接的人。诊断信息只有设备和软件状态，没有材料的内容和你的录音。</div>' +
     sec('快速上手',
@@ -3916,6 +3916,36 @@ function render() {
       '<button class="nxt" onclick="nextSentence()" ' + (rec.on ? 'disabled' : '') + '>下一句</button>' +
     '</div></div>';
   applySpeakHighlight();
+}
+
+/* ---------- 访问统计：每台设备一个匿名随机编号（不含姓名、账号），打开 App 时报一次（30 分钟内不重复）；开发者在“学习材料”里查看 ---------- */
+function siteHit() {
+  try {
+    let d = localStorage.getItem('sr_did');
+    if (!d) { d = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join(''); localStorage.setItem('sr_did', d); }
+    const last = +localStorage.getItem('sr_hit_t') || 0; if (Date.now() - last < 30 * 60000) return;
+    localStorage.setItem('sr_hit_t', String(Date.now()));
+    fetch(SHOP_BASE + '/hit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true, body: JSON.stringify({ d, v: APP_VERSION, pwa: (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone ? 1 : 0 }) }).catch(() => {});
+  } catch (e) {}
+}
+siteHit(); document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') siteHit(); });
+const hm = ts => { const d = new Date(ts); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+async function visitsPop() {
+  if (!azReady()) { setScStatus('请先在“帮助”里解锁开发者模式'); return; }
+  showPop('<h3 style="margin:0 0 6px">📊 访问统计</h3><div class="note">正在读取…</div>');
+  const r = await devAdmin('/admin/visits?days=30'); if (!r.ok) { showPop('<h3 style="margin:0 0 6px">📊 访问统计</h3><div class="note" style="color:#b94a48">' + esc(r.msg) + '</div>'); return; }
+  const j = await r.res.json(), tot = (j.days.find(x => x.total != null) || {}).total || 0, ds = j.days.filter(x => x.date);
+  showPop('<h3 style="margin:0 0 6px">📊 访问统计</h3><div class="note">一台设备算一个人（App 没有登录，只能看到匿名设备）。累计 <b>' + tot + '</b> 台设备。点某一天看明细。</div>' +
+    '<table style="width:100%;margin-top:10px;border-collapse:collapse;font-size:14px"><tr class="note"><td>日期</td><td>人数</td><td>新增</td><td>打开次数</td></tr>' +
+    (ds.length ? ds.map(x => '<tr onclick="visitsDay(\'' + x.date + '\')" style="cursor:pointer;border-top:1px solid var(--line,#ddd)"><td style="padding:8px 0">' + x.date.slice(5) + '</td><td><b>' + x.devices + '</b></td><td>' + x.newDevices + '</td><td>' + x.hits + '</td></tr>').join('') : '<tr><td colspan="4" class="note" style="padding:12px 0">还没有记录。</td></tr>') + '</table>');
+}
+async function visitsDay(date) {
+  showPop('<h3 style="margin:0 0 6px">📊 ' + esc(date) + '</h3><div class="note">正在读取…</div>');
+  const r = await devAdmin('/admin/visits?date=' + date); if (!r.ok) { showPop('<div class="note" style="color:#b94a48">' + esc(r.msg) + '</div>'); return; }
+  const j = await r.res.json();
+  showPop('<h3 style="margin:0 0 6px">📊 ' + esc(date) + '　' + j.list.length + ' 台设备</h3><div class="row" style="margin:6px 0"><button class="ghost sm" onclick="visitsPop()">‹ 返回</button></div>' +
+    j.list.map(x => '<div style="padding:8px 0;border-top:1px solid var(--line,#ddd);font-size:14px"><b>' + esc(x.dv) + ' · ' + esc(x.br) + '</b>' + (x.isNew ? ' <span style="color:#d9822b">新用户</span>' : ' <span class="note">第 ' + x.days + ' 天来</span>') + (x.pwa ? ' <span class="note">已装到桌面</span>' : '') +
+      '<div class="note">编号 ' + esc(x.id) + ' · 网段 ' + esc(x.ip) + ' · 最近 ' + hm(x.l) + ' · 打开 ' + x.n + ' 次 · ' + esc(x.v) + '</div></div>').join(''));
 }
 </script>
 </body>

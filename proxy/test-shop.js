@@ -181,5 +181,15 @@ const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-toke
   r = await call('/admin/codes', { m: 'POST', h: A, body: JSON.stringify({ story: 'pay1', n: 1 }) }); assert.equal(r.s, 404);
   for (let i = 0; i < 9; i++) r = await call('/admin/item', { m: 'POST', h: { Origin: 'https://ok.example', Authorization: 'Bearer nope', 'Content-Type': 'application/json' }, body: '{}' });
   assert.equal(r.s, 429);
-  console.log('SHOP OK'); process.exit(0);
+    // 访问统计
+  r = await call('/hit', { m: 'POST', h: { Origin: 'https://bad.example' }, body: '{"d":"abcdef012345abcdef012345"}' }); assert.equal(r.s, 403);
+  r = await call('/hit', Object.assign({ body: '{"d":"x"}' }, EX)); assert.equal(r.s, 400);
+  r = await call('/hit', Object.assign({ body: '{"d":"abcdef012345abcdef012345","v":"t1","pwa":1}' }, { m: 'POST', h: { Origin: 'https://ok.example', 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17) Safari/604.1' } })); assert.equal(r.s, 200);
+  r = await call('/hit', Object.assign({ body: '{"d":"abcdef012345abcdef012345","v":"t1"}' }, EX)); assert.equal(r.s, 200);
+  r = await call('/hit', Object.assign({ body: '{"d":"111111111111aaaaaaaaaaaa","v":"t1"}' }, EX)); assert.equal(r.s, 200);
+  r = await call('/admin/visits', { h: { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-token-1234567890', 'X-Forwarded-For': '9.9.9.9' } }); assert.equal(r.s, 200);
+  { const j = JSON.parse(r.b), d0 = j.days[0]; assert.equal(d0.devices, 2); assert.equal(d0.hits, 3); assert.equal(d0.newDevices, 2); assert.equal(j.days[j.days.length - 1].total, 2);
+    r = await call('/admin/visits?date=' + d0.date, { h: { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-token-1234567890', 'X-Forwarded-For': '9.9.9.9' } }); const L = JSON.parse(r.b).list; assert.equal(L.length, 2);
+    const ip = L.find(x => x.id === 'abcdef'); assert.equal(ip.dv, 'iPhone'); assert.equal(ip.br, 'Safari'); assert.equal(ip.n, 2); assert.ok(/\*$/.test(ip.ip)); assert.ok(!/\d+\.\d+\.\d+\.\d+$/.test(ip.ip)); }
+console.log('SHOP OK'); process.exit(0);
 })().catch(e => { console.error('FAIL', e); process.exit(1); });
