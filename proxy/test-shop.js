@@ -1,6 +1,6 @@
 // 故事城后台接口测试（不涉及真实密钥）
 process.env.VOLC_AK = 'A'; process.env.VOLC_SK = 'S'; process.env.ALLOW_ORIGINS = 'https://ok.example';
-process.env.ADMIN_TOKEN = 'test-admin-token-1234567890'; process.env.USAGE_FILE = '/tmp/shoptest/usage.json'; process.env.MAX_UPLOAD = '2000'; process.env.GRAMMAR_URL = 'http://127.0.0.1:9923'; process.env.AZURE_SPEECH_KEY = 'k'; process.env.AZURE_STT_HOST = 'http://127.0.0.1:9924'; process.env.ARK_API_KEY = 'ark-test'; process.env.ARK_HOST = 'http://127.0.0.1:9925'; process.env.EXPLAIN_PER_IP_HOUR = '3'; process.env.CHAT_PER_IP_HOUR = '4';
+process.env.ADMIN_TOKEN = 'test-admin-token-1234567890'; process.env.USAGE_FILE = '/tmp/shoptest/usage.json'; process.env.MAX_UPLOAD = '2000'; process.env.GRAMMAR_URL = 'http://127.0.0.1:9923'; process.env.AZURE_SPEECH_KEY = 'k'; process.env.AZURE_STT_HOST = 'http://127.0.0.1:9924'; process.env.AZURE_TTS_HOST = 'http://127.0.0.1:9926'; process.env.TTS_DAILY_CHARS = '40'; process.env.ARK_API_KEY = 'ark-test'; process.env.ARK_HOST = 'http://127.0.0.1:9925'; process.env.EXPLAIN_PER_IP_HOUR = '3'; process.env.CHAT_PER_IP_HOUR = '4';
 require('child_process').execSync('rm -rf /tmp/shoptest');
 const http = require('http'), assert = require('assert');
 const { server } = require('./server.js'); server.listen(9922);
@@ -181,6 +181,17 @@ const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-toke
   r = await call('/admin/codes', { m: 'POST', h: A, body: JSON.stringify({ story: 'pay1', n: 1 }) }); assert.equal(r.s, 404);
   for (let i = 0; i < 9; i++) r = await call('/admin/item', { m: 'POST', h: { Origin: 'https://ok.example', Authorization: 'Bearer nope', 'Content-Type': 'application/json' }, body: '{}' });
   assert.equal(r.s, 429);
+  // 中文自然人声
+  { let tn = 0, last = ''; const tts = http.createServer((q, w) => { const ch = []; q.on('data', c => ch.push(c)); q.on('end', () => { tn++; last = Buffer.concat(ch).toString(); assert.equal(q.headers['content-type'], 'application/ssml+xml'); assert.equal(q.headers['ocp-apim-subscription-key'], 'k'); w.writeHead(200, { 'Content-Type': 'audio/mpeg' }); w.end(Buffer.alloc(300, 7)); }); }).listen(9926);
+    const TH = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-token-1234567890', 'Content-Type': 'application/json', 'X-Forwarded-For': '9.9.9.8' };
+    r = await call('/admin/tts', { m: 'POST', h: { Origin: 'https://ok.example', 'Content-Type': 'application/json', 'X-Forwarded-For': '9.9.9.7' }, body: '{"text":"你好"}' }); assert.equal(r.s, 401);
+    r = await call('/admin/tts', { m: 'POST', h: TH, body: '{"text":""}' }); assert.equal(r.s, 400);
+    r = await call('/admin/tts', { m: 'POST', h: TH, body: JSON.stringify({ text: '你好 <世界> & 他', voice: 'zh-CN-YunxiNeural' }) }); assert.equal(r.s, 200); assert.equal(r.h['content-type'], 'audio/mpeg'); assert.equal(r.b.length >= 300, true);
+    assert.ok(last.includes('zh-CN-YunxiNeural') && last.includes('&lt;世界&gt; &amp;')); assert.equal(tn, 1);
+    r = await call('/admin/tts', { m: 'POST', h: TH, body: JSON.stringify({ text: '你好 <世界> & 他', voice: 'zh-CN-YunxiNeural' }) }); assert.equal(r.s, 200); assert.equal(tn, 1);   // 命中缓存，不再请求 Azure
+    r = await call('/admin/tts', { m: 'POST', h: TH, body: JSON.stringify({ text: '一二三四五六七八九十一二三四五六七八九十', voice: 'evil' }) }); assert.equal(r.s, 200); assert.ok(last.includes('zh-CN-XiaoxiaoNeural'));   // 非白名单声音回退
+    r = await call('/admin/tts', { m: 'POST', h: TH, body: JSON.stringify({ text: '这一句会超出每天的字数上限，所以要被拒绝掉' }) }); assert.equal(r.s, 429); assert.equal(JSON.parse(r.b).error, 'daily-limit');
+    tts.close(); }
     // 访问统计
   r = await call('/hit', { m: 'POST', h: { Origin: 'https://bad.example' }, body: '{"d":"abcdef012345abcdef012345"}' }); assert.equal(r.s, 403);
   r = await call('/hit', Object.assign({ body: '{"d":"x"}' }, EX)); assert.equal(r.s, 400);
