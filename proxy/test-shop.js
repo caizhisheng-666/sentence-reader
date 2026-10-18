@@ -1,6 +1,6 @@
 // 故事城后台接口测试（不涉及真实密钥）
 process.env.VOLC_AK = 'A'; process.env.VOLC_SK = 'S'; process.env.ALLOW_ORIGINS = 'https://ok.example';
-process.env.ADMIN_TOKEN = 'test-admin-token-1234567890'; process.env.USAGE_FILE = '/tmp/shoptest/usage.json'; process.env.MAX_UPLOAD = '2000'; process.env.GRAMMAR_URL = 'http://127.0.0.1:9923'; process.env.AZURE_SPEECH_KEY = 'k'; process.env.AZURE_STT_HOST = 'http://127.0.0.1:9924'; process.env.AZURE_TTS_HOST = 'http://127.0.0.1:9926'; process.env.TTS_DAILY_CHARS = '40'; process.env.ARK_API_KEY = 'ark-test'; process.env.ARK_HOST = 'http://127.0.0.1:9925'; process.env.EXPLAIN_PER_IP_HOUR = '3'; process.env.CHAT_PER_IP_HOUR = '4';
+process.env.ADMIN_TOKEN = 'test-admin-token-1234567890'; process.env.USAGE_FILE = '/tmp/shoptest/usage.json'; process.env.MAX_UPLOAD = '2000'; process.env.GRAMMAR_URL = 'http://127.0.0.1:9923'; process.env.AZURE_SPEECH_KEY = 'k'; process.env.AZURE_STT_HOST = 'http://127.0.0.1:9924'; process.env.AZURE_TTS_HOST = 'http://127.0.0.1:9926'; process.env.TTS_DAILY_CHARS = '40'; process.env.VOICE_ZIP_MAX = '1500'; process.env.ARK_API_KEY = 'ark-test'; process.env.ARK_HOST = 'http://127.0.0.1:9925'; process.env.EXPLAIN_PER_IP_HOUR = '3'; process.env.CHAT_PER_IP_HOUR = '4';
 require('child_process').execSync('rm -rf /tmp/shoptest');
 const http = require('http'), assert = require('assert');
 const { server } = require('./server.js'); server.listen(9922);
@@ -40,6 +40,14 @@ const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-toke
   r = await call('/admin/file/kit.voice.zip', { m: 'PUT', h: A, body: zb }); assert.equal(r.s, 200);
   r = await new Promise(ok => http.get({ port: 9922, path: '/files/kit.voice.zip' }, rr => { const ch = []; rr.on('data', c => ch.push(c)); rr.on('end', () => ok(Buffer.concat(ch))); }));
   const kz = await JSZip.loadAsync(r); assert.deepEqual(Object.keys(kz.files).filter(n => /^clips\//.test(n)).sort(), ['clips/' + H1 + '.mp3', 'clips/' + H2 + '.mp3', 'clips/' + H3 + '.mp3']);
+  // 分批上传：中间批（last=0）只拆句子不合总包，最后一批才合并；总量超过上限时不合并并明确告知
+  { const H4 = 'e'.repeat(64), H5 = 'f'.repeat(64), mk = async (h, d) => { const zz = new JSZip(); zz.file('manifest.json', '{}'); zz.file('clips/' + h + '.mp3', d); return zz.generateAsync({ type: 'nodebuffer' }); };
+    r = await call('/admin/file/part1.voice.zip?last=0', { m: 'PUT', h: A, body: await mk(H4, 'P4') }); assert.equal(r.s, 200); assert.equal(JSON.parse(r.b).clips, 1);
+    r = await call('/files/part1.voice.zip'); assert.equal(r.s, 404);                         // 还没合并，也没有残留的小包
+    r = await call('/admin/file/part1.voice.zip', { m: 'PUT', h: A, body: await mk(H5, 'P5') }); assert.equal(r.s, 200); assert.equal(JSON.parse(r.b).tooBig, false);
+    r = await new Promise(ok => http.get({ port: 9922, path: '/files/part1.voice.zip' }, rr => { const ch = []; rr.on('data', c => ch.push(c)); rr.on('end', () => ok(Buffer.concat(ch))); }));
+    assert.deepEqual(Object.keys((await JSZip.loadAsync(r)).files).filter(n => /^clips\//.test(n)).sort(), ['clips/' + H4 + '.mp3', 'clips/' + H5 + '.mp3']);
+    r = await call('/admin/file/huge.voice.zip', { m: 'PUT', h: A, body: await mk(H4, 'x'.repeat(1550)) }); assert.equal(r.s, 200); assert.equal(JSON.parse(r.b).tooBig, true); }
   r = await call('/files/kit/' + H1 + '.mp3'); assert.equal(r.b, 'AUDIO-ONE');
   r = await call('/admin/clips/kit', { h: A }); assert.equal(r.s, 200); assert.deepEqual(JSON.parse(r.b).have.sort(), [H1, H2, H3]);
   r = await call('/admin/clips/kit', { h: { Origin: 'https://ok.example' } }); assert.equal(r.s, 401);

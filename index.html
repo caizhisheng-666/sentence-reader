@@ -301,7 +301,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.18-144';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.18-145';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2011,11 +2011,27 @@ async function devPackStory(man, text, clips) {          // 材料包只放文�
   if (clips) for (const [k, b] of clips) z.file('clips/' + k + '.mp3', b);
   return { z, blob: await z.generateAsync({ type: 'blob', compression: clips ? 'STORE' : 'DEFLATE' }) };
 }
-async function devPackVoice(id, title, voice, clips) {
+async function devPackVoice(id, title, voice, clips, skipBlob) {
   const z = new JSZip();
   z.file('manifest.json', JSON.stringify({ format: 'sr-voicepack', v: 1, id: 'story-' + id, title, voice, count: clips.size }));
   for (const [k, b] of clips) z.file('clips/' + k + '.mp3', b);
-  return { z, blob: await z.generateAsync({ type: 'blob', compression: 'STORE' }) };
+  return { z, blob: skipBlob ? null : await z.generateAsync({ type: 'blob', compression: 'STORE' }) };
+}
+/* 语音分批上传：一次只传约 15MB，再长的书也不会因为单个文件太大被服务器拒绝（413）；最后一批时服务器才合并“下载全部语音”总包 */
+async function devPutVoice(id, title, voice, clips, priv) {
+  const batches = []; let cur = [], sz = 0, all = 0;
+  for (const [k, b] of clips) { const n = b.size != null ? b.size : b.byteLength || 0; if (cur.length && sz + n > 15 * 1048576) { batches.push(cur); cur = []; sz = 0; } cur.push([k, b]); sz += n; all += n; }
+  if (cur.length) batches.push(cur);
+  for (let i = 0; i < batches.length; i++) {
+    const z = new JSZip(); z.file('manifest.json', JSON.stringify({ format: 'sr-voicepack', v: 1, id: 'story-' + id, title, voice, count: batches[i].length }));
+    for (const [k, b] of batches[i]) z.file('clips/' + k + '.mp3', b);
+    const blob = await z.generateAsync({ type: 'blob', compression: 'STORE' }), last = i === batches.length - 1;
+    setScStatus('正在上传语音：第 ' + (i + 1) + ' / ' + batches.length + ' 份（共约 ' + (all / 1048576).toFixed(0) + ' MB）…');
+    const qs = [priv ? 'private=1' : '', last ? '' : 'last=0'].filter(Boolean).join('&');
+    const up = await devAdmin('/admin/file/' + id + '.voice.zip' + (qs ? '?' + qs : ''), { method: 'PUT', body: blob });
+    if (!up.ok) throw new Error('语音上传失败（第 ' + (i + 1) + ' / ' + batches.length + ' 份）：' + up.msg);
+    if (last) { let j = {}; try { j = await up.res.json(); } catch (e) {} if (j.tooBig) throw new Error('这本书的语音共约 ' + (j.total / 1048576).toFixed(0) + ' MB，超过了“下载全部语音”总包的上限（服务器内存有限）。建议把书拆成几部分分别上架，或只给前面几章配语音'); }
+  }
 }
 /* ---------- 收费材料的试读版：自动截取第一章（没有章节就取开头一部分），免费公开下载 ---------- */
 function sampleText(text) {
@@ -2108,11 +2124,9 @@ async function devNewGo() {
     const man = { format: 'sr-story', v: 1, id, title, level, voice, count: devNew.d.sents.length };
     const pk = await devPackStory(man, devNew.text, null);
     if (clips) {
-      const vp = await devPackVoice(id, title, voice, clips);
+      const vp = await devPackVoice(id, title, voice, clips, true);
       await vpImportClips(vp.z, [...clips.keys()].map(k => 'clips/' + k + '.mp3'), { id: 'story-' + id, title }, title, null);   // 这台设备上马上就能听到
-      setScStatus('正在上传语音（' + (vp.blob.size / 1048576).toFixed(1) + ' MB）…');
-      const up = await devAdmin('/admin/file/' + id + '.voice.zip' + (price ? '?private=1' : ''), { method: 'PUT', body: vp.blob });
-      if (!up.ok) throw new Error('语音上传失败：' + up.msg);
+      await devPutVoice(id, title, voice, clips, !!price);
     }
     const entry = { id, kind: 'story', title, titleZh: zh, level, count: devNew.d.sents.length, voice: !!clips, desc: zh ? zh + '。' : '', preview: devNew.d.preview };
     if (price) entry.price = price;
@@ -2139,11 +2153,9 @@ async function devHaveClips(id) {                    // 服务器上这个材料
   return new Set((await r.res.json()).have || []);
 }
 async function devUploadClips(it, voice, clips) {   // 只把这几句语音传上去；服务器会自动合进“下载全部语音”的总包
-  const vp = await devPackVoice(it.id, it.title, voice, clips);
+  const vp = await devPackVoice(it.id, it.title, voice, clips, true);
   await vpImportClips(vp.z, [...clips.keys()].map(k => 'clips/' + k + '.mp3'), { id: 'story-' + it.id, title: it.title }, it.title, null);
-  setScStatus('正在上传 ' + clips.size + ' 句语音（' + (vp.blob.size / 1048576).toFixed(1) + ' MB）…');
-  const up = await devAdmin('/admin/file/' + it.id + '.voice.zip' + (it.price ? '?private=1' : ''), { method: 'PUT', body: vp.blob });
-  if (!up.ok) throw new Error('语音上传失败：' + up.msg);
+  await devPutVoice(it.id, it.title, voice, clips, !!it.price);
 }
 async function devNeedSynth(sents, have) {           // 这些句子里，服务器上还没有语音的（按句子去重）
   const seen = new Set(), out = [];

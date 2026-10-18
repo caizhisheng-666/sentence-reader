@@ -21,6 +21,7 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';              // 故事城后�
 const SHOP_DIR = process.env.SHOP_DIR || path.join(path.dirname(USAGE_FILE), 'shop');
 const SHOP_FILE = path.join(SHOP_DIR, 'catalog.json'), SHOP_FILES = path.join(SHOP_DIR, 'files'), SHOP_PRIV = path.join(SHOP_DIR, 'private');   // files 公开下载；private 是收费商品，只有付款后才发给买家
 const MAX_UPLOAD = +process.env.MAX_UPLOAD || 300 * 1048576;
+const VOICE_ZIP_MAX = +process.env.VOICE_ZIP_MAX || 400 * 1048576;   // “下载全部语音”总包的体积上限（合并时要整个读进内存，服务器内存小就别调大）
 const HOST = process.env.VOLC_HOST || 'translate.volcengineapi.com';
 const PROTO = process.env.VOLC_PROTO || 'https';
 const REGION = 'cn-north-1', SERVICE = 'translate';
@@ -186,6 +187,7 @@ function extractClips(id, entries, priv) {          // 语音拆成 files/<故�
 function rebuildVoiceZip(id, priv) {                // 增量补了几句语音以后，把“下载全部语音”的总包重新按目录里所有语音打一遍，免得总包只剩新补的几句
   const dir = path.join(priv ? SHOP_PRIV : SHOP_FILES, id); if (!fs.existsSync(dir)) return 0;
   const files = fs.readdirSync(dir).filter(f => /^[0-9a-f]{16,64}\.mp3$/.test(f));
+  const total = files.reduce((a, f) => a + fs.statSync(path.join(dir, f)).size, 0); if (total > VOICE_ZIP_MAX) return { tooBig: true, total };
   const ents = files.map(f => ({ name: 'clips/' + f, data: fs.readFileSync(path.join(dir, f)) }));
   const target = path.join(priv ? SHOP_PRIV : SHOP_FILES, id + '.voice.zip'), tmp = target + '.tmp';
   fs.writeFileSync(tmp, zipStore([{ name: 'manifest.json', data: Buffer.from(JSON.stringify({ format: 'sr-voicepack', v: 1, id: 'story-' + id, count: files.length })) }, ...ents]));
@@ -649,8 +651,14 @@ async function shopRoutes(req, res) {
       if (bad) return out(413, { error: 'too-big' });
       fs.renameSync(tmp, path.join(dir, m[1]));
       const vm = /^([a-z0-9][a-z0-9-]{0,59})\.voice\.zip$/.exec(m[1]);
-      let clips = 0; if (vm) { try { clips = extractClips(vm[1], unzipBuf(fs.readFileSync(path.join(dir, m[1]))), priv); rebuildVoiceZip(vm[1], priv); } catch (e) { return out(400, { error: 'bad-voice-zip' }); } }
-      return out(200, { ok: true, bytes: n, clips });
+      let clips = 0, big = null; if (vm) {
+        try {
+          const ents = unzipBuf(fs.readFileSync(path.join(dir, m[1]))); clips = extractClips(vm[1], ents, priv);
+          if (!/[?&]last=0\b/.test(req.url)) { const r = rebuildVoiceZip(vm[1], priv); if (r && r.tooBig) big = r.total; }   // 分批上传时，只有最后一批才合并总包
+          else fs.unlinkSync(path.join(dir, m[1]));        // 中间批：只留拆开的一句一个文件，不留这一批的小包（否则会被当成总包下载）
+        } catch (e) { return out(400, { error: 'bad-voice-zip' }); }
+      }
+      return out(200, { ok: true, bytes: n, clips, tooBig: big !== null, total: big });
     }
   } catch (e) { return out(e.message === 'too-big' ? 413 : 400, { error: e.message === 'too-big' ? 'too-big' : 'bad-request' }); }
   return out(404, { error: 'not-found' });
