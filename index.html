@@ -261,7 +261,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 .lbbody.pg{padding:0;overflow:hidden;position:relative}
 .lbclip{position:absolute;inset:0;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 .lbstrip{position:absolute;column-fill:auto;will-change:transform}
-.lbstrip .lbtxt{font-family:var(--serif);line-height:1.56;text-align:justify;text-justify:inter-ideograph;-webkit-hyphens:auto}
+.lbstrip .lbtxt{-webkit-text-size-adjust:100%;text-size-adjust:100%;max-width:100%;font-family:var(--serif);line-height:1.56;text-align:justify;text-justify:inter-ideograph;-webkit-hyphens:auto}
 .lbstrip .lbp{margin:0}
 .lbedge{position:absolute;top:0;bottom:0;width:30px;pointer-events:none;opacity:0;background:linear-gradient(to right,rgba(0,0,0,.22),rgba(0,0,0,0))}
 .lbhome{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:3}
@@ -301,7 +301,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.18-145';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.18-146';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -4317,7 +4317,7 @@ function lbGoto(i) { lbTocClose(); lbJump(i); }
 function lbBar() {
   const bar = document.getElementById('lbBar'), b = lb.cur; if (!bar || !b) return;
   bar.innerHTML = '<div class="note" style="text-align:center">第 ' + Math.min(b.it.idx + 1, b.n) + ' / ' + b.n + ' 句' + (lb.on && !lb.paused ? ' · 正在朗读' : lb.paused ? ' · 已暂停' : '') + '</div>' +
-    '<div class="row"><button class="ghost" aria-label="上一章" onclick="lbChap(-1)">⏮</button><button class="pri" style="min-width:104px;height:52px;font-size:17px" onclick="lbToggle()">' + (lb.on && !lb.paused ? '⏸ 暂停' : '▶ 播放') + '</button><button class="ghost" aria-label="下一章" onclick="lbChap(1)">⏭</button></div>' +
+    '<div class="row"><button class="pri" style="min-width:120px;height:52px;font-size:17px" onclick="lbToggle()">' + (lb.on && !lb.paused ? '⏸ 暂停' : '▶ 播放') + '</button></div>' +
     '<div class="row"><button class="ghost sm" onclick="lbToc()">☰ 目录 · ' + lbPct(b.it) + '%</button><button class="ghost sm" onclick="lbSpeed()">' + lbRate() + '×</button><button class="ghost sm" onclick="lbTimer()">' + (lb.timer ? '⏲ ' + lb.timer + ' 分钟' : '⏲ 定时') + '</button><button class="ghost sm" onclick="lbSheet()">⚙ 更多</button></div>';
   if (document.getElementById('lbSheet')) lbSheet(true);
 }
