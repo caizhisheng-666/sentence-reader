@@ -479,7 +479,7 @@ function shelfHtml() {
   const sh = statsHtml();
   let html = '<div class="shelfbar"><h2>我的学习</h2>' + (l.length ? '<button class="link shsel" onclick="toggleShelfSel()">' + (sel ? '取消' : '选择') + '</button>' : '') + '</div>' +
     '<div class="shacts"><button onclick="openStoryCity()">📚 学习材料</button><button class="ghost" onclick="openImportPop()">＋ 导入材料</button></div>' +
-    '<div class="shacts" style="margin-top:-6px"><button class="ghost" onclick="lbOpenShelf()">🎧 中文听书</button></div>';
+    (azReady() ? '<div class="shacts" style="margin-top:-6px"><button class="ghost" onclick="lbOpenShelf()">🎧 中文听书（开发者）</button></div>' : '');
   if (sh) html += '<div class="levelbar" style="margin:-6px 0 14px"><div id="statsLine">' + sh + '</div></div>';
   if (!l.length) {
     html += '<div class="card" style="text-align:center;padding:36px 20px"><div style="font-size:38px">📚</div><div style="margin:10px 0 4px;font-size:17px;color:var(--ink)">还没有学习材料</div><div class="note">点上面的“学习材料”挑一本材料，<br>或“导入材料”添加你自己的英文内容（epub、PDF、文本），也可以粘贴一段英文。</div></div>';
@@ -2602,7 +2602,7 @@ async function azUnlockWith(pass) {
     return true;
   } catch (e) { return false; }                   // 口令不对，解密会失败
 }
-function azLock() { azKeyMem = ''; azCryptoKey = null; azSalt = null; azStopAudio(); if (state) render(); }
+function azLock() { azKeyMem = ''; azCryptoKey = null; azSalt = null; azStopAudio(); render(); }
 let devTaps = 0, devTapTimer = null;
 function devTap() {                               // 在“帮助”里连点版本号 5 次，进入开发者入口（普通用户看不到，也不会误触）
   devTaps++; clearTimeout(devTapTimer); devTapTimer = setTimeout(() => { devTaps = 0; }, 3000);
@@ -2636,7 +2636,7 @@ async function azSetup() {
     await azSetupPass(p1, key);
     localStorage.setItem('sr_az_on', '1');
     if (state) render();
-    openNaturalSettings(); toast('开发者验证已设置，自然语音已解锁', 3000);
+    render(); openNaturalSettings(); toast('开发者验证已设置，自然语音已解锁', 3000);
   } catch (e) { setAzStatus('设置失败：' + e.message); }
 }
 async function azUnlockBtn() {
@@ -2644,7 +2644,7 @@ async function azUnlockBtn() {
   if (!pass) { setAzStatus('请输入口令'); return; }
   setAzStatus('正在验证…');
   if (azFails > 0) await new Promise(r => setTimeout(r, Math.min(4000, azFails * 700)));     // 输错后一次比一次慢，防止有人一直试
-  if (await azUnlockWith(pass)) { if (state) render(); openNaturalSettings(); toast('已解锁（关闭网页后自动锁定）', 2500); }
+  if (await azUnlockWith(pass)) { render(); openNaturalSettings(); toast('已解锁（关闭网页后自动锁定）', 2500); }
   else { azFails++; setAzStatus('口令不对'); }
 }
 function azExitDev() {
@@ -3983,6 +3983,7 @@ function lbClose() { lbStop(); lb.cur = null; lb.screen = ''; const e = lbEl(); 
 function lbBack() { if (lb.screen === 'read') { lbStop(); lb.cur = null; lbOpenShelf(); } else lbClose(); }
 function lbPct(it) { return it.n ? Math.min(100, Math.round(it.idx / it.n * 100)) : 0; }
 async function lbOpenShelf() {
+  if (!azReady()) { toast('中文听书目前只对开发者开放', 2500); return; }
   lb.screen = 'shelf'; await lbLoadList();
   const shelf = (() => { try { return shelfGet(); } catch (e) { return []; } })();
   const mine = lb.list.slice().sort((a, b) => (b.at || 0) - (a.at || 0));
@@ -4130,7 +4131,7 @@ function render() {
         '<div class="zh">' + (getShowZh() ? (bz ? '<span class="src" style="margin:0 6px 0 0">自带译文' + (state.zhp && state.zhp[state.idx] ? '·整段' : '') + '</span>' : '') + trans + (hasBz ? ' <button class="link" onclick="toggleBookZh()">' + (bz ? '改看机器翻译' : '改看自带译文') + '</button>' : '') : '<span class="sub">中文翻译已隐藏</span>') + '</div>' +
         '<button class="iconbtn" style="flex-shrink:0" onclick="toggleZh()">' + (getShowZh() ? '隐藏中文' : '显示中文') + '</button>' +
       '</div>' +
-      '<div class="row" style="margin-top:10px"><button class="ghost sm" onclick="lbOpenEn(state.bookId)">🎧 听中文（连续朗读）</button></div>' +
+      (azReady() ? '<div class="row" style="margin-top:10px"><button class="ghost sm" onclick="lbOpenEn(state.bookId)">🎧 听中文（连续朗读·开发者）</button></div>' : '') +
       '<div class="section">' + recs + '</div>' +
       practiceHtml +
       '<div class="section">' + aiHtml() + chatHtml() + '</div>' +
