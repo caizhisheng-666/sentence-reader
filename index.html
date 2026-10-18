@@ -253,7 +253,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.18-133';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.18-134';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1148,16 +1148,25 @@ async function chatSend(first) {
   if (!navigator.onLine) { chatErr = '现在没有网络，联网后才能和 AI 老师聊天。'; render(); return; }
   const hist = chatGet(s).map(m => ({ r: m.r, t: m.t })), log = chatGet(s).slice();
   if (msg) { log.push({ r: 'me', t: msg }); chatSet(st, s, log); }
-  chatDraft = ''; chatBusy = true; chatErr = ''; render(); chatScroll();
+  chatDraft = ''; chatBusy = true; chatErr = ''; if (inp) inp.value = ''; chatRefresh(); chatScroll();
   try {
     const r = await fetchT(SHOP_BASE + '/chat', 30000, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ s, h: hist.slice(-8), m: msg }) });
     const j = await r.json().catch(() => ({}));
     if (r.ok && j.ok && j.r) { const l2 = chatGet(s).slice(); l2.push({ r: 'ai', t: j.r.en, zh: j.r.zh, fix: j.r.fix, fixZh: j.r.fixZh }); chatSet(st, s, l2); }
     else chatErr = j.error === 'daily-limit' ? '今天 AI 老师聊天的次数用完了，明天再来聊。' : j.error === 'too-many' ? '聊得太快了，休息一会儿再继续。' : j.error === 'not-configured' ? 'AI 老师还没开通。' : 'AI 老师暂时没回应（' + (j.error || ('HTTP ' + r.status)) + '），稍后再试。';
   } catch (e) { chatErr = '网络不太好，AI 老师没连上，稍后再试。'; }
-  chatBusy = false; if (state === st) { render(); chatScroll(); }
+  chatBusy = false; if (state === st) { chatRefresh(); chatScroll(); }
 }
-function chatScroll() { setTimeout(() => { const el = document.getElementById('chatLog'); if (el) el.scrollTop = el.scrollHeight; const i = document.getElementById('chatIn'); if (i && !chatBusy) { try { i.focus({ preventScroll: true }); } catch (e) {} } }, 30); }
+function chatRefresh() {       // 只刷新聊天框，不重画整页：页面不跳、输入框不失焦、键盘不收
+  const el = document.querySelector('.chat'), old = document.getElementById('chatIn');
+  if (!el || !old || chatOpen !== state.sentences[state.idx]) { render(); return; }
+  const y = window.scrollY, foc = document.activeElement === old, val = old.value;
+  chatDraft = val; el.outerHTML = chatHtml();
+  const inp = document.getElementById('chatIn'); if (inp && foc) { try { inp.focus({ preventScroll: true }); } catch (e) {} }
+  const lg = document.getElementById('chatLog'); if (lg) lg.scrollTop = lg.scrollHeight;
+  window.scrollTo(0, y);
+}
+function chatScroll() { setTimeout(() => { const el = document.getElementById('chatLog'); if (el) el.scrollTop = el.scrollHeight; const i = document.getElementById('chatIn'); if (i && document.activeElement !== i) { try { i.focus({ preventScroll: true }); } catch (e) {} } }, 30); }
 function chatClear() { const s = state.sentences[state.idx]; if (state.chats) delete state.chats[s]; saveState(); chatErr = ''; render(); chatSend(true); }
 function chatHtml() {
   const s = state.sentences[state.idx], open = chatOpen === s;
@@ -1169,7 +1178,7 @@ function chatHtml() {
       : '<div class="cai"><div class="cb">' + esc(m.t) + (m.zh ? '<div class="czh">' + esc(m.zh) + '</div>' : '') + '</div>' + (m.fix ? '<div class="cfix">✏️ 更好的说法：<b>' + esc(m.fix) + '</b>' + (m.fixZh ? '<br>' + esc(m.fixZh) : '') + '</div>' : '') + '</div>').join('') +
       (chatBusy ? '<div class="cai"><div class="cb cwait">AI 老师正在想…</div></div>' : '') + '</div>' +
     (chatErr ? '<div class="note" style="color:#b94a48;margin:6px 0">' + esc(chatErr) + '</div>' : '') +
-    '<div class="cin"><input id="chatIn" type="text" maxlength="200" autocomplete="off" placeholder="用英语（或中文）回答…" value="' + esc(chatDraft) + '" oninput="chatDraft=this.value" onkeydown="if(event.key===\'Enter\'){event.preventDefault();chatSend()}"' + (chatBusy ? ' disabled' : '') + '>' +
+    '<div class="cin"><input id="chatIn" type="text" maxlength="200" autocomplete="off" placeholder="用英语（或中文）回答…" value="' + esc(chatDraft) + '" oninput="chatDraft=this.value" onkeydown="if(event.key===\'Enter\'){event.preventDefault();chatSend()}"' + '>' +
     '<button class="sm" onclick="chatSend()"' + (chatBusy ? ' disabled' : '') + '>发送</button></div>' +
     '<div class="note" style="margin-top:6px;font-size:12px">由 AI 生成，偶尔会有不准确的地方。键盘上的 🎤 可以语音输入。</div></div>';
 }
