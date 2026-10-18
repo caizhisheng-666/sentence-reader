@@ -247,24 +247,32 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 .lbtxt{font-family:var(--serif);line-height:1.95}
 .lbp{margin:0 0 1em;text-indent:2em}
 .lbs{border-radius:6px;cursor:pointer;transition:background .25s}
-.lbs.cur{background:var(--soft)}
+.lbs.cur{background:var(--soft);background:color-mix(in srgb,var(--accent) 13%,transparent);-webkit-box-decoration-break:clone;box-decoration-break:clone;border-radius:3px}
 .lbs.wait{color:var(--sub)}
 .lbbar{border-top:1px solid var(--line);background:var(--card);padding:10px 12px calc(10px + env(safe-area-inset-bottom))}
 .lbbar .row{justify-content:center;gap:8px;margin-top:8px}
 .lbitem{padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:var(--card);margin-bottom:10px;display:flex;gap:10px;align-items:center}
 .lbitem .t{flex:1;min-width:0}.lbitem .t b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lbpgr{text-align:center;margin:4px 0 14px}.lbpgr button{font-size:14px}
-.lbtoc{position:absolute;inset:0;z-index:5;background:var(--bg);display:flex;flex-direction:column}
+.lbtoc{position:absolute;inset:0;z-index:8;background:var(--bg);display:flex;flex-direction:column}
 .lbtoc .lbtl{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:8px 14px 24px}
 .lbtoc .it{padding:13px 8px;border-bottom:1px solid var(--line);display:flex;gap:10px;font-size:16px;cursor:pointer}
 .lbtoc .it span{flex:1;min-width:0}.lbtoc .it small{color:var(--sub);flex:none}.lbtoc .it.on{color:var(--accent);font-weight:600}
 .lbbody.pg{padding:0;overflow:hidden;position:relative}
 .lbclip{position:absolute;inset:0;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 .lbstrip{position:absolute;column-fill:auto;will-change:transform}
-.lbstrip .lbtxt{font-family:var(--serif);line-height:1.95}
-.lbstrip .lbp{margin:0 0 .6em}
+.lbstrip .lbtxt{font-family:var(--serif);line-height:1.78;text-align:justify;text-justify:inter-ideograph;-webkit-hyphens:auto}
+.lbstrip .lbp{margin:0 0 .4em}
 .lbedge{position:absolute;top:0;bottom:0;width:30px;pointer-events:none;opacity:0;background:linear-gradient(to right,rgba(0,0,0,.22),rgba(0,0,0,0))}
 .lbhome{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:3}
+.lbfoot{position:absolute;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 6px);text-align:center;font-size:12px;color:var(--sub);pointer-events:none;z-index:2}
+#lbov.rd .lbtop{position:absolute;top:0;left:0;right:0;z-index:6;background:var(--bg);box-shadow:0 6px 20px rgba(0,0,0,.08);transform:translateY(-105%);transition:transform .28s ease}
+#lbov.rd .lbbar{position:absolute;bottom:0;left:0;right:0;z-index:6;transform:translateY(105%);transition:transform .28s ease;box-shadow:0 -6px 24px rgba(0,0,0,.12)}
+#lbov.rd.ui .lbtop,#lbov.rd.ui .lbbar{transform:none}
+#lbov.rd .lbbody:not(.pg){padding:calc(env(safe-area-inset-top) + 18px) 20px 44px}
+.lbsheet{position:absolute;inset:0;z-index:9;background:rgba(0,0,0,.35);display:flex;align-items:flex-end}
+.lbsheet .in{width:100%;background:var(--card);border-radius:18px 18px 0 0;padding:16px 14px calc(18px + env(safe-area-inset-bottom))}
+.lbsheet .g{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:10px}
 .lbh{margin:18px 0 8px;font-weight:600;color:var(--sub);font-size:13px}
 </style>
 </head>
@@ -282,7 +290,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.18-141';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.18-142';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -4056,7 +4064,7 @@ async function lbLoop() {
   }
 }
 function lbSaveProg() { const b = lb.cur; if (!b) return; b.it.at = Date.now(); lbSaveList(); }
-function lbPlay() { if (!lb.cur) return; if (lb.cur.it.idx >= lb.cur.n) lb.cur.it.idx = 0; stopSpeech(); lb.on = true; lb.paused = false; lb.fails = 0; lb.natFails = 0; if (lb.browse) { lb.browse = false; lbPaint(true, true); } if (lbNat()) { try { const a = lbAud(); a.src = LB_SIL; a.play().catch(() => {}); } catch (e) {} } lbMedia(); if (lb.timer && !lb.end) lb.end = Date.now() + lb.timer * 60000; lbBar(); lbLoop(); }
+function lbPlay() { if (!lb.cur) return; if (lb.cur.it.idx >= lb.cur.n) lb.cur.it.idx = 0; stopSpeech(); lb.on = true; lb.paused = false; lb.fails = 0; lb.natFails = 0; setTimeout(() => { if (lb.on && lb.ui) lbUi(false); }, 1500); if (lb.browse) { lb.browse = false; lbPaint(true, true); } if (lbNat()) { try { const a = lbAud(); a.src = LB_SIL; a.play().catch(() => {}); } catch (e) {} } lbMedia(); if (lb.timer && !lb.end) lb.end = Date.now() + lb.timer * 60000; lbBar(); lbLoop(); }
 function lbStop() {
   const was = lb.on; lb.on = false; lb.paused = false; lb.tok++; lb.end = 0;
   lbHalt(); try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'none'; } catch (e) {}
@@ -4077,7 +4085,8 @@ window.addEventListener('resize', () => { if (lb.screen === 'read' && lbPage() &
 function lbEngine() { const to = lbNat() ? 'sys' : 'nat'; lb.natOff = false; localStorage.setItem('sr_zl_eng', to); toast(to === 'nat' ? '已换成自然人声（需要联网）' : '已换成系统声音', 2000); lbBar(); lbRestart(); }
 function lbVoiceNext() { if (lbNat()) { const i = LB_NAT.findIndex(x => x[0] === lbNatVoice()[0]), n = LB_NAT[(i + 1) % LB_NAT.length]; localStorage.setItem('sr_zl_nv', n[0]); toast('声音：' + n[1], 2000); lbBar(); lbRestart(); return; } const vs = lbVoices(); if (vs.length < 2) { toast(vs.length ? '这台设备只有一个中文声音' : '这台设备没有找到中文声音', 2500); return; } const c = lbVoice(), n = vs[(vs.findIndex(v => c && v.voiceURI === c.voiceURI) + 1) % vs.length]; localStorage.setItem('sr_zl_voice', n.voiceURI); toast('声音：' + n.name, 1800); lbRestart(); }
 /* ---- 界面 ---- */
-function lbShow(html) { const e = lbEl(); e.innerHTML = html; e.classList.add('show'); }
+function lbShow(html) { const e = lbEl(); e.innerHTML = html; e.classList.add('show'); e.classList.remove('rd', 'ui'); }
+function lbUi(v) { lb.ui = v === undefined ? !lb.ui : v; lbEl().classList.toggle('ui', !!lb.ui); }
 function lbClose() { lbStop(); lb.cur = null; lb.screen = ''; const e = lbEl(); e.classList.remove('show'); e.innerHTML = ''; }
 function lbBack() { if (lb.screen === 'read') { lbStop(); lb.cur = null; lbOpenShelf(); } else lbClose(); }
 function lbPct(it) { return it.n ? Math.min(100, Math.round(it.idx / it.n * 100)) : 0; }
@@ -4143,7 +4152,7 @@ async function lbOpenItem(id) {
   const it = lb.list.find(x => x.id === id); if (!it) return;
   try { lb.cur = await lbOpenBookObj(it); } catch (e) { alert(e.message); return; }
   it.n = lb.cur.n; if (it.idx >= it.n) it.idx = 0; lb.screen = 'read'; lb.winA = lb.winB = -1; lb.fails = 0; lb.browse = false;
-  lbShow('<div class="lbtop"><button class="iconbtn" onclick="lbBack()" style="font-size:15px">‹ 书单</button><b>' + esc(it.title) + '</b><button class="iconbtn" onclick="lbToc()" style="font-size:15px">☰ 目录</button><span class="note" id="lbPct"></span></div><div class="lbbody" id="lbBody"></div><div class="lbbar" id="lbBar"></div>');
+  lbShow('<div class="lbtop"><button class="iconbtn" onclick="lbBack()" style="font-size:15px">‹ 书单</button><b>' + esc(it.title) + '</b></div><div class="lbbody" id="lbBody"></div><div class="lbfoot" id="lbPct"></div><div class="lbbar" id="lbBar"></div>'); lbEl().classList.add('rd'); lbUi(true);
   lbPaint(false, true); lbBar();
   if (it.kind === 'en') lbPrefetch(it.idx);
 }
@@ -4156,13 +4165,14 @@ function lbParas(a, z) {
   return h;
 }
 /* ---- 翻页模式：像苹果图书那样左右滑动翻页 ---- */
-const LB_PAD = 22, LB_VPAD = 18;
+const LB_PAD = 24;
+function lbSafe() { if (lb.safe) return lb.safe; const d = document.createElement('div'); d.style.cssText = 'position:fixed;visibility:hidden;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)'; document.body.appendChild(d); const cs = getComputedStyle(d); lb.safe = { t: parseFloat(cs.paddingTop) || 0, b: parseFloat(cs.paddingBottom) || 0 }; d.remove(); return lb.safe; }
 function lbPitch() { const c = document.getElementById('lbClip'); return c ? c.clientWidth : 0; }
 function lbPgSet(p, anim, from) {
   const st = document.getElementById('lbStrip'); if (!st) return; const pitch = lbPitch(); lb.pgI = Math.max(0, Math.min(lb.pgN - 1, p));
   if (from !== undefined) { st.style.transition = 'none'; st.style.transform = 'translate3d(' + from + 'px,0,0)'; void st.offsetWidth; }
   st.style.transition = anim ? 'transform .42s cubic-bezier(.2,.85,.25,1)' : 'none'; st.style.transform = 'translate3d(' + (-lb.pgI * pitch) + 'px,0,0)';
-  const pc = document.getElementById('lbPct'); if (pc && lb.cur) pc.textContent = lbPct(lb.cur.it) + '% · ' + (lb.pgI + 1) + '/' + lb.pgN;
+  const pc = document.getElementById('lbPct'); if (pc && lb.cur) pc.textContent = '第 ' + (lb.pgI + 1) + ' / ' + lb.pgN + ' 页 · ' + lbPct(lb.cur.it) + '%';
 }
 function lbPgOf(i) {                                 // 第 i 句在窗口的第几页（用屏幕位置算，各浏览器都准）
   const st = document.getElementById('lbStrip'), el = st && st.querySelector('.lbs[data-i="' + i + '"]'); if (!el) return -1;
@@ -4172,8 +4182,8 @@ function lbPgOf(i) {                                 // 第 i 句在窗口的第
 function lbRenderPage(a, z, startAt) {
   const b = lb.cur, body = document.getElementById('lbBody'); lb.winA = a; lb.winB = z; body.classList.add('pg');
   body.innerHTML = '<div class="lbclip" id="lbClip"><div class="lbstrip" id="lbStrip"><div class="lbtxt" style="font-size:' + lbFs() + 'px">' + lbParas(a, z) + '</div></div><div class="lbedge" id="lbEdge"></div>' + (lb.browse ? '<button class="ghost sm lbhome">📍 回到正在读的位置</button>' : '') + '</div>';
-  const clip = document.getElementById('lbClip'), st = document.getElementById('lbStrip'), W = clip.clientWidth - LB_PAD * 2, H = clip.clientHeight - LB_VPAD * 2;
-  st.style.cssText += ';left:' + LB_PAD + 'px;top:' + LB_VPAD + 'px;width:' + W + 'px;height:' + H + 'px;column-width:' + W + 'px;column-gap:' + (LB_PAD * 2) + 'px';
+  const clip = document.getElementById('lbClip'), st = document.getElementById('lbStrip'), W = clip.clientWidth - LB_PAD * 2, vt = lbSafe().t + 16, vb = lbSafe().b + 36, H = clip.clientHeight - vt - vb;
+  st.style.cssText += ';left:' + LB_PAD + 'px;top:' + vt + 'px;width:' + W + 'px;height:' + H + 'px;column-width:' + W + 'px;column-gap:' + (LB_PAD * 2) + 'px';
   lb.pgN = Math.max(1, Math.round((st.scrollWidth + LB_PAD * 2) / (W + LB_PAD * 2)));
   let pg = startAt === 'end' ? lb.pgN - 1 : startAt === 'start' ? 0 : lbPgOf(b.it.idx); if (pg < 0) pg = 0;
   lbPgSet(pg, false); lbBindSwipe(clip);
@@ -4193,20 +4203,21 @@ function lbBrowseUi() {                              // 翻到别处看时，出
 function lbBindSwipe(clip) {
   let sx = 0, sy = 0, st0 = 0, dx = 0, drag = false, down = false, tgt = null; const edge = document.getElementById('lbEdge');
   const pitch = () => clip.clientWidth, strip = document.getElementById('lbStrip');
-  clip.onpointerdown = e => { down = true; drag = false; sx = e.clientX; sy = e.clientY; st0 = Date.now(); dx = 0; tgt = e.target; };
+  let lt = 0, longDone = false;
+  clip.onpointerdown = e => { down = true; drag = false; longDone = false; sx = e.clientX; sy = e.clientY; st0 = Date.now(); dx = 0; tgt = e.target; clearTimeout(lt); const sent = tgt && tgt.closest && tgt.closest('.lbs'); if (sent) lt = setTimeout(() => { if (down && !drag) { longDone = true; const i = +sent.dataset.i; lbJump(i); if (!lb.on) lbPlay(); toast('从这一句开始听', 1300); } }, 480); };
   clip.onpointermove = e => {
-    if (!down) return; dx = e.clientX - sx; if (!drag && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(e.clientY - sy)) { drag = true; try { clip.setPointerCapture(e.pointerId); } catch (x) {} } if (!drag) return;
+    if (!down) return; dx = e.clientX - sx; if (!drag && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(e.clientY - sy)) { drag = true; clearTimeout(lt); try { clip.setPointerCapture(e.pointerId); } catch (x) {} } if (!drag) return;
     let k = dx; const first = lb.pgI === 0 && lb.winA === 0, last = lb.pgI === lb.pgN - 1 && lb.winB >= lb.cur.n;
     if ((dx > 0 && first) || (dx < 0 && last)) k = dx * 0.3;            // 到头了，拉不动（有点弹性）
     strip.style.transition = 'none'; strip.style.transform = 'translate3d(' + (-lb.pgI * pitch() + k) + 'px,0,0)';
     edge.style.opacity = Math.min(1, Math.abs(k) / 90); edge.style.left = (k < 0 ? pitch() + k : k) + 'px'; edge.style.transform = k < 0 ? 'none' : 'scaleX(-1)';
   };
   clip.onpointerup = clip.onpointercancel = e => {
-    if (!down) return; down = false; edge.style.opacity = 0;
+    if (!down) return; down = false; clearTimeout(lt); edge.style.opacity = 0; if (longDone) return;
     if (drag) { const v = dx / Math.max(1, Date.now() - st0), W = pitch(); if (dx < -W * 0.18 || v < -0.45) lbTurn(1); else if (dx > W * 0.18 || v > 0.45) lbTurn(-1); else lbPgSet(lb.pgI, true); return; }
     if (tgt && tgt.closest && tgt.closest('.lbhome')) { lbHome(); return; }
     const r = clip.getBoundingClientRect(), x = (e.clientX - r.left) / r.width, sent = tgt && tgt.closest && tgt.closest('.lbs');
-    if (x < 0.2) lbTurn(-1); else if (x > 0.8) lbTurn(1); else if (sent) lbJump(+sent.dataset.i);
+    if (x < 0.2) lbTurn(-1); else if (x > 0.8) lbTurn(1); else lbUi();
   };
 }
 function lbRender(a, z) {
@@ -4223,7 +4234,7 @@ function lbRender(a, z) {
 }
 function lbPaint(scroll, force) {
   const b = lb.cur, body = document.getElementById('lbBody'); if (!b || !body) return;
-  const i = b.it.idx, pc = document.getElementById('lbPct'); if (pc) pc.textContent = lbPct(b.it) + '%' + (lbPage() && lb.pgN ? ' · ' + (lb.pgI + 1) + '/' + lb.pgN : '');
+  const i = b.it.idx, pc = document.getElementById('lbPct'); if (pc) pc.textContent = lbPage() && lb.pgN ? '第 ' + (lb.pgI + 1) + ' / ' + lb.pgN + ' 页 · ' + lbPct(b.it) + '%' : lbPct(b.it) + '%';
   if (lb.browse && !force) return;                    // 你正在翻页看别的地方，不把你拉回朗读的位置
   if (lbPage() && !force && lb.winA >= 0 && i === lb.winB) { lbRenderPage(i, Math.min(b.n, i + 90), 'start'); lbPgSet(0, true, lbPitch()); return; }   // 读到这一段的末尾：翻到下一段的第一页
   if (lbPage() && !force && lb.winA >= 0 && i >= lb.winA && i < lb.winB) { body.querySelectorAll('.lbs.cur').forEach(e => e.classList.remove('cur')); const c = body.querySelector('.lbs[data-i="' + i + '"]'); if (c) c.classList.add('cur'); const pg = lbPgOf(i); if (pg >= 0 && pg !== lb.pgI) lbPgSet(pg, true); return; }
@@ -4266,12 +4277,24 @@ function lbTocClose() { const e = document.getElementById('lbTocBox'); if (e) e.
 function lbGoto(i) { lbTocClose(); lbJump(i); }
 function lbBar() {
   const bar = document.getElementById('lbBar'), b = lb.cur; if (!bar || !b) return;
-  const r = lbRate();
   bar.innerHTML = '<div class="note" style="text-align:center">第 ' + Math.min(b.it.idx + 1, b.n) + ' / ' + b.n + ' 句' + (lb.on && !lb.paused ? ' · 正在朗读' : lb.paused ? ' · 已暂停' : '') + '</div>' +
     '<div class="row"><button class="ghost" aria-label="上一章" onclick="lbChap(-1)">⏮</button><button style="min-width:92px" onclick="lbToggle()">' + (lb.on && !lb.paused ? '⏸ 暂停' : '▶ 播放') + '</button><button class="ghost" aria-label="下一章" onclick="lbChap(1)">⏭</button></div>' +
-    '<div class="row"><button class="ghost sm" onclick="lbSpeed()">' + r + '×</button><button class="ghost sm" onclick="lbTimer()">' + (lb.timer ? '⏲ ' + lb.timer + ' 分钟' : '⏲ 定时') + '</button><button class="ghost sm" onclick="lbFont(-1)">A−</button><button class="ghost sm" onclick="lbFont(1)">A＋</button><button class="ghost sm" onclick="lbVoiceNext()">🔊 ' + (lbNat() ? lbNatVoice()[1].slice(0, 2) : '声音') + '</button><button class="ghost sm" onclick="lbEngine()">' + (lbNat() ? '🎙 自然' : '🤖 系统') + '</button></div>' +
-    '<div class="row"><button class="ghost sm" onclick="lbMode()">' + (lbPage() ? '📖 翻页' : '📜 滚动') + '</button>' + (lbNat() ? '<button class="ghost sm" onclick="lbPregen()">' + (lb.pg ? '⏹ 停止生成' : '📥 整本预生成') + '</button><button class="ghost sm" onclick="lbClearSaved()">🗑 清除已存</button>' : '') + '</div>' + (lb.pgTxt ? '<div class="note" style="text-align:center">' + lb.pgTxt + '</div>' : '') +
-    '<div class="note" style="text-align:center;margin-top:6px;font-size:12px">点任意一句，从那里开始听。' + (lbNat() ? '自然人声会联网合成，听过的句子会存在这台设备上，再听不用联网、不再计费。' : '系统声音在锁屏后可能会停。') + '</div>';
+    '<div class="row"><button class="ghost sm" onclick="lbToc()">☰ 目录</button><button class="ghost sm" onclick="lbSpeed()">' + lbRate() + '×</button><button class="ghost sm" onclick="lbTimer()">' + (lb.timer ? '⏲ ' + lb.timer + ' 分钟' : '⏲ 定时') + '</button><button class="ghost sm" onclick="lbSheet()">⚙ 更多</button></div>';
+  if (document.getElementById('lbSheet')) lbSheet(true);
+}
+function lbSheet(re) {                               // 低频设置收进这里
+  let e = document.getElementById('lbSheet');
+  if (e && !re) { e.remove(); return; }
+  if (!e) { e = document.createElement('div'); e.className = 'lbsheet'; e.id = 'lbSheet'; e.onclick = ev => { if (ev.target === e) e.remove(); }; lbEl().appendChild(e); }
+  const nat = lbNat();
+  e.innerHTML = '<div class="in"><div class="note" style="text-align:center">阅读与朗读设置</div><div class="g">' +
+    '<button class="ghost sm" onclick="lbFont(-1)">A− 字小一点</button><button class="ghost sm" onclick="lbFont(1)">A＋ 字大一点</button>' +
+    '<button class="ghost sm" onclick="lbMode()">' + (lbPage() ? '📖 翻页模式' : '📜 滚动模式') + '</button>' +
+    '<button class="ghost sm" onclick="lbVoiceNext()">🔊 声音：' + (nat ? lbNatVoice()[1].slice(0, 2) : '系统') + '</button>' +
+    '<button class="ghost sm" onclick="lbEngine()">' + (nat ? '🎙 自然人声' : '🤖 系统声音') + '</button>' +
+    (nat ? '<button class="ghost sm" onclick="lbPregen()">' + (lb.pg ? '⏹ 停止生成' : '📥 整本预生成') + '</button><button class="ghost sm" onclick="lbClearSaved()">🗑 清除已存</button>' : '') +
+    '</div>' + (lb.pgTxt ? '<div class="note" style="text-align:center;margin-top:8px">' + lb.pgTxt + '</div>' : '') +
+    '<div class="note" style="text-align:center;margin-top:10px;font-size:12px">点屏幕中间：呼出/收起这些按钮。长按某一句：从那一句开始听。' + (nat ? '自然人声听过的句子会存在设备上。' : '') + '</div></div>';
 }
 function lbCur() { return lb.cur.it; }
 /* ---------- 界面 ---------- */
