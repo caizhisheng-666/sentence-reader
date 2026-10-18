@@ -4131,7 +4131,6 @@ function render() {
         '<div class="zh">' + (getShowZh() ? (bz ? '<span class="src" style="margin:0 6px 0 0">自带译文' + (state.zhp && state.zhp[state.idx] ? '·整段' : '') + '</span>' : '') + trans + (hasBz ? ' <button class="link" onclick="toggleBookZh()">' + (bz ? '改看机器翻译' : '改看自带译文') + '</button>' : '') : '<span class="sub">中文翻译已隐藏</span>') + '</div>' +
         '<button class="iconbtn" style="flex-shrink:0" onclick="toggleZh()">' + (getShowZh() ? '隐藏中文' : '显示中文') + '</button>' +
       '</div>' +
-      (azReady() ? '<div class="row" style="margin-top:10px"><button class="ghost sm" onclick="lbOpenEn(state.bookId)">🎧 听中文（连续朗读·开发者）</button></div>' : '') +
       '<div class="section">' + recs + '</div>' +
       practiceHtml +
       '<div class="section">' + aiHtml() + chatHtml() + '</div>' +
