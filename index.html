@@ -301,7 +301,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.19-148';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.19-149';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1485,7 +1485,22 @@ function playListen() {
   speakNow(u);
   render();
 }
+function speakPacked(text, rate) {             // 书的自然语音包里有这个词/句：直接放（单词也录进了包里）；没有就退回原来的办法
+  markStopped(); azUnlock();
+  const job = { _stopped: false }, t = String(text).trim(), lo = t.toLowerCase(); lastListenUtt = job;
+  (async () => {
+    let b = await vpGet(t); if (!b && lo !== t) b = await vpGet(lo);
+    if (!b && state && state.natSrc) b = await natFetch(lo) || (lo !== t ? await natFetch(t) : null);
+    return b;
+  })().then(b => {
+    if (job._stopped) return;
+    if (b) { const a = azSetSrc(b); a.onended = a.onerror = null; a.play().catch(() => {}); return; }
+    if (azReady()) { azSpeakShort(text); return; }
+    try { const u = new SpeechSynthesisUtterance(text); applyVoiceSync(u); u.rate = rate || getRate(); speakNow(u); } catch (e) {}
+  });
+}
 function speakText(text, rate) {               // 单词、听写、整页翻译里的单句朗读等用：同步播放
+  if (vpCount > 0 || (state && state.natSrc)) { speakPacked(text, rate); return; }
   if (azReady()) { azSpeakShort(text); return; }
   try {
     const u = new SpeechSynthesisUtterance(text);
@@ -1990,6 +2005,11 @@ function devParse(text) {                           // 解析中英对照文本�
   const preview = [1, 2, 3].filter(i => pb.sentences[i] && al.zh[i]).slice(0, 2).map(i => ({ en: pb.sentences[i], zh: al.zh[i] }));
   return { sents: pb.sentences, preview };
 }
+function devWithWords(sents) {                      // 句子之外再加上书里出现的所有不同单词（小写）：点单词时也是自然语音。一本书几千个词，费用很小
+  const seen = new Set(), out = sents.slice();
+  for (const t of sents) for (const w of String(t).toLowerCase().replace(/[’‘]/g, "'").match(/[a-z]+(?:'[a-z]+)*/g) || []) if (w.length <= 24 && !seen.has(w)) { seen.add(w); out.push(w); }
+  return out;
+}
 async function devSynth(sents) {                     // 用开发者的 Azure Key 逐句合成。返回 { clips: Map(哈希→音频), voice }；缺句会抛错（再点一次接着做，已合成的不重复收费）
   const voice = azCfg().voice, uniq = new Map();
   for (const t of sents) { const k = await vpKey(t); if (!uniq.has(k)) uniq.set(k, String(t).trim()); }
@@ -2115,12 +2135,12 @@ async function devNewGo() {
   const price = Math.max(0, parseFloat(document.getElementById('dnPrice').value) || 0), wantVoice = document.getElementById('dnVoice').checked;
   if (!title) { setScStatus('请填英文标题'); return; }
   const id = devSlug(title) || ('s' + Date.now().toString(36));
-  const chars = devNew.d.sents.reduce((m, x) => m + x.length, 0);
+  const chars = wantVoice ? devWithWords(devNew.d.sents).reduce((m, x) => m + x.length, 0) : 0;      // 句子 + 单词
   if (wantVoice && azUsed() + chars > AZ_FREE && !confirm('这本约 ' + chars + ' 字符，加上本月已记录的 ' + azUsed() + '，会超出 ' + AZ_FREE + ' 免费额度。\n\n· 定价层是 F0：超出的会失败，不收费\n· 定价层是 S0、还在免费试用：从试用额度里扣，不收费\n· 已升级即用即付且是 S0：会向微软付费\n\n继续吗？')) return;
   devGenBusy = true; document.getElementById('dnGo').disabled = true;
   try {
     let clips = null, voice = '';
-    if (wantVoice) { const r = await devSynth(devNew.d.sents); clips = r.clips; voice = r.voice; }
+    if (wantVoice) { const r = await devSynth(devWithWords(devNew.d.sents)); clips = r.clips; voice = r.voice; }
     setScStatus('正在打包并上架…');
     const man = { format: 'sr-story', v: 1, id, title, level, voice, count: devNew.d.sents.length };
     const pk = await devPackStory(man, devNew.text, null);
@@ -2174,7 +2194,7 @@ async function devGenVoice(id) {                      // 已上架的材料补�
   try {
     setScStatus('正在读取《' + it.title + '》…');
     const { man, text } = await devLoadStory(it);
-    const sents = devParse(text).sents, have = await devHaveClips(it.id), need = await devNeedSynth(sents, have);
+    const sents = devParse(text).sents, have = await devHaveClips(it.id), need = await devNeedSynth(devWithWords(sents), have);
     if (!need.length && it.voice) { setScStatus('《' + it.title + '》的语音已经齐全（' + sents.length + ' 句），不用再做。'); devGenBusy = false; return; }
     if (need.length) {
       if (!devAzConfirm(need.reduce((m, x) => m + x.length, 0))) { devGenBusy = false; setScStatus('已取消'); return; }
@@ -2300,7 +2320,7 @@ async function devEditSave() {
     for (const t of newS) { const k = await vpKey(t); if (!oldKeys.has(k) && !seen.has(k)) { seen.add(k); changed.push(String(t).trim()); } }
     let voice = d.man.voice || '';
     if (it.voice && changed.length) {
-      const have = await devHaveClips(it.id), need = await devNeedSynth(changed, have);
+      const have = await devHaveClips(it.id), need = await devNeedSynth(devWithWords(changed), have);
       if (need.length) {
         if (!devAzConfirm(need.reduce((m, x) => m + x.length, 0))) { devGenBusy = false; setScStatus('已取消'); return; }
         setScStatus('英文改了 ' + changed.length + ' 句，正在重新合成语音…');
