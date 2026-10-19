@@ -1,6 +1,6 @@
 // 故事城后台接口测试（不涉及真实密钥）
 process.env.VOLC_AK = 'A'; process.env.VOLC_SK = 'S'; process.env.ALLOW_ORIGINS = 'https://ok.example';
-process.env.ADMIN_TOKEN = 'test-admin-token-1234567890'; process.env.USAGE_FILE = '/tmp/shoptest/usage.json'; process.env.MAX_UPLOAD = '2000'; process.env.GRAMMAR_URL = 'http://127.0.0.1:9923'; process.env.AZURE_SPEECH_KEY = 'k'; process.env.AZURE_STT_HOST = 'http://127.0.0.1:9924'; process.env.AZURE_TTS_HOST = 'http://127.0.0.1:9926'; process.env.TTS_DAILY_CHARS = '40'; process.env.VOICE_ZIP_MAX = '1500'; process.env.ARK_API_KEY = 'ark-test'; process.env.ARK_HOST = 'http://127.0.0.1:9925'; process.env.EXPLAIN_PER_IP_HOUR = '3'; process.env.CHAT_PER_IP_HOUR = '8';
+process.env.ADMIN_TOKEN = 'test-admin-token-1234567890'; process.env.USAGE_FILE = '/tmp/shoptest/usage.json'; process.env.MAX_UPLOAD = '20000'; process.env.GRAMMAR_URL = 'http://127.0.0.1:9923'; process.env.AZURE_SPEECH_KEY = 'k'; process.env.AZURE_STT_HOST = 'http://127.0.0.1:9924'; process.env.AZURE_TTS_HOST = 'http://127.0.0.1:9926'; process.env.TTS_DAILY_CHARS = '40'; process.env.VOICE_ZIP_MAX = '12000'; process.env.VOICE_PART_MAX = '3000'; process.env.ARK_API_KEY = 'ark-test'; process.env.ARK_HOST = 'http://127.0.0.1:9925'; process.env.EXPLAIN_PER_IP_HOUR = '3'; process.env.CHAT_PER_IP_HOUR = '8';
 require('child_process').execSync('rm -rf /tmp/shoptest');
 const http = require('http'), assert = require('assert');
 const { server } = require('./server.js'); server.listen(9922);
@@ -42,7 +42,7 @@ const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-toke
   r = await call('/admin/private/secret.zip', { h: A }); assert.equal(r.s, 200); assert.equal(r.b, 'PRIV');
   r = await call('/admin/private/secret.zip', { h: { Origin: 'https://ok.example' } }); assert.equal(r.s, 401);
   r = await call('/files/..%2Fcatalog.json'); assert.equal(r.s, 404);
-  r = await call('/admin/file/big.zip', { m: 'PUT', h: A, body: 'x'.repeat(5000) }); assert.equal(r.s, 413);
+  r = await call('/admin/file/big.zip', { m: 'PUT', h: A, body: 'x'.repeat(25000) }); assert.equal(r.s, 413);
   r = await call('/admin/file/bad.exe', { m: 'PUT', h: A, body: 'x' }); assert.equal(r.s, 404);
   // 语音按句拆分：上传 voice.zip 自动拆；旧格式 srbook 用 /admin/split 转换
   const JSZip = require('../lib/jszip.min.js');
@@ -66,7 +66,12 @@ const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-toke
     r = await call('/admin/file/part1.voice.zip', { m: 'PUT', h: A, body: await mk(H5, 'P5') }); assert.equal(r.s, 200); assert.equal(JSON.parse(r.b).tooBig, false);
     r = await new Promise(ok => http.get({ port: 9922, path: '/files/part1.voice.zip' }, rr => { const ch = []; rr.on('data', c => ch.push(c)); rr.on('end', () => ok(Buffer.concat(ch))); }));
     assert.deepEqual(Object.keys((await JSZip.loadAsync(r)).files).filter(n => /^clips\//.test(n)).sort(), ['clips/' + H4 + '.mp3', 'clips/' + H5 + '.mp3']);
-    r = await call('/admin/file/huge.voice.zip', { m: 'PUT', h: A, body: await mk(H4, 'x'.repeat(1550)) }); assert.equal(r.s, 200); assert.equal(JSON.parse(r.b).tooBig, true); }
+    r = await call('/admin/file/huge.voice.zip', { m: 'PUT', h: A, body: await mk(H4, 'x'.repeat(13000)) }); assert.equal(r.s, 200); assert.equal(JSON.parse(r.b).tooBig, true);
+    // 语音总包自动分份：3 句，每句约 2000 字节，每份上限 3000 → 3 份（每份 1 句）；买家用凭证也能取到各份
+    { const zz = new JSZip(); zz.file('manifest.json', '{}'); for (const c of '123') zz.file('clips/' + c.repeat(64) + '.mp3', 'y'.repeat(2000)); r = await call('/admin/file/multi.voice.zip', { m: 'PUT', h: A, body: await zz.generateAsync({ type: 'nodebuffer' }) }); assert.equal(r.s, 200); assert.equal(JSON.parse(r.b).tooBig, false);
+      const get = n => new Promise(ok => http.get({ port: 9922, path: '/files/' + n }, rr => { const ch = []; rr.on('data', c => ch.push(c)); rr.on('end', () => ok({ s: rr.statusCode, b: Buffer.concat(ch) })); }));
+      let tot = 0, parts = 0; for (const n of ['multi.voice.zip', 'multi.voice2.zip', 'multi.voice3.zip']) { const g = await get(n); assert.equal(g.s, 200, n); const z = await JSZip.loadAsync(g.b), man = JSON.parse(await z.file('manifest.json').async('string')); parts = man.parts; tot += Object.keys(z.files).filter(k => /^clips\//.test(k)).length; }
+      assert.equal(parts, 3); assert.equal(tot, 3); assert.equal((await get('multi.voice4.zip')).s, 404); } }
   r = await call('/files/kit/' + H1 + '.mp3'); assert.equal(r.b, 'AUDIO-ONE');
   r = await call('/admin/clips/kit', { h: A }); assert.equal(r.s, 200); assert.deepEqual(JSON.parse(r.b).have.sort(), [H1, H2, H3]);
   r = await call('/admin/clips/kit', { h: { Origin: 'https://ok.example' } }); assert.equal(r.s, 401);

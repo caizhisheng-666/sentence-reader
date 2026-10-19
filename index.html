@@ -1851,6 +1851,11 @@ async function getStoryVoice(it) {
     const names = Object.keys(z.files).filter(n => /^clips\/[0-9a-f]{16,64}\.mp3$/.test(n));
     if (!names.length) throw new Error('语音文件是空的');
     await vpImportClips(z, names, { id: 'story-' + it.id, title: it.title }, it.title, null);
+    for (let k = 2; k <= (man.parts || 1); k++) {            // 语音很大时服务器分成了好几份：一份一份下载，手机内存不会撑爆
+      const bk2 = await fetchProgress(voiceUrlOf(it).replace(/voice\.zip(?=$|\?)/, 'voice' + k + '.zip'), p => { voiceDl[it.id] = Math.min(99, Math.round(((k - 1) * 100 + p) / man.parts)); upd(); });
+      const z2 = await JSZip.loadAsync(bk2), nm2 = Object.keys(z2.files).filter(n => /^clips\/[0-9a-f]{16,64}\.mp3$/.test(n));
+      if (nm2.length) await vpImportClips(z2, nm2, { id: 'story-' + it.id, title: it.title }, it.title, null);
+    }
     const bid = 'story-' + it.id, nv = man.voice || 'natural';
     const bk = await idbGet('books', bid); if (bk) { bk.natVoice = nv; await idbPut('books', bk, bid); }
     if (state && state.bookId === bid) { state.natVoice = nv; refreshVoiceSelect(); }
