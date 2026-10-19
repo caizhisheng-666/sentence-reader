@@ -21,7 +21,8 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';              // 故事城后�
 const SHOP_DIR = process.env.SHOP_DIR || path.join(path.dirname(USAGE_FILE), 'shop');
 const SHOP_FILE = path.join(SHOP_DIR, 'catalog.json'), SHOP_FILES = path.join(SHOP_DIR, 'files'), SHOP_PRIV = path.join(SHOP_DIR, 'private');   // files 公开下载；private 是收费商品，只有付款后才发给买家
 const MAX_UPLOAD = +process.env.MAX_UPLOAD || 300 * 1048576;
-const VOICE_ZIP_MAX = +process.env.VOICE_ZIP_MAX || 400 * 1048576;   // “下载全部语音”总包的体积上限（合并时要整个读进内存，服务器内存小就别调大）
+const VOICE_PART_MAX = +process.env.VOICE_PART_MAX || 64 * 1048576;   // 语音总包会自动切成每份约这么大（买家手机一次只处理一份，不会撑爆内存）
+const VOICE_ZIP_MAX = +process.env.VOICE_ZIP_MAX || 3 * 1024 * 1048576;   // “下载全部语音”总包的体积上限（合并时要整个读进内存，服务器内存小就别调大）
 const HOST = process.env.VOLC_HOST || 'translate.volcengineapi.com';
 const PROTO = process.env.VOLC_PROTO || 'https';
 const REGION = 'cn-north-1', SERVICE = 'translate';
@@ -193,10 +194,16 @@ function rebuildVoiceZip(id, priv) {                // 增量补了几句语音�
   const dir = path.join(priv ? SHOP_PRIV : SHOP_FILES, id); if (!fs.existsSync(dir)) return 0;
   const files = fs.readdirSync(dir).filter(f => /^[0-9a-f]{16,64}\.mp3$/.test(f));
   const total = files.reduce((a, f) => a + fs.statSync(path.join(dir, f)).size, 0); if (total > VOICE_ZIP_MAX) return { tooBig: true, total };
-  const ents = files.map(f => ({ name: 'clips/' + f, data: fs.readFileSync(path.join(dir, f)) }));
-  const target = path.join(priv ? SHOP_PRIV : SHOP_FILES, id + '.voice.zip'), tmp = target + '.tmp';
-  fs.writeFileSync(tmp, zipStore([{ name: 'manifest.json', data: Buffer.from(JSON.stringify({ format: 'sr-voicepack', v: 1, id: 'story-' + id, count: files.length })) }, ...ents]));
-  fs.renameSync(tmp, target); return files.length;
+  const base = priv ? SHOP_PRIV : SHOP_FILES, groups = []; let cur = [], sz = 0;
+  for (const f of files) { const n = fs.statSync(path.join(dir, f)).size; if (cur.length && sz + n > VOICE_PART_MAX) { groups.push(cur); cur = []; sz = 0; } cur.push(f); sz += n; }
+  if (cur.length) groups.push(cur);
+  groups.forEach((g, k) => {                         // 每一份：id.voice.zip、id.voice2.zip、id.voice3.zip …，每份里都写明一共几份
+    const target = path.join(base, id + (k ? '.voice' + (k + 1) : '.voice') + '.zip'), tmp = target + '.tmp';
+    fs.writeFileSync(tmp, zipStore([{ name: 'manifest.json', data: Buffer.from(JSON.stringify({ format: 'sr-voicepack', v: 1, id: 'story-' + id, count: g.length, total: files.length, parts: groups.length, part: k + 1 })) }, ...g.map(f => ({ name: 'clips/' + f, data: fs.readFileSync(path.join(dir, f)) }))]));
+    fs.renameSync(tmp, target);
+  });
+  for (let k = groups.length + 1; k < 200; k++) { const old = path.join(base, id + '.voice' + k + '.zip'); if (fs.existsSync(old)) fs.unlinkSync(old); else break; }   // 语音变少了：删掉多余的旧份
+  return files.length;
 }
 // ---- 兑换码：买家在闲鱼等地方付款后拿到兑换码，在软件里输入，服务器核对后把收费故事发给他 ----
 const CODES_FILE = path.join(SHOP_DIR, 'codes.json'), CODE_ALPHA = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789', CODE_MAX_USES = 3;
@@ -406,10 +413,10 @@ async function shopRoutes(req, res) {
     if (!fs.existsSync(f)) { res.writeHead(404, pubHead); res.end(); return true; }
     res.writeHead(200, { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=86400', 'Content-Type': 'audio/mpeg', 'Content-Length': fs.statSync(f).size }); fs.createReadStream(f).pipe(res); return true;
   }
-  const pm = /^\/pfiles\/([0-9a-f]{32})\/(story\.srbook|voice\.zip|[0-9a-f]{16,64}\.mp3)$/.exec(url);
+  const pm = /^\/pfiles\/([0-9a-f]{32})\/(story\.srbook|voice[0-9]{0,3}\.zip|[0-9a-f]{16,64}\.mp3)$/.exec(url);
   if (req.method === 'GET' && pm) {                 // 收费故事：只有兑换过的买家（凭证）才能取文字和语音
     const sid = tokenLookup(pm[1]), seg = pm[2];
-    const f = !sid ? '' : seg === 'story.srbook' ? path.join(SHOP_PRIV, sid + '.srbook') : seg === 'voice.zip' ? path.join(SHOP_PRIV, sid + '.voice.zip') : path.join(SHOP_PRIV, sid, seg);
+    const f = !sid ? '' : seg === 'story.srbook' ? path.join(SHOP_PRIV, sid + '.srbook') : /^voice[0-9]{0,3}\.zip$/.test(seg) ? path.join(SHOP_PRIV, sid + '.' + seg) : path.join(SHOP_PRIV, sid, seg);
     if (!f || !fs.existsSync(f)) { res.writeHead(404, pubHead); res.end(); return true; }
     const mp3 = /\.mp3$/.test(seg);
     res.writeHead(200, { 'Access-Control-Allow-Origin': '*', 'Cache-Control': mp3 ? 'private, max-age=86400' : 'no-store', 'Content-Type': mp3 ? 'audio/mpeg' : 'application/zip', 'Content-Length': fs.statSync(f).size }); fs.createReadStream(f).pipe(res); return true;
@@ -657,7 +664,7 @@ async function shopRoutes(req, res) {
       const toPriv = np > 0 && !it.price, toFree = np === 0 && !!it.price;
       if (toPriv || toFree) {
         if (it.file && !/^api:files\//.test(it.file)) return out(400, { error: 'static-file' });
-        const from = toPriv ? SHOP_FILES : SHOP_PRIV, to = toPriv ? SHOP_PRIV : SHOP_FILES, names = [id + '.srbook', id + '.voice.zip', id];
+        const from = toPriv ? SHOP_FILES : SHOP_PRIV, to = toPriv ? SHOP_PRIV : SHOP_FILES, names = [id + '.srbook', id + '.voice.zip', id, ...Array.from({ length: 60 }, (_, k) => id + '.voice' + (k + 2) + '.zip').filter(n => fs.existsSync(path.join(from, n)))];
         if (!fs.existsSync(path.join(from, id + '.srbook'))) return out(404, { error: 'file-not-found' });
         if (names.some(n => fs.existsSync(path.join(to, n)))) return out(409, { error: 'target-exists' });
         fs.mkdirSync(to, { recursive: true });
