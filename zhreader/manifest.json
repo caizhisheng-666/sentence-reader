@@ -1,6 +1,6 @@
 {
-  "name": "中文听书",
-  "short_name": "中文听书",
+  "name": "喵喵听书",
+  "short_name": "喵喵听书",
   "description": "看中文、听中文：像微信读书那样一句接一句连续朗读",
   "start_url": "./",
   "scope": "./",

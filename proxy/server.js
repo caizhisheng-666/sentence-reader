@@ -179,6 +179,11 @@ function zipStore(files) {
   return Buffer.concat([...parts, cd, e]);
 }
 const CLIP_RE = /^clips\/([0-9a-f]{16,64})\.mp3$/;
+/* ---------- 中文听书·公版书库：开发者上传电子书（句子清单）和本机录好的自然人声，所有人免口令直接听 ---------- */
+const ZL_DIR = path.join(SHOP_DIR, 'zl'), ZL_CAT = path.join(ZL_DIR, 'catalog.json'), ZL_ID = /^[a-z0-9][a-z0-9-]{0,40}$/;
+function zlRead() { try { const j = JSON.parse(fs.readFileSync(ZL_CAT, 'utf8')); return Array.isArray(j.items) ? j : { items: [] }; } catch (e) { return { items: [] }; } }
+function zlWrite(j) { fs.mkdirSync(ZL_DIR, { recursive: true }); const t = ZL_CAT + '.tmp'; fs.writeFileSync(t, JSON.stringify(j)); fs.renameSync(t, ZL_CAT); }
+const zlClipCount = id => { try { return fs.readdirSync(path.join(ZL_DIR, id)).filter(f => /^[0-9a-f]{16,64}\.mp3$/.test(f)).length; } catch (e) { return 0; } };
 function extractClips(id, entries, priv) {          // 语音拆成 files/<故事>/<句子哈希>.mp3
   const dir = path.join(priv ? SHOP_PRIV : SHOP_FILES, id); fs.mkdirSync(dir, { recursive: true });
   let n = 0; for (const e of entries) { const m = CLIP_RE.exec(e.name); if (m) { fs.writeFileSync(path.join(dir, m[1] + '.mp3'), e.data); n++; } }
@@ -387,6 +392,14 @@ async function shopRoutes(req, res) {
   const url = req.url.split('?')[0];
   const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
   if (req.method === 'GET' && url === '/catalog') { res.writeHead(200, { ...pubHead, 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(shopRead())); return true; }
+  if (req.method === 'GET' && url === '/zl/catalog') { res.writeHead(200, { ...pubHead, 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(zlRead())); return true; }
+  const zm = /^\/zl\/([a-z0-9][a-z0-9-]{0,40})\/(book\.json|[0-9a-f]{16,64}\.mp3)$/.exec(url);
+  if (req.method === 'GET' && zm) {
+    const f = path.join(ZL_DIR, zm[1], zm[2]);
+    if (!fs.existsSync(f)) { res.writeHead(404, pubHead); res.end(); return true; }
+    const isBook = zm[2] === 'book.json';
+    res.writeHead(200, { 'Access-Control-Allow-Origin': '*', 'Cache-Control': isBook ? 'no-cache' : 'public, max-age=31536000, immutable', 'Content-Type': isBook ? 'application/json; charset=utf-8' : 'audio/mpeg', 'Content-Length': fs.statSync(f).size }); fs.createReadStream(f).pipe(res); return true;
+  }
   const cm = /^\/files\/([a-z0-9][a-z0-9-]{0,59})\/([0-9a-f]{16,64})\.mp3$/.exec(url);
   if (req.method === 'GET' && cm) {
     const f = path.join(SHOP_FILES, cm[1], cm[2] + '.mp3');
@@ -556,6 +569,28 @@ async function shopRoutes(req, res) {
     if (req.method === 'GET' && m) {                   // 这本书服务器上已经有哪些句子的语音（补语音时只做缺的）
       const have = new Set(); for (const base of [SHOP_FILES, SHOP_PRIV]) { try { for (const f of fs.readdirSync(path.join(base, m[1]))) { const h = /^([0-9a-f]{16,64})\.mp3$/.exec(f); if (h) have.add(h[1]); } } catch (e) {} }
       return out(200, { have: [...have] });
+    }
+    m = /^\/admin\/zl\/([a-z0-9][a-z0-9-]{0,40})(?:\/(have|clips|book))?$/.exec(url);
+    if (m && m[1] && (m[2] || req.method === 'DELETE')) {
+      const id = m[1], dir = path.join(ZL_DIR, id);
+      if (req.method === 'GET' && m[2] === 'have') { let have = []; try { have = fs.readdirSync(dir).map(f => /^([0-9a-f]{16,64})\.mp3$/.exec(f)).filter(Boolean).map(x => x[1]); } catch (e) {} return out(200, { have }); }
+      if (req.method === 'PUT' && m[2] === 'clips') {          // 一批语音：zip（不压缩），里面是 clips/<句子哈希>.mp3
+        let ents; try { ents = unzipBuf(await readBodyBuf(req, MAX_UPLOAD)); } catch (e) { return out(e.message === 'too-big' ? 413 : 400, { error: e.message === 'too-big' ? 'too-big' : 'bad-zip' }); }
+        fs.mkdirSync(dir, { recursive: true }); let n = 0;
+        for (const e of ents) { const k = CLIP_RE.exec(e.name); if (k && e.data.length > 100) { fs.writeFileSync(path.join(dir, k[1] + '.mp3'), e.data); n++; } }
+        return out(200, { ok: true, clips: n });
+      }
+      if (req.method === 'PUT' && m[2] === 'book') {            // 书的内容 + 上架：{title, author, voice, s:[句子], p:[每段起点]}
+        const b = JSON.parse((await readBodyBuf(req, 30 * 1048576)).toString('utf8'));
+        if (!b || !Array.isArray(b.s) || !b.s.length || b.s.length > 300000 || !b.s.every(x => typeof x === 'string')) return out(400, { error: 'bad-book' });
+        const title = String(b.title || '').trim().slice(0, 80); if (!title) return out(400, { error: 'no-title' });
+        const book = { title, author: String(b.author || '').trim().slice(0, 40), s: b.s, p: Array.isArray(b.p) ? b.p.filter(x => Number.isInteger(x) && x >= 0 && x < b.s.length) : [0], voice: String(b.voice || '').slice(0, 40) };
+        fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, 'book.json.tmp'), JSON.stringify(book)); fs.renameSync(path.join(dir, 'book.json.tmp'), path.join(dir, 'book.json'));
+        const j = zlRead(), it = { id, title, author: book.author, n: book.s.length, chars: book.s.reduce((a, x) => a + x.length, 0), voice: book.voice, clips: zlClipCount(id), at: Date.now() };
+        const k = j.items.findIndex(x => x.id === id); if (k >= 0) j.items[k] = it; else j.items.push(it); zlWrite(j);
+        return out(200, { ok: true, item: it });
+      }
+      if (req.method === 'DELETE' && !m[2]) { fs.rmSync(dir, { recursive: true, force: true }); const j = zlRead(); j.items = j.items.filter(x => x.id !== id); zlWrite(j); return out(200, { ok: true }); }
     }
     if (req.method === 'POST' && url === '/admin/tts') {            // 中文自然人声：{text, voice} → mp3
       if (!AZ_KEY || (!AZ_REGION && !TTS_HOST)) return out(503, { error: 'not-configured' });

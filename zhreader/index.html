@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
-<title>中文听书</title>
+<title>喵喵听书</title>
 <link rel="manifest" href="./manifest.json">
 <link rel="icon" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
@@ -11,7 +11,7 @@
 <meta name="theme-color" content="#16140F" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="中文听书">
+<meta name="apple-mobile-web-app-title" content="喵喵听书">
 <style>
 
 :root{
@@ -376,7 +376,7 @@ function parseMobi(buf) {
   if (text.length < 20) throw new Error('没有从这个文件里读出文字');
   return text;
 }
-/* ---------- 中文听书：单独的区域。看中文、听中文，像微信读书那样一句接一句连续朗读；书可以是你导入的中文书，也可以是书架上的英文书（读中文译文） ---------- */
+/* ---------- 喵喵听书：单独的区域。看中文、听中文，像微信读书那样一句接一句连续朗读；书可以是你导入的中文书，也可以是书架上的英文书（读中文译文） ---------- */
 const LB_KEY = 'lbidx';
 const lb = { on: false, paused: false, tok: 0, end: 0, timer: 0, fails: 0, list: [], cur: null, screen: '', winA: 0, winB: 0, pre: new Map() };
 const lbSleep = ms => new Promise(r => setTimeout(r, ms));
@@ -394,15 +394,27 @@ function lbSilUrl() {                                // 1 秒静音，两句之�
   new Uint8Array(b, 44).fill(128); return lb.silUrl = URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
 }
 function lbFiller() { try { const a = lbAud(); a.loop = true; a.src = lbSilUrl(); a.playbackRate = 1; const p = a.play(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
-function lbNat() { return !!admTok && localStorage.getItem('zh_eng') !== 'sys' && !lb.natOff; }
+const lbZl = () => (lb.cur && lb.cur.it.zl) || '';                 // 当前这本书如果来自公版书库：用书自带的自然人声，不需要口令
+function lbNat() { return (lbZl() || !!admTok) && localStorage.getItem('zh_eng') !== 'sys' && !lb.natOff; }
 function lbNatVoice() { const v = localStorage.getItem('zh_nv'); return LB_NAT.find(x => x[0] === v) || LB_NAT[0]; }
 function lbAud() { if (!lb.aud) { lb.aud = new Audio(); lb.aud.preload = 'auto'; lb.aud.setAttribute('playsinline', ''); } return lb.aud; }
 function lbChunks(t) {                               // 服务器一次最多 300 字；长句按标点切开
-  t = String(t).replace(/\s+/g, ' ').trim(); if (t.length <= 260) return t ? [t] : [];
+  t = String(t).replace(/\s+/g, ' ').trim(); if (lbZl()) return t ? [t] : [];     // 书库的语音是一句一个文件，不再切开 if (t.length <= 260) return t ? [t] : [];
   const out = []; let cur = ''; for (const p of t.split(/(?<=[。！？!?；;，,、])/)) { if ((cur + p).length > 260 && cur) { out.push(cur); cur = ''; } cur += p; while (cur.length > 280) { out.push(cur.slice(0, 280)); cur = cur.slice(280); } } if (cur) out.push(cur); return out;
 }
-const lbKey = text => 'zl:' + lbNatVoice()[0] + '|' + text;
+const lbKey = text => lbZl() ? 'zr:' + lbZl() + '|' + text : 'zl:' + lbNatVoice()[0] + '|' + text;
+const zlHash = async text => { const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('zl1\n' + String(text).trim())); return [...new Uint8Array(d)].map(n => n.toString(16).padStart(2, '0')).join(''); };
+async function lbFetchZl(text) {                     // 书库的书：向服务器取这一句录好的 mp3（公开的，不要口令）
+  const id = lbZl(), k = lbKey(text); let r;
+  try { r = await fetch(API_BASE + '/zl/' + id + '/' + await zlHash(text) + '.mp3'); } catch (e) { const er = new Error('net'); er.code = 'fail'; throw er; }
+  if (r.status === 404) { const er = new Error('nf'); er.code = 'nf'; throw er; }
+  if (!r.ok) { const er = new Error('http' + r.status); er.code = 'fail'; throw er; }
+  const bl = await r.blob(); if (bl.size < 100) { const er = new Error('nf'); er.code = 'nf'; throw er; }
+  try { await idbPut('tts', bl, k); } catch (e) {}
+  return bl;
+}
 async function lbFetchBlob(text) {                   // 向服务器要一句的 mp3；成功后存进这台设备，以后不再联网、不再花额度
+  if (lbZl()) return lbFetchZl(text);
   const r = await zhAdmin('/admin/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice: lbNatVoice()[0] }) });
   if (!r.ok) { const e = new Error(r.msg || 'tts'); e.code = /429/.test(r.msg || '') ? 'limit' : 'fail'; throw e; }
   const bl = await r.res.blob(); if (!bl.size) throw new Error('empty');
@@ -422,9 +434,21 @@ function lbMp3(text) {                               // 返回 Promise<blobURL>�
   return pr;
 }
 /* 整本预生成：一次把这本书的语音全部存到设备里，之后随时离线听。已经存过的句子自动跳过。 */
+async function lbDownloadAll() {                     // 书库的书：把整本的自然人声下载到设备里，之后离线也能听（免费）
+  const b = lb.cur; if (!b) return;
+  const need = []; for (let i = 0; i < b.n; i++) { const t = lbPeek(i); if (t && !(await lbHas(t))) need.push(t); }
+  if (!need.length) { toast('这本书的语音已经全部在设备里了', 2500); return; }
+  if (!confirm('要下载 ' + need.length + ' 段语音到这台设备（建议连 Wi-Fi）。下载后可以离线听。中途可以再点一次按钮停止。继续吗？')) return;
+  const st = lb.pg = { stop: false, done: 0, total: need.length, miss: 0 }; let q = 0;
+  const show = () => { lb.pgTxt = st.stop ? '' : '正在下载 ' + st.done + ' / ' + st.total; lbBar(); };
+  const worker = async () => { while (!st.stop && q < need.length) { const t = need[q++]; try { await lbFetchBlob(t); st.done++; } catch (e) { if (e.code === 'nf') st.miss++; else { st.stop = true; st.err = 1; } } if (st.done % 10 === 0) show(); } };
+  show(); await Promise.all([worker(), worker(), worker(), worker()]);
+  lb.pg = null; lb.pgTxt = ''; lbBar();
+  toast(st.err ? '网络断了，已下载 ' + st.done + ' 段，联网后再点可继续' : '下载完成 🎉' + (st.miss ? '（有 ' + st.miss + ' 句书里没录音，会用系统声音）' : ''), 5000);
+}
 async function lbPregen() {
   if (lb.pg) { lb.pg.stop = true; return; }
-  const b = lb.cur; if (!b) return;
+  const b = lb.cur; if (!b) return; if (lbZl()) return lbDownloadAll();
   if (!lbNat()) { toast('先切到“自然”声音，再预生成', 2500); return; }
   const idx = [], texts = []; for (let i = 0; i < b.n; i++) { const t = lbPeek(i); if (t) { idx.push(i); texts.push(...lbChunks(t)); } }
   if (!texts.length) { toast('这本书还没有可朗读的中文', 2500); return; }
@@ -439,7 +463,7 @@ async function lbPregen() {
   lb.pg = null; lb.pgTxt = ''; lbBar();
   toast(st.err ? ('已停止：' + st.err + '，已存 ' + st.done + ' 段，明天再点可继续') : (st.done >= st.total ? '全部生成完了 🎉 以后可以离线听' : '已停止，已存 ' + st.done + ' 段'), 5000);
 }
-async function lbClearSaved() { if (!confirm('清除这台设备上存的所有自然人声语音？（要听时会重新从服务器取，已经生成过的不再花额度）')) return; try { await idbDelPrefix('tts', 'zl:'); } catch (e) {} lb.mp3 = new Map(); toast('已清除', 1800); }
+async function lbClearSaved() { if (!confirm('清除这台设备上存的所有自然人声语音？（要听时会重新从服务器取，已经生成过的不再花额度）')) return; try { await idbDelPrefix('tts', 'zl:'); await idbDelPrefix('tts', 'zr:'); } catch (e) {} lb.mp3 = new Map(); toast('已清除', 1800); }
 function lbNatPre(from) { if (!lbNat() || !lb.cur) return; for (let i = from; i < from + 3 && i < lb.cur.n; i++) { const t = lbPeek(i); if (t) lbChunks(t).forEach(c => lbMp3(c).catch(() => {})); } }
 function lbPlayUrl(url, tok) {
   return new Promise(res => {
@@ -455,6 +479,7 @@ async function lbSayNat(text, tok) {
     let url; try { url = await lbMp3(c); lb.natFails = 0; }
     catch (e) {
       if (tok !== lb.tok) return;
+      if (e.code === 'nf') return lbSaySys(c, tok);                // 这一句书库里没录：只这一句用系统声音
       if (e.code === 'limit' || ++lb.natFails >= 2) { lb.natOff = true; toast(e.code === 'limit' ? '今天的自然人声额度用完了，已换成系统声音' : '自然人声连不上，已换成系统声音', 4500); lbBar(); }
       return lbSaySys(c, tok);
     }
@@ -466,7 +491,7 @@ function lbHalt() { try { speechSynthesis.cancel(); } catch (e) {} try { if (lb.
 function lbMedia() {
   if (!('mediaSession' in navigator) || !lb.cur) return;
   try {
-    navigator.mediaSession.metadata = new MediaMetadata({ title: lb.cur.it.title || '中文听书', artist: '中文听书' });
+    navigator.mediaSession.metadata = new MediaMetadata({ title: lb.cur.it.title || '喵喵听书', artist: '喵喵听书' });
     navigator.mediaSession.playbackState = lb.on && !lb.paused ? 'playing' : 'paused';
     navigator.mediaSession.setActionHandler('play', () => lbToggle());
     navigator.mediaSession.setActionHandler('pause', () => lbToggle());
@@ -563,7 +588,7 @@ function lbFont(d) { const n = Math.max(15, Math.min(34, lbFs() + d)); localStor
 function lbFace() { localStorage.setItem('zh_ff', lbSans() ? 'serif' : 'sans'); lbEl().classList.toggle('sans', lbSans()); lbPaint(true, true); lbBar(); }
 window.addEventListener('resize', () => { if (lb.screen === 'read' && lbPage() && lb.cur) { lb.browse = false; lbPaint(true, true); } });
 function lbEngine() { const to = lbNat() ? 'sys' : 'nat'; lb.natOff = false; localStorage.setItem('zh_eng', to); toast(to === 'nat' ? '已换成自然人声（需要联网）' : '已换成系统声音', 2000); lbBar(); lbRestart(); }
-function lbVoiceNext() { if (lbNat()) { const i = LB_NAT.findIndex(x => x[0] === lbNatVoice()[0]), n = LB_NAT[(i + 1) % LB_NAT.length]; localStorage.setItem('zh_nv', n[0]); toast('声音：' + n[1], 2000); lbBar(); lbRestart(); return; } const vs = lbVoices(); if (vs.length < 2) { toast(vs.length ? '这台设备只有一个中文声音' : '这台设备没有找到中文声音', 2500); return; } const c = lbVoice(), n = vs[(vs.findIndex(v => c && v.voiceURI === c.voiceURI) + 1) % vs.length]; localStorage.setItem('zh_voice', n.voiceURI); toast('声音：' + n.name, 1800); lbRestart(); }
+function lbVoiceNext() { if (lbZl() && lbNat()) { toast('这本书的声音是固定的（书自带）', 2000); return; } if (lbNat()) { const i = LB_NAT.findIndex(x => x[0] === lbNatVoice()[0]), n = LB_NAT[(i + 1) % LB_NAT.length]; localStorage.setItem('zh_nv', n[0]); toast('声音：' + n[1], 2000); lbBar(); lbRestart(); return; } const vs = lbVoices(); if (vs.length < 2) { toast(vs.length ? '这台设备只有一个中文声音' : '这台设备没有找到中文声音', 2500); return; } const c = lbVoice(), n = vs[(vs.findIndex(v => c && v.voiceURI === c.voiceURI) + 1) % vs.length]; localStorage.setItem('zh_voice', n.voiceURI); toast('声音：' + n.name, 1800); lbRestart(); }
 /* ---- 界面 ---- */
 function lbShow(html) { const e = lbEl(); e.innerHTML = html; e.classList.add('show'); e.classList.remove('rd', 'ui'); }
 function lbUi(v) { lb.ui = v === undefined ? !lb.ui : v; lbEl().classList.toggle('ui', !!lb.ui); }
@@ -574,11 +599,129 @@ async function lbOpenShelf() {
   lb.screen = 'shelf'; await lbLoadList();
   const mine = lb.list.slice().sort((a, b) => (b.at || 0) - (a.at || 0));
   const item = it => '<div class="lbitem" onclick="lbOpenItem(\'' + it.id + '\')"><div class="t"><b>' + esc(it.title) + '</b><span class="note">听到 ' + lbPct(it) + '%</span></div><button class="ghost sm" onclick="event.stopPropagation();lbDelete(\'' + it.id + '\')">删除</button></div>';
-  lbShow('<div class="lbtop"><span></span><b>🎧 中文听书</b></div><div class="lbbody">' +
+  lbShow('<div class="lbtop"><span></span><b>🐱 喵喵听书</b></div><div class="lbbody">' +
     '<div class="note" style="margin-bottom:12px">像微信读书一样：直接看中文，眼睛累了就听，睡前也能听。导入你自己的中文书就能开始。</div>' +
     '<div class="filebtn" style="margin-bottom:8px"><button type="button" tabindex="-1">＋ 导入中文书（txt / epub / docx / md / mobi）</button><input type="file" accept=".txt,.md,.markdown,.epub,.docx,.mobi,.azw3,.azw" onchange="lbImportFile(event)"></div>' +
-    '<div class="row" style="margin:8px 0 4px"><button class="ghost sm" onclick="lbPasteBox()">粘贴一段中文来听</button><button class="ghost sm" onclick="lbUnlock()">' + (admTok ? '🎙 自然人声：已开启' : '🎙 开启自然人声') + '</button></div><div id="lbStatus" class="note" style="min-height:20px"></div>' +
-    (mine.length ? '<div class="lbh">继续听</div>' + mine.map(item).join('') : '<div class="note" style="margin-top:24px;text-align:center">书架是空的，先导入一本书吧。</div>') + '</div>');
+    '<div class="row" style="margin:8px 0 4px"><button class="ghost sm" onclick="lbPasteBox()">粘贴一段中文来听</button><button class="ghost sm" onclick="lbUnlock()">' + (admTok ? '🎙 开发者：已开启' : '🎙 开发者登录') + '</button>' + (admTok ? '<button class="ghost sm" onclick="lbUpload()">📤 上传电子书和语音</button>' : '') + '</div><div id="lbStatus" class="note" style="min-height:20px"></div>' +
+    (mine.length ? '<div class="lbh">继续听</div>' + mine.map(item).join('') : '') +
+    '<div class="lbh">书库 · 自带自然人声，点开就能听</div><div id="lbLib" class="note">正在加载书库…</div></div>');
+  lbLoadLib();
+}
+/* ---- 公版书库：开发者上传的书和自然人声，所有人都能直接听（不需要口令） ---- */
+async function lbLoadLib() {
+  let items = null;
+  try { const r = await fetch(API_BASE + '/zl/catalog?t=' + Date.now(), { cache: 'no-store' }); if (r.ok) { items = (await r.json()).items || []; try { await idbPut('meta', items, 'zlcat'); } catch (e) {} } } catch (e) {}
+  if (!items) { try { items = await idbGet('meta', 'zlcat'); } catch (e) {} }
+  lb.lib = items || []; const el = document.getElementById('lbLib'); if (!el) return;
+  if (!items) { el.textContent = '书库暂时连不上，联网后再回来看。'; return; }
+  if (!items.length) { el.textContent = '书库还是空的，开发者上传后会出现在这里。'; return; }
+  el.className = ''; el.innerHTML = items.slice().reverse().map(x => '<div class="lbitem" onclick="lbOpenLib(\'' + x.id + '\')"><div class="t"><b>' + esc(x.title) + '</b><span class="note">' + (x.author ? esc(x.author) + ' · ' : '') + (x.chars >= 10000 ? Math.round(x.chars / 1000) / 10 + ' 万字' : x.chars + ' 字') + ' · ' + (x.clips ? '自然人声 ' + Math.round(x.clips / Math.max(1, x.n) * 100) + '%' : '无语音') + '</span></div>' + (admTok ? '<button class="ghost sm" onclick="event.stopPropagation();lbUpload(\'' + x.id + '\')">补语音</button><button class="ghost sm" onclick="event.stopPropagation();lbLibDel(\'' + x.id + '\')">删除</button>' : '<span class="note">›</span>') + '</div>').join('');
+}
+async function lbOpenLib(id) {
+  await lbLoadList(); let it = lb.list.find(x => x.zl === id);
+  if (!it) {
+    const x = (lb.lib || []).find(y => y.id === id); lbStatus('正在下载《' + (x ? x.title : '') + '》…');
+    try {
+      const r = await fetch(API_BASE + '/zl/' + id + '/book.json?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json(); if (!d.s || !d.s.length) throw new Error('内容为空');
+      const lid = 'l' + id; await idbPut('meta', { s: d.s, p: d.p || [0] }, 'lb:' + lid);
+      it = { id: lid, title: d.title || (x && x.title) || '书', kind: 'zh', zl: id, n: d.s.length, idx: 0, at: Date.now() }; lb.list.push(it); await lbSaveList();
+    } catch (e) { lbStatus('下载失败：' + (e && e.message ? e.message : '网络不通') + '。请联网后再试。'); return; }
+  }
+  lbOpenItem(it.id);
+}
+async function lbLibDel(id) {
+  if (!confirm('把这本书从书库里删除？（所有人都会看不到，语音也会删除）')) return;
+  const r = await zhAdmin('/admin/zl/' + id, { method: 'DELETE' }); if (!r.ok) { alert('删除失败：' + r.msg); return; }
+  toast('已删除', 1500); lbOpenShelf();
+}
+async function lbReadFile(f) {                       // 读一个电子书文件，返回纯文本
+  const n = f.name.toLowerCase(); let text = '';
+  if (n.endsWith('.txt') || n.endsWith('.md') || n.endsWith('.markdown')) { text = lbDecode(await readAsArrayBuffer(f)); if (!n.endsWith('.txt')) text = mdToText(text); }
+  else if (n.endsWith('.epub')) { const bl = await parseEpub(await readAsArrayBuffer(f)); text = bl.map(x => (x.title && !x.text.startsWith(x.title) ? x.title + '\n' : '') + x.text).join('\n\n'); }
+  else if (n.endsWith('.docx')) text = await parseDocx(await readAsArrayBuffer(f));
+  else if (/\.(mobi|azw3?|azw)$/.test(n)) text = parseMobi(await readAsArrayBuffer(f));
+  else throw new Error('请选择 .txt、.md、.epub、.docx、.mobi 或 .azw3 文件');
+  return text;
+}
+/* ---- 开发者：一键上传电子书 + 本机录好的自然人声 ---- */
+const lbUp = { text: '', sp: null, title: '', files: new Map(), upId: '' };
+function lbUpStatus(m) { const e = document.getElementById('lbUpSt'); if (e) e.textContent = m || ''; }
+function lbUpload(updId) {
+  Object.assign(lbUp, { text: '', sp: null, files: new Map(), upId: typeof updId === 'string' ? updId : '' });
+  lb.screen = 'upload';
+  lbShow('<div class="lbtop"><button class="iconbtn" onclick="lbOpenShelf()" style="font-size:15px">‹ 返回</button><b>上传到书库</b></div><div class="lbbody">' +
+    '<div class="note" style="margin-bottom:10px">第 1 步：选电子书 → 第 2 步：下载“句子清单”，用本机的大模型把每一句录成 mp3（文件名按句子序号，如 00001.mp3）→ 第 3 步：选录好的语音文件夹 → 一键上传。语音不全也可以先传，缺的句子读者听到的是系统声音，以后可以补。</div>' +
+    '<div class="lbh">1. 电子书</div><div class="filebtn"><button type="button" tabindex="-1">选择电子书（txt / epub / docx / md / mobi）</button><input type="file" accept=".txt,.md,.markdown,.epub,.docx,.mobi,.azw3,.azw" onchange="lbUpBook(event)"></div>' +
+    '<div class="row" style="margin-top:8px"><input id="lbUpTitle" placeholder="书名" style="flex:1;min-width:0"><input id="lbUpAuthor" placeholder="作者" style="width:90px"></div>' +
+    '<div class="row" style="margin-top:8px"><button class="ghost sm" id="lbUpList" disabled onclick="lbUpList()">⬇ 下载句子清单</button></div>' +
+    '<div class="lbh">2. 语音（一句一个 mp3，按序号命名）</div><div class="filebtn"><button type="button" tabindex="-1">选择语音文件夹</button><input type="file" webkitdirectory multiple onchange="lbUpVoice(event)"></div>' +
+    '<div class="filebtn" style="margin-top:8px"><button type="button" tabindex="-1">或选择语音 zip 压缩包</button><input type="file" accept=".zip" onchange="lbUpVoiceZip(event)"></div>' +
+    '<div class="row" style="margin-top:8px"><input id="lbUpVoiceName" placeholder="声音名称（如 Qwen3-TTS 晓晓）" value="Qwen3-TTS" style="flex:1;min-width:0"></div>' +
+    '<div class="row" style="margin-top:14px"><button class="pri" id="lbUpGo" disabled onclick="lbUpGo()" style="height:48px;min-width:160px">📤 一键上传</button></div>' +
+    '<div id="lbUpSt" class="note" style="margin-top:10px;white-space:pre-wrap"></div></div>');
+  if (lbUp.upId) { const x = (lb.lib || []).find(y => y.id === lbUp.upId); if (x) { document.getElementById('lbUpTitle').value = x.title; document.getElementById('lbUpAuthor').value = x.author || ''; lbUpStatus('正在给《' + x.title + '》补语音：请选同一本电子书（句子必须一样），再选语音。已经传过的句子会自动跳过。'); } }
+}
+async function lbUpBook(ev) {
+  const f = ev.target.files[0]; if (!f) return;
+  try {
+    lbUpStatus('正在读取 ' + f.name + ' …'); const text = await lbReadFile(f), sp = lbSplit(text);
+    if (!sp.s.length) throw new Error('没有读到可以朗读的文字');
+    lbUp.text = text; lbUp.sp = sp; const t = document.getElementById('lbUpTitle'); if (!t.value) t.value = f.name.replace(/\.[^.]+$/, '').slice(0, 60);
+    document.getElementById('lbUpList').disabled = false;
+    lbUpStatus('共 ' + sp.s.length + ' 句，约 ' + sp.s.reduce((a, x) => a + x.length, 0) + ' 字。下一步：下载句子清单去录音。'); lbUpCheck();
+  } catch (e) { lbUp.sp = null; lbUpStatus('读取失败：' + (e && e.message ? e.message : '未知错误')); }
+}
+function lbUpList() {
+  if (!lbUp.sp) return; const w = Math.max(5, String(lbUp.sp.s.length).length);
+  const txt = lbUp.sp.s.map((t, i) => String(i + 1).padStart(w, '0') + '\t' + t).join('\n') + '\n';
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'text/plain;charset=utf-8' })); a.download = 'sentences.txt'; document.body.appendChild(a); a.click(); a.remove();
+}
+function lbUpAddFile(f) { const m = /(\d{1,7})\.mp3$/i.exec(f.name || ''); if (m && +m[1] >= 1) lbUp.files.set(+m[1] - 1, f); }
+function lbUpVoice(ev) { lbUp.files = new Map(); for (const f of ev.target.files) lbUpAddFile(f); lbUpCheck(); }
+async function lbUpVoiceZip(ev) {
+  const f = ev.target.files[0]; if (!f) return; lbUp.files = new Map();
+  try {
+    lbUpStatus('正在读取压缩包…'); await loadLibs(); const z = await JSZip.loadAsync(f); const names = Object.keys(z.files).filter(n => !z.files[n].dir && /(\d{1,7})\.mp3$/i.test(n));
+    for (const n of names) { const m = /(\d{1,7})\.mp3$/i.exec(n); if (+m[1] >= 1) lbUp.files.set(+m[1] - 1, { name: n, zipEntry: z.files[n] }); }
+  } catch (e) { lbUpStatus('压缩包读取失败：' + (e && e.message ? e.message : '')); return; }
+  lbUpCheck();
+}
+function lbUpCheck() {
+  const go = document.getElementById('lbUpGo'); if (!go) return; const n = lbUp.sp ? lbUp.sp.s.length : 0;
+  go.disabled = !n; if (!n) return;
+  const got = [...lbUp.files.keys()].filter(i => i < n).length;
+  lbUpStatus('电子书：' + n + ' 句。语音：找到 ' + got + ' 个' + (lbUp.files.size > got ? '（另有 ' + (lbUp.files.size - got) + ' 个序号超出句子数，会忽略）' : '') + (got < n ? '，缺 ' + (n - got) + ' 句。' : '，齐全。') + (got ? '' : '\n还没有选语音：只上传电子书也可以，以后再补。'));
+}
+async function lbUpGo() {
+  const sp = lbUp.sp; if (!sp) return; const title = document.getElementById('lbUpTitle').value.trim(), author = document.getElementById('lbUpAuthor').value.trim(), vname = document.getElementById('lbUpVoiceName').value.trim();
+  if (!title) { alert('请填书名'); return; }
+  const go = document.getElementById('lbUpGo'); go.disabled = true;
+  try {
+    await loadLibs(); const id = lbUp.upId || ('b' + Date.now().toString(36));
+    const hv = await zhAdmin('/admin/zl/' + id + '/have'); if (!hv.ok) throw new Error(hv.msg); const have = new Set((await hv.res.json()).have || []);
+    const todo = [], seen = new Set(); let skipped = 0;
+    for (const [i, f] of lbUp.files) { if (i >= sp.s.length) continue; const h = await zlHash(sp.s[i]); if (seen.has(h)) continue; seen.add(h); if (have.has(h)) { skipped++; continue; } todo.push([h, f]); }
+    let sent = 0, batch = [], sz = 0; const flush = async () => {
+      if (!batch.length) return; const z = new JSZip(); for (const [h, b] of batch) z.file('clips/' + h + '.mp3', b);
+      const blob = await z.generateAsync({ type: 'blob', compression: 'STORE' });
+      for (let a = 0; ; a++) { const up = await zhAdmin('/admin/zl/' + id + '/clips', { method: 'PUT', body: blob }); if (up.ok) break; if (a >= 2) throw new Error('语音上传失败：' + up.msg); await lbSleep(1500); }
+      sent += batch.length; batch = []; sz = 0; lbUpStatus('正在上传语音：' + sent + ' / ' + todo.length + ' 句' + (skipped ? '（已有 ' + skipped + ' 句跳过）' : '') + '…请保持页面打开');
+    };
+    lbUpStatus('正在上传语音…共 ' + todo.length + ' 句' + (skipped ? '（已有 ' + skipped + ' 句跳过）' : ''));
+    for (const [h, f] of todo) {
+      const b = f.zipEntry ? await f.zipEntry.async('blob') : f; if (b.size < 100) continue;
+      batch.push([h, b]); sz += b.size; if (sz >= 12 * 1048576 || batch.length >= 800) await flush();
+    }
+    await flush();
+    lbUpStatus('正在上架…');
+    const r = await zhAdmin('/admin/zl/' + id + '/book', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, author, voice: vname, s: sp.s, p: sp.p }) });
+    if (!r.ok) throw new Error('上架失败：' + r.msg);
+    const it = (await r.res.json()).item;
+    lbUpStatus('✅ 完成：《' + title + '》已上架书库，共 ' + it.n + ' 句，已有语音 ' + it.clips + ' 句' + (it.clips < it.n ? '（还缺 ' + (it.n - it.clips) + ' 句，可以到书库里点“补语音”）' : '') + '。');
+    toast('上传完成', 2500);
+  } catch (e) { lbUpStatus('出错了：' + (e && e.message ? e.message : '未知错误') + '\n修好后再点“一键上传”，已经传过的句子会自动跳过。'); }
+  go.disabled = false;
 }
 function lbStatus(m) { const e = document.getElementById('lbStatus'); if (e) e.textContent = m || ''; }
 function lbPasteBox() {
@@ -749,14 +892,14 @@ function lbSheet(re) {                               // 低频设置收进这里
   let e = document.getElementById('lbSheet');
   if (e && !re) { e.remove(); return; }
   if (!e) { e = document.createElement('div'); e.className = 'lbsheet'; e.id = 'lbSheet'; e.onclick = ev => { if (ev.target === e) e.remove(); }; lbEl().appendChild(e); }
-  const nat = lbNat();
+  const nat = lbNat(), zl = lbZl();
   e.innerHTML = '<div class="in"><div class="note" style="text-align:center">阅读与朗读设置</div><div class="g">' +
     '<button class="ghost sm" onclick="lbFont(-1)">A− 字小一点</button><button class="ghost sm" onclick="lbFont(1)">A＋ 字大一点</button>' +
     '<button class="ghost sm" onclick="lbFace()">' + (lbSans() ? '字体：黑体' : '字体：宋体') + '</button>' +
     
-    (admTok ? '' : '<button class="ghost sm" onclick="lbUnlock()">🎙 开启自然人声</button>') + '<button class="ghost sm" onclick="lbVoiceNext()">🔊 声音：' + (nat ? lbNatVoice()[1].slice(0, 2) : '系统') + '</button>' +
-    (admTok ? '<button class="ghost sm" onclick="lbEngine()">' + (nat ? '🎙 自然人声' : '🤖 系统声音') + '</button>' : '') +
-    (nat ? '<button class="ghost sm" onclick="lbPregen()">' + (lb.pg ? '⏹ 停止生成' : '📥 整本预生成') + '</button><button class="ghost sm" onclick="lbClearSaved()">🗑 清除已存</button>' : '') +
+    (admTok || zl ? '' : '<button class="ghost sm" onclick="lbUnlock()">🎙 开启自然人声</button>') + '<button class="ghost sm" onclick="lbVoiceNext()">🔊 声音：' + (zl && nat ? '书自带' : nat ? lbNatVoice()[1].slice(0, 2) : '系统') + '</button>' +
+    (admTok || zl ? '<button class="ghost sm" onclick="lbEngine()">' + (nat ? '🎙 自然人声' : '🤖 系统声音') + '</button>' : '') +
+    (nat ? '<button class="ghost sm" onclick="lbPregen()">' + (lb.pg ? '⏹ 停止' : zl ? '📥 下载整本语音' : '📥 整本预生成') + '</button><button class="ghost sm" onclick="lbClearSaved()">🗑 清除已存</button>' : '') +
     '</div>' + (lb.pgTxt ? '<div class="note" style="text-align:center;margin-top:8px">' + lb.pgTxt + '</div>' : '') +
     '<div class="note" style="text-align:center;margin-top:10px;font-size:12px">点屏幕中间：呼出/收起这些按钮。长按某一句：从那一句开始听。' + (nat ? '自然人声听过的句子会存在设备上。' : '') + '</div></div>';
 }

@@ -10,6 +10,25 @@ const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-toke
   let r = await call('/catalog'); assert.equal(r.s, 200); assert.deepEqual(JSON.parse(r.b).items, []); assert.equal(r.h['access-control-allow-origin'], '*');
   r = await call('/admin/item', { m: 'POST', h: { Origin: 'https://ok.example', Authorization: 'Bearer wrong', 'Content-Type': 'application/json' }, body: '{}' }); assert.equal(r.s, 401);
   r = await call('/admin/item', { m: 'POST', h: { ...A, Origin: 'https://evil.example' }, body: '{}' }); assert.equal(r.s, 403);
+  { // 中文听书公版书库
+    r = await call('/zl/catalog'); assert.equal(r.s, 200); assert.deepEqual(JSON.parse(r.b).items, []);
+    const hx = 'ab'.repeat(32), hy = 'cd'.repeat(32), zipOf = (names) => { const e = names.map(n => ({ n, d: Buffer.alloc(300, 7) })); const parts = [], cen = []; let off = 0; const crc = b => { let c = ~0; for (const x of b) { c ^= x; for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xEDB88320 : c >>> 1; } return ~c >>> 0; };
+      for (const f of e) { const nm = Buffer.from(f.n), h = Buffer.alloc(30); h.writeUInt32LE(0x04034b50, 0); h.writeUInt16LE(20, 4); h.writeUInt32LE(crc(f.d), 14); h.writeUInt32LE(f.d.length, 18); h.writeUInt32LE(f.d.length, 22); h.writeUInt16LE(nm.length, 26); parts.push(h, nm, f.d);
+        const c = Buffer.alloc(46); c.writeUInt32LE(0x02014b50, 0); c.writeUInt16LE(20, 4); c.writeUInt16LE(20, 6); c.writeUInt32LE(crc(f.d), 16); c.writeUInt32LE(f.d.length, 20); c.writeUInt32LE(f.d.length, 24); c.writeUInt16LE(nm.length, 28); c.writeUInt32LE(off, 42); cen.push(c, nm); off += 30 + nm.length + f.d.length; }
+      const cb = Buffer.concat(cen), eo = Buffer.alloc(22); eo.writeUInt32LE(0x06054b50, 0); eo.writeUInt16LE(e.length, 8); eo.writeUInt16LE(e.length, 10); eo.writeUInt32LE(cb.length, 12); eo.writeUInt32LE(off, 16); return Buffer.concat([...parts, cb, eo]); };
+    r = await call('/admin/zl/zh-test/have', { h: { ...A, Authorization: 'Bearer wrong', 'X-Forwarded-For': '9.9.9.9' } }); assert.equal(r.s, 401);
+    r = await call('/admin/zl/zh-test/have', { h: A }); assert.deepEqual(JSON.parse(r.b).have, []);
+    r = await call('/admin/zl/zh-test/clips', { m: 'PUT', h: { ...A, 'Content-Type': 'application/zip' }, body: zipOf(['clips/' + hx + '.mp3', 'clips/../evil.mp3', 'clips/' + hy + '.mp3']) }); assert.equal(r.s, 200); assert.equal(JSON.parse(r.b).clips, 2);
+    r = await call('/admin/zl/zh-test/have', { h: A }); assert.equal(JSON.parse(r.b).have.length, 2);
+    r = await call('/admin/zl/zh-test/book', { m: 'PUT', h: A, body: JSON.stringify({ title: '', s: ['你好。'] }) }); assert.equal(r.s, 400);
+    r = await call('/admin/zl/zh-test/book', { m: 'PUT', h: A, body: JSON.stringify({ title: '测试书', author: '某某', voice: 'Qwen3-TTS', s: ['你好。', '再见。'], p: [0, 1] }) }); assert.equal(r.s, 200); assert.equal(JSON.parse(r.b).item.clips, 2);
+    r = await call('/zl/catalog'); { const it0 = JSON.parse(r.b).items; assert.equal(it0.length, 1); assert.equal(it0[0].title, '测试书'); assert.equal(it0[0].n, 2); }
+    r = await call('/zl/zh-test/book.json'); assert.equal(r.s, 200); assert.equal(JSON.parse(r.b).s[1], '再见。'); assert.equal(r.h['access-control-allow-origin'], '*');
+    r = await call('/zl/zh-test/' + hx + '.mp3'); assert.equal(r.s, 200); assert.ok(/immutable/.test(r.h['cache-control']));
+    r = await call('/zl/zh-test/' + 'ef'.repeat(32) + '.mp3'); assert.equal(r.s, 404);
+    r = await call('/admin/zl/zh-test', { m: 'DELETE', h: A }); assert.equal(r.s, 200); r = await call('/zl/catalog'); assert.equal(JSON.parse(r.b).items.length, 0);
+    r = await call('/zl/zh-test/book.json'); assert.equal(r.s, 404);
+  }
   r = await call('/admin/item', { m: 'POST', h: A, body: JSON.stringify({ id: 'Bad ID', title: 'x' }) }); assert.equal(r.s, 400);
   r = await call('/admin/item', { m: 'POST', h: A, body: JSON.stringify({ id: 'kitten-voice', kind: 'voice', forId: 'kitten', title: 'Kitten 语音包', price: '9.9', count: 12, file: 'https://evil/x', evil: 1 }) }); assert.equal(r.s, 200);
   r = await call('/catalog'); let it = JSON.parse(r.b).items; assert.equal(it.length, 1); assert.equal(it[0].price, 9.9); assert.equal(it[0].file, undefined); assert.equal(it[0].evil, undefined);
