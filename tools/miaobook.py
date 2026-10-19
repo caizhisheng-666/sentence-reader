@@ -125,14 +125,14 @@ def call(method, path, body=None, ctype=None, tok=""):
         time.sleep(2 + a * 3)
     raise SystemExit("连不上服务器，请检查网络后重新运行（已录好的不会丢）。")
 
-def put_clips(bid, items, tok):
+def put_clips(bid, items, tok, vk=""):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
         for h, p in items: z.write(p, "clips/%s.mp3" % h)
-    call("PUT", "/admin/zl/%s/clips" % bid, buf.getvalue(), "application/zip", tok)
+    call("PUT", "/admin/zl/%s/clips?voice=%s" % (bid, vk), buf.getvalue(), "application/zip", tok)
 
-def put_book(bid, title, author, voice, sents, pst, tok):
-    return call("PUT", "/admin/zl/%s/book" % bid, json.dumps({"title": title, "author": author, "voice": voice, "s": sents, "p": pst}).encode("utf-8"), "application/json", tok)
+def put_book(bid, title, author, voice, sents, pst, tok, vk=""):
+    return call("PUT", "/admin/zl/%s/book?voice=%s" % (bid, vk), json.dumps({"title": title, "author": author, "voice": voice, "s": sents, "p": pst}).encode("utf-8"), "application/json", tok)
 
 # ---------------- 录音 ----------------
 def make_tts(a):
@@ -154,10 +154,11 @@ def do_book(path, a, tts_holder):
     sents, pst = split(text)
     if len(sents) < 3: print("跳过（没读到文字）：", path); return
     bid = a.id or "b" + hashlib.sha1(title.encode("utf-8")).hexdigest()[:10]
-    cache = os.path.join(os.path.expanduser("~/miaobook_cache"), bid); os.makedirs(cache, exist_ok=True)
+    vk = re.sub(r"[^a-z0-9_]", "", a.speaker.lower())[:24]      # 同一本书可以录好几种声音，每种声音一个小目录
+    cache = os.path.join(os.path.expanduser("~/miaobook_cache"), bid, vk); os.makedirs(cache, exist_ok=True)
     tok = a.tok
-    print("\n《%s》 共 %d 句，书库编号 %s" % (title, len(sents), bid), flush=True)
-    have = set() if a.redo else set(call("GET", "/admin/zl/%s/have" % bid, tok=tok).get("have", []))
+    print("\n《%s》 共 %d 句，书库编号 %s，声音 %s" % (title, len(sents), bid, a.speaker), flush=True)
+    have = set() if a.redo else set(call("GET", "/admin/zl/%s/have?voice=%s" % (bid, vk), tok=tok).get("have", []))
     if a.redo:
         import shutil; shutil.rmtree(cache, ignore_errors=True); os.makedirs(cache, exist_ok=True)
     hs = [zl_hash(s) for s in sents]; seen = set(); todo = []
@@ -166,14 +167,14 @@ def do_book(path, a, tts_holder):
         seen.add(h)
         if h not in have: todo.append((s, h))
     print("服务器已有 %d 句语音，还要 %d 句" % (len(have & seen), len(todo)), flush=True)
-    put_book(bid, title, author, a.speaker, sents, pst, tok)         # 先上架，读者马上能读（语音随后补上）
+    put_book(bid, title, author, a.speaker, sents, pst, tok, vk)         # 先上架，读者马上能读（语音随后补上）
     if not todo: print("✅ 已经是完整的了"); return
     if "f" not in tts_holder: tts_holder["f"] = make_tts(a)
     todo.sort(key=lambda x: len(x[0]))                  # 长短差不多的句子放一批，减少“陪跑”浪费，更快
     tts = tts_holder["f"]; t0 = time.time(); pend = []; done = 0
     def flush():
         nonlocal pend
-        if pend: put_clips(bid, pend, tok); pend = []
+        if pend: put_clips(bid, pend, tok, vk); pend = []
     for i in range(0, len(todo), a.gen):
         grp = todo[i:i + a.gen]; need = []
         for s, h in grp:
@@ -194,7 +195,7 @@ def do_book(path, a, tts_holder):
         if len(pend) >= a.batch: flush()
         n = i + len(grp); el = time.time() - t0
         print("%d/%d  已用 %.1f 分钟，预计还要 %.1f 分钟" % (n, len(todo), el / 60, el / n * (len(todo) - n) / 60), flush=True)
-    flush(); r = put_book(bid, title, author, a.speaker, sents, pst, tok)
+    flush(); r = put_book(bid, title, author, a.speaker, sents, pst, tok, vk)
     it = r.get("item", {}); print("✅ 《%s》上架完成：%d 句，其中自然人声 %d 句" % (title, it.get("n", len(sents)), it.get("clips", done)))
 
 def main():
