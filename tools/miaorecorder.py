@@ -20,6 +20,7 @@ import miaobook as mb
 
 # 手机上显示的声音 → Qwen 模型里的名字
 SPEAKERS = {"vivian": "Vivian", "serena": "Serena", "uncle_fu": "Uncle_Fu", "dylan": "Dylan", "eric": "Eric"}
+CN = {"vivian": "十三", "serena": "苏瑶", "uncle_fu": "福伯", "dylan": "晓东", "eric": "程川"}
 FIRST_BATCHES = [6, 10]          # 刚开始先录小批，让你更快听到第一句
 
 
@@ -41,16 +42,45 @@ def get_book(bid):
     with urllib.request.urlopen(req, timeout=60) as r: return json.loads(r.read().decode("utf-8"))
 
 
+def split_key(vk):
+    """声音编号 → (旁白声音, 对话声音)。"福伯+程川"这种组合的编号是 uncle_fu_x_eric；单一声音就没有对话声音"""
+    if "_x_" in vk: n, d = vk.split("_x_", 1); return n, d
+    return vk, None
+
+
+def spk_name(k): return SPEAKERS.get(k) or k.capitalize()
+
+
+def dialogue_flags(sents, pst):
+    """哪些句子是“人物说的话”（引号里的字占一半以上）。引号跨句时接着算；每个自然段开头重置，防止少一个引号后面全错"""
+    OPEN = {"“": "”", "「": "」", "『": "』"}; starts = set(pst or []); stack = []; out = []
+    for i, t in enumerate(sents):
+        if i in starts: stack = []
+        inside = total = 0
+        for ch in t:
+            if ch.isspace(): continue
+            total += 1
+            if ch in OPEN: stack.append(OPEN[ch]); inside += 1
+            elif stack and ch == stack[-1]: stack.pop(); inside += 1
+            elif ch == '"':
+                if stack and stack[-1] == '"': stack.pop()
+                else: stack.append('"')
+                inside += 1
+            elif stack: inside += 1
+        out.append(total > 0 and inside * 2 >= total)
+    return out
+
+
 class Recorder:
     def __init__(self, a):
         self.a = a; self.tok = mb.token(); self.model = None; self.q = None; self.bad = {}; self.pre = set(); self.cur_file = ""
 
-    def tts_for(self, speaker):
-        """返回 tts(列表[(句子, mp3路径)])"""
+    def tts_for(self):
+        """返回 tts(列表[(句子, mp3路径)], 说话人)"""
         a = self.a
         if a.fake:
             src = os.environ.get("MIAO_FAKE_MP3"); blob = open(src, "rb").read() if src else b"ID3" + bytes(600)     # 测试用：不真录音，写一个现成的小 mp3
-            def fake(items):
+            def fake(items, speaker=None):
                 for _, path in items: open(path, "wb").write(blob); time.sleep(float(os.environ.get("MIAO_FAKE_DELAY", "0")))
             return fake
         import qwen_batch as q
@@ -58,7 +88,7 @@ class Recorder:
         if self.model is None:
             ping(self.tok, "", "正在加载模型…"); log("正在加载模型（第一次要一两分钟）…")
             self.model = q.load_model(a.model or q.default_model())
-        def real(items):
+        def real(items, speaker):
             ins = None if speaker in ("Dylan", "Eric") else (a.instruct or None)      # 北京话、四川话本来就是方言，不要压它
             res = q.synth_batch(self.model, [t for t, _ in items], speaker, "Chinese", ins, a.temp)
             for (_, path), (sr, wav) in zip(items, res): q.to_mp3(sr, wav, path, a.bitrate)
@@ -66,41 +96,42 @@ class Recorder:
 
     def run_job(self, job):
         a, tok = self.a, self.tok
-        bid, vk = job["id"], job["voice"]; speaker = SPEAKERS.get(vk) or vk.capitalize()
+        bid, vk = job["id"], job["voice"]; nk, dk = split_key(vk); speaker = spk_name(nk) + ("+" + spk_name(dk) if dk else "")
         label = "%s|%s" % (bid, vk); local = bool(job.get("local"))
         book = get_book(bid); sents = book["s"]; n = len(sents)
         have = set(mb.call("GET", "/admin/zl/%s/have?voice=%s" % (bid, vk), tok=tok).get("have", []))
         start = max(0, min(n - 1, int(job.get("from", 0))))
         order = list(range(start, n)) + list(range(0, start))          # 从听到的那句往后，再回到开头
+        flags = dialogue_flags(sents, book.get("p")) if dk else [False] * n
         seen, todo = set(), []
         for i in order:
             t = sents[i]; h = mb.zl_hash(t)
             if not t.strip() or h in seen: continue
             seen.add(h)
-            if h not in have: todo.append((t, h))
+            if h not in have: todo.append((t, h, spk_name(dk if flags[i] else nk)))
         log("《%s》声音 %s：共 %d 句，从第 %d 句开始，还要录 %d 句" % (job.get("title", bid), speaker, n, start + 1, len(todo)))
         if todo:
-            tts = self.tts_for(speaker)
+            tts = self.tts_for()
             cache = os.path.join(os.path.expanduser("~/miaobook_cache"), bid, vk); os.makedirs(cache, exist_ok=True)
             done = 0; bi = 0; t0 = time.time(); skipped = 0
             while todo:
                 size = FIRST_BATCHES[bi] if bi < len(FIRST_BATCHES) else a.gen; bi += 1
                 grp, todo = todo[:size], todo[size:]
-                need = []
-                for t, h in grp:
+                need = {}
+                for t, h, sp in grp:
                     p = os.path.join(cache, h + ".mp3")
-                    if not (os.path.exists(p) and os.path.getsize(p) > 100): need.append((t, p))
-                if need:
-                    try: tts(need)
+                    if not (os.path.exists(p) and os.path.getsize(p) > 100): need.setdefault(sp, []).append((t, p))
+                for sp, lst in need.items():                    # 旁白、对话是不同的声音：分开录
+                    try: tts(lst, sp)
                     except KeyboardInterrupt: raise
                     except Exception as e:
                         log("这一批失败（%s），改成一句一句录" % e)
-                        for it in need:
-                            try: tts([it])
+                        for it in lst:
+                            try: tts([it], sp)
                             except KeyboardInterrupt: raise
                             except Exception as e2: log("  这一句跳过：%s" % e2)
                 items = []
-                for t, h in grp:
+                for t, h, sp in grp:
                     p = os.path.join(cache, h + ".mp3")
                     if os.path.exists(p) and os.path.getsize(p) > 100: items.append((h, p))
                     else: skipped += 1
@@ -152,7 +183,9 @@ class Recorder:
         text, title, author = mb.read_book(path); sents, pst = mb.split(text)
         if len(sents) < 3: log("跳过（没读到文字）：%s" % os.path.basename(path)); self.bad[os.path.basename(path)] = 99; return None
         fp = hashlib.sha1((title + "\n" + "\n".join(sents)).encode("utf-8")).hexdigest()
-        vk = re.sub(r"[^a-z0-9_]", "", a.watch_voice.lower())[:24]; speaker = SPEAKERS.get(vk) or a.watch_voice
+        vk = re.sub(r"[^a-z0-9_]", "", a.watch_voice.lower())[:24]
+        if a.watch_dialogue: vk = (vk + "_x_" + re.sub(r"[^a-z0-9_]", "", a.watch_dialogue.lower()))[:24]
+        nk, dk = split_key(vk); speaker = (CN.get(nk, nk) + "+" + CN.get(dk, dk)) if dk else spk_name(nk)
         bid = "b" + hashlib.sha1(title.encode("utf-8")).hexdigest()[:10]
         try:
             old = get_book(bid); ofp = hashlib.sha1((old.get("title", "") + "\n" + "\n".join(old.get("s", []))).encode("utf-8")).hexdigest()
@@ -217,6 +250,7 @@ class Recorder:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--watch", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "放这里自动录的书"), help="盯着的文件夹；传空字符串 \"\" 就不盯")
+    ap.add_argument("--watch-dialogue", default="", help="文件夹里的书：对话用另一个声音（比如 eric），不填就全书一个声音")
     ap.add_argument("--watch-voice", default="uncle_fu", help="文件夹里的书用哪个声音录（默认福伯）")
     ap.add_argument("--model"); ap.add_argument("--bitrate", default="48k")
     ap.add_argument("--gen", type=int, default=int(os.environ.get("MIAO_GEN", "16")), help="每批同时录几句，显存够可以调大")
