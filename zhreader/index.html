@@ -231,7 +231,7 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 <div id="lbov"></div><div id="lbDim"></div>
 <script>
 
-const APP_VERSION = '2026.10.20-13';
+const APP_VERSION = '2026.10.20-14';
 const API_BASE = 'https://api.miaomiaosw.com';       // 你的服务器（自然人声由它向微软合成）
 /* ---------- 基础：本机数据库、提示、小工具 ---------- */
 let _db = null;
@@ -1195,15 +1195,17 @@ function lbHelp() {
 /* ---- 自动更新：打开软件、从后台切回来时检查有没有新版本，有就自动换上（正在听书时等停下来再换） ---- */
 let zhUpdating = false;
 async function lbCheckUpdate(manual) {
-  if (zhUpdating) return;
+  if (zhUpdating && !manual) return;                 // 手动点“检查更新”永远能再来一次，不会被上一次卡住的状态挡住
   try {
     const r = await fetch('./index.html?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) throw 0;
     const m = /const APP_VERSION = '([^']+)'/.exec(await r.text()); if (!m) throw 0;
     if (m[1] === APP_VERSION) { if (manual) toast('已经是最新版（' + APP_VERSION + '）', 2200); return; }
     if (lb.on && !lb.paused) { if (manual) toast('有新版本 ' + m[1] + '，听完这段停下后会自动更新', 3500); return; }
     try { if (sessionStorage.getItem('zh_upd') === m[1]) { if (manual) toast('新版本 ' + m[1] + ' 还没缓存好，请稍后再试', 3000); return; } sessionStorage.setItem('zh_upd', m[1]); } catch (e) {}   // 防止反复刷新
-    zhUpdating = true; toast('正在更新到 ' + m[1] + ' …', 2500);
-    try { const reg = await navigator.serviceWorker.getRegistration(); if (reg) await reg.update(); } catch (e) {}
+    zhUpdating = true;
+    const ov = document.createElement('div'); ov.id = 'zhUpd'; ov.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:600;text-align:center;padding:24px'; ov.textContent = '正在更新到 ' + m[1] + '，请稍等几秒…'; document.body.appendChild(ov);   // 更新中盖住界面，免得这几秒里点别的、更新完一刷新就乱
+    setTimeout(() => { try { ov.remove(); } catch (e) {} zhUpdating = false; }, 12000);                                                                       // 万一没刷新成功，12 秒后放开界面
+    try { const reg = await Promise.race([navigator.serviceWorker.getRegistration().then(r => r && r.update().then(() => r)), new Promise(r => setTimeout(r, 8000))]); } catch (e) {}
     setTimeout(() => location.reload(), 600);
   } catch (e) { if (manual) toast('现在连不上服务器，稍后再试', 2500); }
 }
