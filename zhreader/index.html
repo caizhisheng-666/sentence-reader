@@ -231,7 +231,7 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 <div id="lbov"></div><div id="lbDim"></div>
 <script>
 
-const APP_VERSION = '2026.10.19-11';
+const APP_VERSION = '2026.10.20-12';
 const API_BASE = 'https://api.miaomiaosw.com';       // 你的服务器（自然人声由它向微软合成）
 /* ---------- 基础：本机数据库、提示、小工具 ---------- */
 let _db = null;
@@ -731,7 +731,8 @@ async function lbLoopOne(my, b) {
   }
 }
 function lbSaveProg() { const b = lb.cur; if (!b) return; b.it.at = Date.now(); lbSaveList(); }
-function lbPlay() { if (!lb.cur) return; if (lb.cur.it.idx >= lb.cur.n) lb.cur.it.idx = 0; try { speechSynthesis.cancel(); } catch (e) {} lb.on = true; lb.paused = false; lb.fails = 0; lb.natFails = 0; setTimeout(() => { if (lb.on && lb.ui && !lb.panel) lbUi(false); }, 1500); if (lb.browse) { lb.browse = false; lbPaint(true, true); } if (lbNat()) { try { lbFiller(); } catch (e) {} } lbMedia(); if (lb.timer && !lb.end) lb.end = Date.now() + lb.timer * 60000; lbBar(); lbLoop(); }
+function lbPrime() { try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; u.lang = 'zh-CN'; speechSynthesis.speak(u); } catch (e) {} }   // 手机要求第一次出声必须在点击这一下里：先无声“占位”，后面某句没有录音、要改用系统声音时才不会被吞掉
+function lbPlay() { if (!lb.cur) return; if (lb.cur.it.idx >= lb.cur.n) lb.cur.it.idx = 0; try { speechSynthesis.cancel(); } catch (e) {} lbPrime(); lb.on = true; lb.paused = false; lb.fails = 0; lb.natFails = 0; setTimeout(() => { if (lb.on && lb.ui && !lb.panel) lbUi(false); }, 1500); if (lb.browse) { lb.browse = false; lbPaint(true, true); } if (lbNat()) { try { lbFiller(); } catch (e) {} } lbMedia(); if (lb.timer && !lb.end) lb.end = Date.now() + lb.timer * 60000; lbBar(); lbLoop(); }
 function lbStop() {
   const was = lb.on; lb.on = false; lb.paused = false; lb.tok++; lb.end = 0;
   lbHalt(); try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'none'; } catch (e) {}
@@ -752,6 +753,7 @@ function lbToggle() {
     if (p && p.catch) p.catch(() => { if (!lb.on || lb.paused) return; lbHalt(); if (lbNat()) lbFiller(); lbLoop(); });
     return;
   }
+  lbPrime();
   if (lbNat()) { try { lbFiller(); } catch (e) {} }  // 先立刻放静音，保住“正在播放”的状态，再去准备下一段
   lbLoop();
 }
