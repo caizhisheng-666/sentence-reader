@@ -34,6 +34,19 @@ const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-toke
     r = await call('/admin/zl/zh-test/book?voice=vivian', { m: 'PUT', h: A, body: JSON.stringify({ title: '测试书', voice: 'Vivian', s: ['你好。', '再见。'], p: [0, 1] }) }); { const it1 = JSON.parse(r.b).item; assert.equal(it1.voices.length, 2); assert.equal(it1.voices[1].k, 'vivian'); assert.equal(it1.voices[1].name, 'Vivian'); assert.equal(it1.voices[1].clips, 1); assert.equal(it1.voices[0].clips, 2); }
     r = await call('/zl/zh-test/v-vivian/' + hx + '.mp3'); assert.equal(r.s, 200); r = await call('/zl/zh-test/v-vivian/' + hy + '.mp3'); assert.equal(r.s, 404);
     r = await call('/zl/zh-test/v-vivian/book.json'); assert.equal(r.s, 404);
+    // —— 点播录音：want / queue / ping / done / info ——
+    r = await call('/admin/zl/zh-test/want', { m: 'POST', h: { ...A, 'X-Forwarded-For': '8.8.8.8' }, body: JSON.stringify({ voice: 'eric', name: '程川', from: 1 }) }); assert.equal(r.s, 200);
+    r = await call('/admin/zl/zh-test/want', { m: 'POST', h: A, body: JSON.stringify({ voice: 'dylan', name: '晓东', from: 99 }) }); assert.equal(r.s, 200);
+    r = await call('/admin/zl/nobook/want', { m: 'POST', h: A, body: JSON.stringify({ voice: 'eric' }) }); assert.equal(r.s, 404);
+    r = await call('/admin/queue', { h: A }); { const jb = JSON.parse(r.b).jobs; assert.equal(jb.length, 2); assert.equal(jb[0].voice, 'dylan'); assert.equal(jb[0].from, 1); assert.equal(jb[0].n, 2); assert.equal(jb[1].voice, 'eric'); }
+    r = await call('/admin/queue', { h: { ...A, Authorization: 'Bearer wrong', 'X-Forwarded-For': '7.7.7.7' } }); assert.equal(r.s, 401);
+    r = await call('/zl/zh-test/info'); { const inf = JSON.parse(r.b); assert.equal(inf.worker.online, false); assert.equal(inf.queue.length, 2); assert.ok(inf.voices.find(v => v.k === 'eric' && v.name === '程川' && v.clips === 0)); }
+    r = await call('/admin/worker/ping', { m: 'POST', h: A, body: JSON.stringify({ job: 'zh-test|dylan', msg: '3/10' }) }); assert.equal(r.s, 200);
+    r = await call('/zl/zh-test/info'); { const inf = JSON.parse(r.b); assert.equal(inf.worker.online, true); assert.equal(inf.worker.job, 'zh-test|dylan'); }
+    r = await call('/admin/queue/done', { m: 'POST', h: A, body: JSON.stringify({ id: 'zh-test', voice: 'dylan' }) }); assert.equal(r.s, 200);
+    r = await call('/admin/zl/zh-test/want?voice=eric', { m: 'DELETE', h: A }); assert.equal(r.s, 200);
+    r = await call('/admin/queue', { h: A }); assert.equal(JSON.parse(r.b).jobs.length, 0);
+    r = await call('/zl/nobook/info'); assert.equal(r.s, 404);
     r = await call('/admin/zl/zh-test', { m: 'DELETE', h: A }); assert.equal(r.s, 200); r = await call('/zl/catalog'); assert.equal(JSON.parse(r.b).items.length, 0);
     r = await call('/zl/zh-test/book.json'); assert.equal(r.s, 404);
   }
