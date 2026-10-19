@@ -301,7 +301,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.19-151';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.19-152';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2217,7 +2217,12 @@ async function devGenVoice(id) {                      // 已上架的材料补�
     setScStatus('正在读取《' + it.title + '》…');
     const { man, text } = await devLoadStory(it);
     const sents = devParse(text).sents, have = await devHaveClips(it.id), need = await devNeedSynth(devWithWords(sents), have);
-    if (!need.length && it.voice) { setScStatus('《' + it.title + '》的语音已经齐全（' + sents.length + ' 句），不用再做。'); devGenBusy = false; return; }
+    if (!need.length && it.voice) {
+      setScStatus('《' + it.title + '》的语音已经齐全（' + sents.length + ' 句）。正在检查“下载全部语音”的包…');
+      const rp = await devAdmin('/admin/repack/' + id, { method: 'POST' }); let j = {}; try { j = rp.ok ? await rp.res.json() : {}; } catch (e) {}
+      setScStatus('《' + it.title + '》的语音已经齐全（' + sents.length + ' 句）。' + (rp.ok ? (j.tooBig ? '但语音总量太大，没能打包（超过服务器上限），在线听不受影响。' : '“下载全部语音”的包已整理好（' + (j.parts || 1) + ' 份，共 ' + (j.clips || 0) + ' 条语音）。') : '整理下载包没成功：' + rp.msg));
+      devGenBusy = false; return;
+    }
     if (need.length) {
       if (!devAzConfirm(need.reduce((m, x) => m + x.length, 0))) { devGenBusy = false; setScStatus('已取消'); return; }
       setScStatus('还缺 ' + need.length + ' 句语音，正在合成…');

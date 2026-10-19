@@ -2,7 +2,7 @@
 process.env.VOLC_AK = 'A'; process.env.VOLC_SK = 'S'; process.env.ALLOW_ORIGINS = 'https://ok.example';
 process.env.ADMIN_TOKEN = 'test-admin-token-1234567890'; process.env.USAGE_FILE = '/tmp/shoptest/usage.json'; process.env.MAX_UPLOAD = '20000'; process.env.GRAMMAR_URL = 'http://127.0.0.1:9923'; process.env.AZURE_SPEECH_KEY = 'k'; process.env.AZURE_STT_HOST = 'http://127.0.0.1:9924'; process.env.AZURE_TTS_HOST = 'http://127.0.0.1:9926'; process.env.TTS_DAILY_CHARS = '40'; process.env.VOICE_ZIP_MAX = '12000'; process.env.VOICE_PART_MAX = '3000'; process.env.ARK_API_KEY = 'ark-test'; process.env.ARK_HOST = 'http://127.0.0.1:9925'; process.env.EXPLAIN_PER_IP_HOUR = '3'; process.env.CHAT_PER_IP_HOUR = '8';
 require('child_process').execSync('rm -rf /tmp/shoptest');
-const http = require('http'), assert = require('assert');
+const http = require('http'), assert = require('assert'), fs = require('fs');
 const { server } = require('./server.js'); server.listen(9922);
 const call = (path, o = {}) => new Promise(ok => { const q = http.request({ port: 9922, path, method: o.m || 'GET', headers: o.h || {} }, r => { let b = ''; r.on('data', c => b += c); r.on('end', () => ok({ s: r.statusCode, b, h: r.headers })); }); q.end(o.body); });
 const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-token-1234567890', 'Content-Type': 'application/json' };
@@ -71,7 +71,10 @@ const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-toke
     { const zz = new JSZip(); zz.file('manifest.json', '{}'); for (const c of '123') zz.file('clips/' + c.repeat(64) + '.mp3', 'y'.repeat(2000)); r = await call('/admin/file/multi.voice.zip', { m: 'PUT', h: A, body: await zz.generateAsync({ type: 'nodebuffer' }) }); assert.equal(r.s, 200); assert.equal(JSON.parse(r.b).tooBig, false);
       const get = n => new Promise(ok => http.get({ port: 9922, path: '/files/' + n }, rr => { const ch = []; rr.on('data', c => ch.push(c)); rr.on('end', () => ok({ s: rr.statusCode, b: Buffer.concat(ch) })); }));
       let tot = 0, parts = 0; for (const n of ['multi.voice.zip', 'multi.voice2.zip', 'multi.voice3.zip']) { const g = await get(n); assert.equal(g.s, 200, n); const z = await JSZip.loadAsync(g.b), man = JSON.parse(await z.file('manifest.json').async('string')); parts = man.parts; tot += Object.keys(z.files).filter(k => /^clips\//.test(k)).length; }
-      assert.equal(parts, 3); assert.equal(tot, 3); assert.equal((await get('multi.voice4.zip')).s, 404); } }
+      assert.equal(parts, 3); assert.equal(tot, 3); assert.equal((await get('multi.voice4.zip')).s, 404);
+      const rp0 = await call('/admin/repack/multi', { m: 'POST', h: A }); assert.equal(rp0.s, 404);   // 没有这个材料（没有 srbook）
+      fs.writeFileSync('/tmp/shoptest/shop/files/multi.srbook', 'x'); fs.unlinkSync('/tmp/shoptest/shop/files/multi.voice2.zip');
+      const rp = await call('/admin/repack/multi', { m: 'POST', h: A }); assert.equal(rp.s, 200); assert.equal(JSON.parse(rp.b).parts, 3); assert.equal((await get('multi.voice2.zip')).s, 200); } }
   r = await call('/files/kit/' + H1 + '.mp3'); assert.equal(r.b, 'AUDIO-ONE');
   r = await call('/admin/clips/kit', { h: A }); assert.equal(r.s, 200); assert.deepEqual(JSON.parse(r.b).have.sort(), [H1, H2, H3]);
   r = await call('/admin/clips/kit', { h: { Origin: 'https://ok.example' } }); assert.equal(r.s, 401);

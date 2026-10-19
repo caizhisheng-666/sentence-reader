@@ -689,6 +689,14 @@ async function shopRoutes(req, res) {
     if (req.method === 'DELETE' && m) {
       const j = shopRead(); j.items = j.items.filter(x => x.id !== m[1]); j.removed = [...new Set([...(j.removed || []), m[1]])]; shopWrite(j); return out(200, { ok: true });
     }
+    m = /^\/admin\/repack\/([a-z0-9][a-z0-9-]{0,59})$/.exec(url);       // 语音已经齐全、但总包没生成（或太大没合成）时：只重新打一遍“下载全部语音”包，不用重传
+    if (m && req.method === 'POST') {
+      const priv = !fs.existsSync(path.join(SHOP_FILES, m[1] + '.srbook'));
+      if (priv && !fs.existsSync(path.join(SHOP_PRIV, m[1] + '.srbook'))) return out(404, { error: 'not-found' });
+      const r = rebuildVoiceZip(m[1], priv); if (r && r.tooBig) return out(200, { ok: true, tooBig: true, total: r.total });
+      const base = priv ? SHOP_PRIV : SHOP_FILES; let parts = 0; for (let k = 1; k < 200; k++) { if (fs.existsSync(path.join(base, m[1] + (k === 1 ? '.voice' : '.voice' + k) + '.zip'))) parts = k; else break; }
+      return out(200, { ok: true, clips: r || 0, parts });
+    }
     m = /^\/admin\/file\/([A-Za-z0-9._-]{1,90}\.(?:zip|srbook))$/.exec(url);
     if (req.method === 'PUT' && m) {
       const priv = /[?&]private=1\b/.test(req.url), dir = priv ? SHOP_PRIV : SHOP_FILES;
