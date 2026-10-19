@@ -169,6 +169,7 @@ def do_book(path, a, tts_holder):
     put_book(bid, title, author, a.speaker, sents, pst, tok)         # 先上架，读者马上能读（语音随后补上）
     if not todo: print("✅ 已经是完整的了"); return
     if "f" not in tts_holder: tts_holder["f"] = make_tts(a)
+    todo.sort(key=lambda x: len(x[0]))                  # 长短差不多的句子放一批，减少“陪跑”浪费，更快
     tts = tts_holder["f"]; t0 = time.time(); pend = []; done = 0
     def flush():
         nonlocal pend
