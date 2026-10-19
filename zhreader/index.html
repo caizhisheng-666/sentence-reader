@@ -167,6 +167,7 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) #lbov.rd{background:#000}:root:not([data-theme="light"]) #lbov.rd .lbtxt{color:rgba(237,230,216,.78)}}
 
+.lbhelp{font-size:15px;line-height:1.75;color:var(--ink)}.lbhelp p{margin:0 0 10px}
 .lbh{margin:18px 0 8px;font-weight:600;color:var(--sub);font-size:13px}
 </style>
 </head>
@@ -174,7 +175,7 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 <div id="lbov"></div>
 <script>
 
-const APP_VERSION = '2026.10.19-1';
+const APP_VERSION = '2026.10.19-2';
 const API_BASE = 'https://api.miaomiaosw.com';       // 你的服务器（自然人声由它向微软合成）
 /* ---------- 基础：本机数据库、提示、小工具 ---------- */
 let _db = null;
@@ -231,10 +232,10 @@ async function admSave(t) {
   localStorage.setItem('zh_adm', JSON.stringify({ i: b64(iv), c: b64(new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, new TextEncoder().encode(t)))) }));
 }
 async function lbUnlock() {
-  if (admTok && !confirm('自然人声已经开启。要关闭并清除这台设备上保存的口令吗？')) return;
-  if (admTok) { admTok = ''; localStorage.removeItem('zh_adm'); toast('已关闭', 1500); lbOpenShelf(); return; }
-  const t = (prompt('输入服务器上设置的 ADMIN_TOKEN（后台口令）。输入一次后会加密保存在这台设备里，以后不用再输。') || '').trim();
-  if (!t) return; await admSave(t); lb.natOff = false; toast('已开启自然人声', 2000); if (lb.screen === 'shelf') lbOpenShelf(); else lbBar();
+  if (admTok && !confirm('要退出开发者登录，并清除这台设备上保存的口令吗？')) return;
+  if (admTok) { admTok = ''; localStorage.removeItem('zh_adm'); toast('已退出', 1500); lbOpenShelf(); return; }
+  const t = (prompt('开发者登录：输入服务器上设置的后台口令。输入一次后会加密保存在这台设备里，以后不用再输。') || '').trim();
+  if (!t) return; await admSave(t); lb.natOff = false; toast('开发者已登录', 2000); if (lb.screen === 'read') lbBar(); else lbOpenShelf();
 }
 async function zhAdmin(path, opt) {
   opt = opt || {}; if (!admTok) return { ok: false, msg: '还没有开启自然人声' };
@@ -602,9 +603,10 @@ async function lbOpenShelf() {
   lbShow('<div class="lbtop"><span></span><b>🐱 喵喵听书</b></div><div class="lbbody">' +
     '<div class="note" style="margin-bottom:12px">像微信读书一样：直接看中文，眼睛累了就听，睡前也能听。导入你自己的中文书就能开始。</div>' +
     '<div class="filebtn" style="margin-bottom:8px"><button type="button" tabindex="-1">＋ 导入中文书（txt / epub / docx / md / mobi）</button><input type="file" accept=".txt,.md,.markdown,.epub,.docx,.mobi,.azw3,.azw" onchange="lbImportFile(event)"></div>' +
-    '<div class="row" style="margin:8px 0 4px"><button class="ghost sm" onclick="lbPasteBox()">粘贴一段中文来听</button><button class="ghost sm" onclick="lbUnlock()">' + (admTok ? '🎙 开发者：已开启' : '🎙 开发者登录') + '</button>' + (admTok ? '<button class="ghost sm" onclick="lbUpload()">📤 上传电子书和语音</button>' : '') + '</div><div id="lbStatus" class="note" style="min-height:20px"></div>' +
+    '<div class="row" style="margin:8px 0 4px"><button class="ghost sm" onclick="lbPasteBox()">粘贴一段中文来听</button>' + (admTok ? '<button class="ghost sm" onclick="lbUpload()">📤 上传电子书和语音</button>' : '') + '</div><div id="lbStatus" class="note" style="min-height:20px"></div>' +
     (mine.length ? '<div class="lbh">继续听</div>' + mine.map(item).join('') : '') +
-    '<div class="lbh">书库 · 自带自然人声，点开就能听</div><div id="lbLib" class="note">正在加载书库…</div></div>');
+    '<div class="lbh">书库 · 自带自然人声，点开就能听</div><div id="lbLib" class="note">正在加载书库…</div>' +
+    '<div style="text-align:center;margin:28px 0 8px"><button class="ghost sm" onclick="lbHelp()">ⓘ 使用帮助 · 版本说明</button><div class="note" style="margin-top:8px;font-size:12px">喵喵听书 ' + APP_VERSION + '</div></div></div>');
   lbLoadLib();
 }
 /* ---- 公版书库：开发者上传的书和自然人声，所有人都能直接听（不需要口令） ---- */
@@ -723,6 +725,39 @@ async function lbUpGo() {
   } catch (e) { lbUpStatus('出错了：' + (e && e.message ? e.message : '未知错误') + '\n修好后再点“一键上传”，已经传过的句子会自动跳过。'); }
   go.disabled = false;
 }
+const LB_LOG = [
+  ['2026.10.19-2', ['新增“使用帮助 · 版本说明”', '书库：开发者上传的书自带自然人声，点开就能听，不需要口令']],
+  ['2026.10.19-1', ['首个版本：导入中文书（txt / epub / docx / md / mobi），翻页阅读，目录，语速、定时、字号、字体', '一句接一句连续朗读，锁屏后继续播放（自然人声）', '自然人声听过的句子存在手机里，可离线听']]
+];
+function lbHelp() {
+  lb.screen = 'help';
+  const sec = (t, h) => '<div class="lbh">' + t + '</div><div class="lbhelp">' + h + '</div>';
+  lbShow('<div class="lbtop"><button class="iconbtn" onclick="lbOpenShelf()" style="font-size:15px">‹ 返回</button><b>使用帮助</b></div><div class="lbbody">' +
+    sec('怎么开始', '<p><b>导入自己的书：</b>书架上点“＋ 导入中文书”，支持 txt、epub、docx、md、mobi、azw3；也可以“粘贴一段中文来听”。</p><p><b>书库的书：</b>点开就能听，书自带自然人声，不用登录。在读书页点“⚙ 更多 → 下载整本语音”，下载后没网也能听。</p>') +
+    sec('读书和听书', '<p>点 <b>▶ 播放</b>，一句接一句连续朗读，当前句子会高亮。</p><p><b>点屏幕中间</b>：呼出或收起按钮。<b>点屏幕左 / 右边</b>，或<b>左右滑动</b>：翻页。翻页只是换个地方看，不影响正在听的位置，点“📍 回到正在读的位置”就能回来。</p><p><b>长按某一句</b>：从这一句开始听。</p><p><b>☰ 目录</b>：按章节跳转。<b>1×</b>：语速（1 / 1.25 / 1.5 倍）。<b>⏲ 定时</b>：睡前听，到点自动停。<b>⚙ 更多</b>：字号、黑体 / 宋体、声音、自然人声 / 系统声音。</p>') +
+    sec('常见问题', '<p><b>锁屏后还能听吗？</b>自然人声可以继续播放（可以在锁屏界面暂停 / 继续）。系统声音在 iPhone 上锁屏后会停止，所以想睡前听，请用自然人声。</p><p><b>没有声音？</b>先看手机侧面的静音开关和音量。用系统声音时，手机里要有中文语音：设置 → 辅助功能 → 朗读内容 → 声音。</p><p><b>有的句子是系统声音？</b>书库里这一句还没有录音，只有这一句会用系统声音，其余不受影响。</p><p><b>删除一本书会怎样？</b>只删这台手机上的这本书和它的进度，不影响书库。</p><p><b>请不要“清除网站数据”：</b>这样会清掉你的书架、听书进度和已下载的语音。</p>') +
+    sec('隐私', '<p>你导入的书只保存在这台手机里，不会上传到任何地方，听书进度也只在本机。使用书库时，只会从服务器下载书和语音。</p>') +
+    sec('版本说明', '<p>当前版本：<b>' + APP_VERSION + '</b>　<button class="ghost sm" onclick="lbCheckUpdate(true)">检查更新</button></p><p class="note">打开软件时会自动检查并更新，不用重新安装。</p>' + LB_LOG.map(v => '<p><b>' + v[0] + '</b><br>' + v[1].map(x => '· ' + x).join('<br>') + '</p>').join('')) +
+    sec('关于', '<p>喵喵听书 · 鞍山市铁东区喵喵软件工作室</p>') +
+    '<div style="text-align:center;margin:20px 0"><button class="ghost sm" onclick="lbUnlock()" style="opacity:.6">' + (admTok ? '开发者：已登录（点此退出）' : '开发者入口') + '</button></div></div>');
+}
+/* ---- 自动更新：打开软件、从后台切回来时检查有没有新版本，有就自动换上（正在听书时等停下来再换） ---- */
+let zhUpdating = false;
+async function lbCheckUpdate(manual) {
+  if (zhUpdating) return;
+  try {
+    const r = await fetch('./index.html?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) throw 0;
+    const m = /const APP_VERSION = '([^']+)'/.exec(await r.text()); if (!m) throw 0;
+    if (m[1] === APP_VERSION) { if (manual) toast('已经是最新版（' + APP_VERSION + '）', 2200); return; }
+    if (lb.on && !lb.paused) { if (manual) toast('有新版本 ' + m[1] + '，听完这段停下后会自动更新', 3500); return; }
+    try { if (sessionStorage.getItem('zh_upd') === m[1]) { if (manual) toast('新版本 ' + m[1] + ' 还没缓存好，请稍后再试', 3000); return; } sessionStorage.setItem('zh_upd', m[1]); } catch (e) {}   // 防止反复刷新
+    zhUpdating = true; toast('正在更新到 ' + m[1] + ' …', 2500);
+    try { const reg = await navigator.serviceWorker.getRegistration(); if (reg) await reg.update(); } catch (e) {}
+    setTimeout(() => location.reload(), 600);
+  } catch (e) { if (manual) toast('现在连不上服务器，稍后再试', 2500); }
+}
+let zhLastCheck = 0;
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && Date.now() - zhLastCheck > 600000) { zhLastCheck = Date.now(); lbCheckUpdate(false); } });
 function lbStatus(m) { const e = document.getElementById('lbStatus'); if (e) e.textContent = m || ''; }
 function lbPasteBox() {
   lbShow('<div class="lbtop"><button class="iconbtn" onclick="lbOpenShelf()" style="font-size:15px">‹ 返回</button><b>粘贴中文</b></div><div class="lbbody"><textarea id="lbPaste" placeholder="把中文文章粘贴到这里…" style="width:100%;min-height:240px;box-sizing:border-box"></textarea><div class="row" style="margin-top:10px"><button onclick="lbImportText(document.getElementById(\'lbPaste\').value,\'粘贴的文章\')">开始听</button></div></div>');
@@ -897,7 +932,7 @@ function lbSheet(re) {                               // 低频设置收进这里
     '<button class="ghost sm" onclick="lbFont(-1)">A− 字小一点</button><button class="ghost sm" onclick="lbFont(1)">A＋ 字大一点</button>' +
     '<button class="ghost sm" onclick="lbFace()">' + (lbSans() ? '字体：黑体' : '字体：宋体') + '</button>' +
     
-    (admTok || zl ? '' : '<button class="ghost sm" onclick="lbUnlock()">🎙 开启自然人声</button>') + '<button class="ghost sm" onclick="lbVoiceNext()">🔊 声音：' + (zl && nat ? '书自带' : nat ? lbNatVoice()[1].slice(0, 2) : '系统') + '</button>' +
+    '<button class="ghost sm" onclick="lbVoiceNext()">🔊 声音：' + (zl && nat ? '书自带' : nat ? lbNatVoice()[1].slice(0, 2) : '系统') + '</button>' +
     (admTok || zl ? '<button class="ghost sm" onclick="lbEngine()">' + (nat ? '🎙 自然人声' : '🤖 系统声音') + '</button>' : '') +
     (nat ? '<button class="ghost sm" onclick="lbPregen()">' + (lb.pg ? '⏹ 停止' : zl ? '📥 下载整本语音' : '📥 整本预生成') + '</button><button class="ghost sm" onclick="lbClearSaved()">🗑 清除已存</button>' : '') +
     '</div>' + (lb.pgTxt ? '<div class="note" style="text-align:center;margin-top:8px">' + lb.pgTxt + '</div>' : '') +
@@ -911,7 +946,8 @@ function lbCur() { return lb.cur.it; }
   lbEl().classList.add('show', 'sans'); if (!lbSans()) lbEl().classList.remove('sans');
   try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
   await lbOpenShelf();
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(() => {});
+  zhLastCheck = Date.now(); lbCheckUpdate(false);
 })();
 
 </script>
