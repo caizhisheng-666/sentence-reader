@@ -43,7 +43,7 @@ def get_book(bid):
 
 class Recorder:
     def __init__(self, a):
-        self.a = a; self.tok = mb.token(); self.model = None; self.q = None; self.bad = {}
+        self.a = a; self.tok = mb.token(); self.model = None; self.q = None; self.bad = {}; self.pre = set(); self.cur_file = ""
 
     def tts_for(self, speaker):
         """返回 tts(列表[(句子, mp3路径)])"""
@@ -108,6 +108,7 @@ class Recorder:
                 done += len(grp); el = time.time() - t0
                 msg = "%d/%d" % (done, done + len(todo)); ping(tok, label, msg)
                 log("%s  已用 %.1f 分钟" % (msg, el / 60))
+                self.preupload()
                 # 每批之后看一眼：有没有人换了新的要求（点了别的书/声音，或在这本书里跳到了别处）
                 jobs = get_queue(tok)
                 if local:
@@ -145,10 +146,11 @@ class Recorder:
                 return True
         return False
 
-    def run_book(self, path):
+    def prepare(self, path):
+        """确认书在书库里（没有就上架），返回 job 信息；已经上架过的同一个文件不重复检查"""
         a, tok = self.a, self.tok
         text, title, author = mb.read_book(path); sents, pst = mb.split(text)
-        if len(sents) < 3: log("跳过（没读到文字）：%s" % os.path.basename(path)); self.bad[os.path.basename(path)] = 99; return False
+        if len(sents) < 3: log("跳过（没读到文字）：%s" % os.path.basename(path)); self.bad[os.path.basename(path)] = 99; return None
         fp = hashlib.sha1((title + "\n" + "\n".join(sents)).encode("utf-8")).hexdigest()
         vk = re.sub(r"[^a-z0-9_]", "", a.watch_voice.lower())[:24]; speaker = SPEAKERS.get(vk) or a.watch_voice
         bid = "b" + hashlib.sha1(title.encode("utf-8")).hexdigest()[:10]
@@ -160,15 +162,42 @@ class Recorder:
             bid = "b" + fp[:10]
             try: get_book(bid); exists = True
             except Exception: exists = False
-        if exists: log("《%s》书库里已经有了，不重复上传，只检查并补录声音" % title)
+        if exists: log("《%s》书库里已经有了，不重复上传" % title)
         else:
             log("《%s》书库里还没有，先上架（%d 句）" % (title, len(sents)))
             mb.put_book(bid, title, author, speaker, sents, pst, tok, vk)
-        r = self.run_job({"id": bid, "voice": vk, "from": 0, "title": title, "local": True})
-        return r
+        return {"id": bid, "voice": vk, "from": 0, "title": title, "local": True}
+
+    def run_book(self, path):
+        job = self.prepare(path)
+        if not job: return False
+        self.cur_file = os.path.basename(path)
+        try: return self.run_job(job)
+        finally: self.cur_file = ""
+
+    def preupload(self):
+        """每录完一小批顺便看一眼文件夹：把排在最前面、还没上架的下一本书先上架（一次只上一本），读者先能读"""
+        d = self.a.watch
+        if not d or not os.path.isdir(d): return
+        try:
+            for f in sorted(os.listdir(d)):
+                path = os.path.join(d, f)
+                if not (f.lower().endswith(self.BOOK_EXT) and os.path.isfile(path)) or f.startswith("~$") or f == self.cur_file: continue
+                if self.bad.get(f, 0) >= 3: continue
+                sig = (f, os.path.getsize(path), int(os.path.getmtime(path)))
+                if sig in self.pre: continue
+                self.pre.add(sig)
+                self.prepare(path); return                 # 一次只提前上一本
+        except KeyboardInterrupt: raise
+        except SystemExit: raise
+        except Exception as e: log("提前上架出错（%s），稍后再说" % e)
 
     def loop(self):
-        a = self.a; log("喵喵录音机已开启，在等手机上点“开始录这个声音”…（关掉这个窗口就停止）")
+        a = self.a
+        if a.watch:
+            try: os.makedirs(a.watch, exist_ok=True); log("盯着文件夹：%s（把电子书丢进去就会自动录）" % a.watch)
+            except Exception as e: log("没能建文件夹（%s）" % e)
+        log("喵喵录音机已开启，在等手机上点“开始录这个声音”…（关掉这个窗口就停止）")
         while True:
             try:
                 jobs = get_queue(self.tok)
@@ -190,7 +219,7 @@ def main():
     ap.add_argument("--watch", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "放这里自动录的书"), help="盯着的文件夹；传空字符串 \"\" 就不盯")
     ap.add_argument("--watch-voice", default="uncle_fu", help="文件夹里的书用哪个声音录（默认福伯）")
     ap.add_argument("--model"); ap.add_argument("--bitrate", default="48k")
-    ap.add_argument("--gen", type=int, default=16, help="每批同时录几句，显存够可以调大")
+    ap.add_argument("--gen", type=int, default=int(os.environ.get("MIAO_GEN", "16")), help="每批同时录几句，显存够可以调大")
     ap.add_argument("--poll", type=float, default=5, help="多少秒问一次服务器")
     ap.add_argument("--instruct", default="请用标准普通话朗读，发音清晰自然，不要带任何方言或地方口音。")
     ap.add_argument("--temp", type=float, default=0.6)
