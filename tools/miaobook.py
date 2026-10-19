@@ -11,7 +11,8 @@
 录一部分就会先上架：读者能先读，没录到的句子暂时用系统声音，录完后自动变成自然人声。
 录好的语音存在 ~/miaobook_cache/书名/ 里，上传失败或换电脑重传都不用重录。
 
-需要：pip install soundfile numpy ；系统里有 ffmpeg。
+需要：pip install soundfile numpy（和 batch_read.py 一样，不需要 ffmpeg）。
+默认读取 C:\\ai\\models\\Qwen3-TTS-12Hz-1.7B-CustomVoice，默认声音 Serena（可用 --speaker 改）。
 """
 import argparse, getpass, hashlib, html.parser, io, json, os, re, sys, time, urllib.request, urllib.error, zipfile
 import xml.etree.ElementTree as ET
@@ -135,15 +136,17 @@ def put_book(bid, title, author, voice, sents, pst, tok):
 
 # ---------------- 录音 ----------------
 def make_tts(a):
+    """返回 tts(列表[(句子, mp3路径)])：一批一批录（和 batch_read.py 一样，快很多）"""
     if a.fake:
-        def fake(text, path):
-            open(path, "wb").write(b"ID3" + bytes(600))
+        def fake(items):
+            for _, path in items: open(path, "wb").write(b"ID3" + bytes(600))
         return fake
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import qwen_batch as q
     model = q.load_model(a.model)
-    def real(text, path):
-        sr, wav = q.synth(model, text, a.speaker, a.language); q.to_mp3(sr, wav, path, a.bitrate)
+    def real(items):
+        res = q.synth_batch(model, [t for t, _ in items], a.speaker, a.language)
+        for (_, path), (sr, wav) in zip(items, res): q.to_mp3(sr, wav, path, a.bitrate)
     return real
 
 def do_book(path, a, tts_holder):
@@ -168,26 +171,38 @@ def do_book(path, a, tts_holder):
     def flush():
         nonlocal pend
         if pend: put_clips(bid, pend, tok); pend = []
-    for n, (s, h) in enumerate(todo, 1):
-        p = os.path.join(cache, h + ".mp3")
-        if not (os.path.exists(p) and os.path.getsize(p) > 100):
-            try: tts(s, p)
+    for i in range(0, len(todo), a.gen):
+        grp = todo[i:i + a.gen]; need = []
+        for s, h in grp:
+            p = os.path.join(cache, h + ".mp3")
+            if not (os.path.exists(p) and os.path.getsize(p) > 100): need.append((s, p))
+        if need:
+            try: tts(need)
             except KeyboardInterrupt: flush(); print("已停止；再运行同一条命令会接着来"); sys.exit(0)
-            except Exception as e: print("第 %d 句失败：%s" % (n, e)); continue
-        pend.append((h, p)); done += 1
+            except Exception as e:
+                print("这一批失败（%s），改成一句一句录" % e, flush=True)
+                for it in need:
+                    try: tts([it])
+                    except KeyboardInterrupt: flush(); print("已停止；再运行同一条命令会接着来"); sys.exit(0)
+                    except Exception as e2: print("  失败：%s" % e2)
+        for s, h in grp:
+            p = os.path.join(cache, h + ".mp3")
+            if os.path.exists(p) and os.path.getsize(p) > 100: pend.append((h, p)); done += 1
         if len(pend) >= a.batch: flush()
-        if n % 20 == 0 or n == len(todo):
-            el = time.time() - t0; print("%d/%d  已用 %.1f 分钟，预计还要 %.1f 分钟" % (n, len(todo), el / 60, el / n * (len(todo) - n) / 60), flush=True)
+        n = i + len(grp); el = time.time() - t0
+        print("%d/%d  已用 %.1f 分钟，预计还要 %.1f 分钟" % (n, len(todo), el / 60, el / n * (len(todo) - n) / 60), flush=True)
     flush(); r = put_book(bid, title, author, a.speaker, sents, pst, tok)
     it = r.get("item", {}); print("✅ 《%s》上架完成：%d 句，其中自然人声 %d 句" % (title, it.get("n", len(sents)), it.get("clips", done)))
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("path", help="电子书文件，或装着多本书的文件夹")
     ap.add_argument("--title"); ap.add_argument("--author"); ap.add_argument("--id", help="书库编号（补语音/覆盖旧书时用）")
-    ap.add_argument("--model", default="Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"); ap.add_argument("--speaker", default="Vivian")
+    ap.add_argument("--model"); ap.add_argument("--speaker", default="Serena")
     ap.add_argument("--language", default="Chinese"); ap.add_argument("--bitrate", default="48k")
-    ap.add_argument("--batch", type=int, default=200, help="每录多少句就上传一次"); ap.add_argument("--fake", action="store_true", help="测试用：不真录音")
+    ap.add_argument("--batch", type=int, default=200, help="每录多少句就上传一次"); ap.add_argument("--gen", type=int, default=16, help="每批同时录几句，显存够可以调大"); ap.add_argument("--fake", action="store_true", help="测试用：不真录音")
     a = ap.parse_args(); a.tok = token()
+    if not a.model and not a.fake:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import qwen_batch; a.model = qwen_batch.default_model()
     books = [os.path.join(a.path, f) for f in sorted(os.listdir(a.path)) if f.lower().endswith((".txt", ".md", ".epub", ".docx"))] if os.path.isdir(a.path) else [a.path]
     if not books: raise SystemExit("这个文件夹里没有 txt / md / epub / docx 电子书")
     holder = {}
