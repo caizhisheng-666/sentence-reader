@@ -307,7 +307,7 @@ const CHAT_SYS = '你是一位温柔、有耐心的英语口语老师，正在�
   '2）如果学生的英语有错误或不自然，在 fix 里给出更好的说法，并在 fixZh 里用一句中文讲清楚为什么；没有错就让 fix 和 fixZh 为空字符串；' +
   '3）如果学生用中文提问或回答，你可以先用一句中文简短回答，再引导他尝试用英语说；' +
   '4）多鼓励，但不要夸张；不聊和学习无关、不适合儿童的话题，遇到就温和地把话题拉回这一句。' +
-  '只输出一个 JSON 对象，不要任何别的文字：{"en":"你说的英语","zh":"上面英语的中文意思","fix":"","fixZh":""}。';
+  '所有字段的文字里都不要出现英文双引号，需要引用句子时用单引号。只输出一个 JSON 对象，不要任何别的文字：{"en":"你说的英语","zh":"上面英语的中文意思","fix":"","fixZh":""}。';
 function arkChatTurn(sentence, hist, msg) {
   const messages = [{ role: 'system', content: CHAT_SYS + '\n学生正在读的这一句：' + sentence }];
   for (const h of hist) messages.push({ role: h.r === 'me' ? 'user' : 'assistant', content: h.r === 'me' ? h.t : JSON.stringify({ en: h.t, zh: '', fix: '', fixZh: '' }) });   // 老师以前的话也包成 JSON，免得模型学着只回纯文字
@@ -317,6 +317,11 @@ function arkChatTurn(sentence, hist, msg) {
 function parseChat(text) {
   const raw = String(text || '').trim(), m = /\{[\s\S]*\}/.exec(raw);
   let j = null; if (m) { try { j = JSON.parse(m[0]); } catch (e) {} }
+  if (!j && m) {                                       // 模型常在 fix 里把“更好的说法”用英文双引号括起来，导致 JSON 损坏：按字段顺序硬抠出来
+    const g = (k, nx) => { const x = new RegExp('"' + k + '"\\s*:\\s*"([\\s\\S]*?)"\\s*' + (nx ? ',\\s*"' + nx + '"' : '\\}')).exec(m[0]); return x ? x[1].replace(/\\"/g, '"').replace(/\\n/g, ' ').trim() : ''; };
+    const en0 = g('en', 'zh') || ((/"en"\s*:\s*"([^"]+)"/.exec(m[0]) || [])[1] || '');
+    if (en0) j = { en: en0, zh: g('zh', 'fix'), fix: g('fix', 'fixZh'), fixZh: g('fixZh', null) };
+  }
   if (!j) { const plain = raw.replace(/```[a-z]*|```/g, '').trim().slice(0, 400); return /[A-Za-z]/.test(plain) && !/^[{\[]/.test(plain) ? { en: plain, zh: '', fix: '', fixZh: '' } : null; }   // 模型偶尔不按 JSON 回：把纯文字当作老师的话
   const str = (x, n) => String(x == null ? '' : x).trim().slice(0, n);
   const en = str(j.en, 400); if (!en) return null;
@@ -478,12 +483,16 @@ async function shopRoutes(req, res) {
     if (chatLimited(ip)) return out0(429, { error: 'too-many' });
     if (chatDailyFull()) return out0(429, { error: 'daily-limit' });
     chatDay.n++;
-    const r2 = await arkChatTurn(s0, h0, m0);
-    if (r2.s === 401 || r2.s === 403) return out0(502, { error: 'ark-key' });
-    if (r2.s === 429) return out0(503, { error: 'ark-busy' });
-    if (r2.s !== 200) return out0(502, { error: 'ark-failed', code: r2.s });
-    let content = ''; try { content = JSON.parse(r2.b).choices[0].message.content; } catch (e) {}
-    const r3 = parseChat(content); if (!r3) return out0(502, { error: 'ark-bad-reply' });
+    let r3 = null;
+    for (let a = 0; a < 2 && !r3; a++) {               // 回复解析不出来就自动再问一次（模型偶尔会出格）
+      const r2 = await arkChatTurn(s0, h0, m0);
+      if (r2.s === 401 || r2.s === 403) return out0(502, { error: 'ark-key' });
+      if (r2.s === 429) return out0(503, { error: 'ark-busy' });
+      if (r2.s !== 200) return out0(502, { error: 'ark-failed', code: r2.s });
+      let content = ''; try { content = JSON.parse(r2.b).choices[0].message.content; } catch (e) {}
+      r3 = parseChat(content); if (!r3) console.error('chat bad reply (try ' + (a + 1) + '):', JSON.stringify(String(content).slice(0, 300)));
+    }
+    if (!r3) return out0(502, { error: 'ark-bad-reply' });
     return out0(200, { ok: true, r: r3 });
   }
   if (req.method === 'POST' && url === '/grammar') {  // 句子结构分析：转给本机的 spaCy 服务（proxy/grammar/server.py）
