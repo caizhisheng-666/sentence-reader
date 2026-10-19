@@ -1,0 +1,776 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>中文听书</title>
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<meta name="theme-color" content="#F8F1E3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#16140F" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="中文听书">
+<style>
+
+:root{
+  /* 图书阅读风：暖纸色 + 一个棕橙强调色，文字用衬线，界面用系统无衬线 */
+  --bg:#F8F1E3; --card:#FFFDF7; --ink:#2A241B; --sub:rgba(42,36,27,.58);
+  --accent:#B5651D; --accent2:#9A5A22; --line:rgba(60,50,30,.16); --pop:#F1E8D4; --rec:#C0392B;
+  --soft:rgba(181,101,29,.12); --bar:rgba(248,241,227,.78);
+  --serif:'New York','Iowan Old Style',Charter,Georgia,'Songti SC','Noto Serif SC',serif;
+  --sans:-apple-system,BlinkMacSystemFont,'SF Pro Text','PingFang SC','Helvetica Neue','Noto Sans SC',sans-serif;
+  box-sizing:border-box;
+}
+
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#16140F; --card:#1F1C16; --ink:#EDE6D8; --sub:rgba(237,230,216,.58);
+    --accent:#E0954A; --accent2:#E0954A; --line:rgba(237,230,216,.16); --pop:#2A261E; --rec:#E0564A;
+    --soft:rgba(224,149,74,.18); --bar:rgba(22,20,15,.78);
+  }
+}
+
+*{box-sizing:border-box}
+
+html,body{height:100%;margin:0}
+
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+
+input,select,textarea{font-size:16px !important}
+
+textarea{width:100%;min-height:160px;border:1px solid var(--line);border-radius:14px;padding:14px;font-size:16px;background:var(--card);color:var(--ink);font-family:var(--serif)}
+
+button{font-family:inherit;border:none;border-radius:999px;padding:10px 18px;font-size:15px;cursor:pointer;background:var(--accent);color:#fff;font-weight:500}
+
+button:active{transform:scale(.97)}
+
+button:hover{opacity:.92}
+
+button:focus-visible,summary:focus-visible,.w:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+button.ghost{background:var(--soft);color:var(--accent);border:none}
+
+button.sm{padding:8px 14px;font-size:14px}
+
+button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opacity:.6}
+
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+
+.iconbtn{background:transparent;color:var(--accent);border:none;padding:0 10px;min-width:44px;height:44px;font-size:15px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;gap:4px}
+
+.iconbtn:hover{background:var(--soft);opacity:1}
+
+.note{font-size:13px;color:var(--sub);margin-top:4px;line-height:1.5}
+
+.filebtn{position:relative;display:inline-block}
+
+.filebtn input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+
+.toastPlus{position:fixed;bottom:calc(24px + env(safe-area-inset-bottom,0px));left:50%;transform:translate(-50%,10px);background:var(--accent2);color:#fff;padding:9px 20px;border-radius:16px;font-size:14px;font-weight:600;opacity:0;transition:opacity .25s,transform .25s;z-index:70;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.25);max-width:min(90vw,420px);text-align:center;line-height:1.4}
+
+.toastPlus.show{opacity:1;transform:translate(-50%,0)}
+
+
+#lbov{position:fixed;inset:0;z-index:40;background:var(--bg);color:var(--ink);display:none;flex-direction:column;font-family:var(--sans)}
+
+#lbov.show{display:flex}
+
+.lbtop{display:flex;align-items:center;gap:8px;padding:10px 14px;padding-top:max(10px,env(safe-area-inset-top));border-bottom:1px solid var(--line);background:var(--bar)}
+
+.lbtop b{flex:1;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.lbbody{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:16px 18px 24px}
+
+.lbtxt{font-family:var(--serif);line-height:1.95}
+
+.lbp{margin:0 0 1em;text-indent:2em}
+
+.lbs{border-radius:6px;cursor:pointer;transition:background .25s}
+
+.lbs.cur{background:var(--soft);background:color-mix(in srgb,var(--accent) 13%,transparent);-webkit-box-decoration-break:clone;box-decoration-break:clone;border-radius:3px}
+
+.lbs.wait{color:var(--sub)}
+
+.lbbar{border-top:1px solid var(--line);background:var(--card);padding:10px 12px calc(10px + env(safe-area-inset-bottom))}
+
+.lbbar .row{justify-content:center;gap:8px;margin-top:8px}
+
+.lbitem{padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:var(--card);margin-bottom:10px;display:flex;gap:10px;align-items:center}
+
+.lbitem .t{flex:1;min-width:0}
+.lbitem .t b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.lbpgr{text-align:center;margin:4px 0 14px}
+.lbpgr button{font-size:14px}
+
+.lbtoc{position:absolute;inset:0;z-index:8;background:var(--bg);display:flex;flex-direction:column}
+
+.lbtoc .lbtl{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:8px 14px 24px}
+
+.lbtoc .it{padding:13px 8px;border-bottom:1px solid var(--line);display:flex;gap:10px;font-size:16px;cursor:pointer}
+
+.lbtoc .it span{flex:1;min-width:0}
+.lbtoc .it small{color:var(--sub);flex:none}
+.lbtoc .it.on{color:var(--accent);font-weight:600}
+
+.lbbody.pg{padding:0;overflow:hidden;position:relative}
+
+.lbclip{position:absolute;inset:0;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+
+.lbstrip{position:absolute;column-fill:auto;will-change:transform}
+
+.lbstrip .lbtxt{-webkit-text-size-adjust:100%;text-size-adjust:100%;max-width:100%;font-family:var(--serif);line-height:1.56;text-align:justify;text-justify:inter-ideograph;-webkit-hyphens:auto}
+
+.lbstrip .lbp{margin:0}
+
+.lbedge{position:absolute;top:0;bottom:0;width:30px;pointer-events:none;opacity:0;background:linear-gradient(to right,rgba(0,0,0,.22),rgba(0,0,0,0))}
+
+.lbhome{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:3}
+
+.lbfoot{position:absolute;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 6px);text-align:center;font-size:12px;color:var(--sub);pointer-events:none;z-index:2}
+
+#lbov.rd .lbtop{position:absolute;top:0;left:0;right:0;z-index:6;background:var(--bg);box-shadow:0 6px 20px rgba(0,0,0,.08);transform:translateY(-105%);transition:transform .28s ease}
+
+#lbov.rd .lbbar{position:absolute;bottom:0;left:0;right:0;z-index:6;transform:translateY(105%);transition:transform .28s ease;box-shadow:0 -6px 24px rgba(0,0,0,.12)}
+
+#lbov.rd.ui .lbtop,#lbov.rd.ui .lbbar{transform:none}
+
+#lbov.rd .lbbody:not(.pg){padding:calc(env(safe-area-inset-top) + 18px) 20px 44px}
+
+.lbsheet{position:absolute;inset:0;z-index:9;background:rgba(0,0,0,.35);display:flex;align-items:flex-end}
+
+.lbsheet .in{width:100%;background:var(--card);border-radius:18px 18px 0 0;padding:16px 14px calc(18px + env(safe-area-inset-bottom))}
+
+.lbsheet .g{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:10px}
+
+.lbhead{position:absolute;left:44px;right:44px;top:calc(env(safe-area-inset-top) + 10px);text-align:center;font-size:13px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;z-index:2}
+
+#lbov.rd .lbtop{background:none;border:0;box-shadow:none;justify-content:flex-end;padding:calc(env(safe-area-inset-top) + 4px) 14px 0;pointer-events:none}
+
+#lbov.rd .lbtop b{display:none}
+
+#lbov.rd .lbtop button{pointer-events:auto;width:44px;height:44px;border-radius:50%;font-size:18px;padding:0}
+
+#lbov.rd .lbbar{background:none;border:0;box-shadow:none;padding:0 14px calc(env(safe-area-inset-bottom) + 14px);pointer-events:none}
+
+#lbov.rd .lbbar .row{gap:10px;margin-top:10px}
+
+#lbov.rd .lbbar .note{display:none}
+
+#lbov.rd .lbbar button,#lbov.rd .lbtop button{pointer-events:auto;background:rgba(246,241,228,.82);background:color-mix(in srgb,var(--card) 80%,transparent);-webkit-backdrop-filter:blur(22px) saturate(1.6);backdrop-filter:blur(22px) saturate(1.6);color:var(--ink);border:1px solid var(--line);box-shadow:0 4px 18px rgba(0,0,0,.14)}
+
+#lbov.rd .lbbar button.pri{background:var(--accent);color:#fff;border-color:transparent}
+
+#lbov.sans .lbtxt{font-family:var(--sans);font-weight:300;letter-spacing:.02em}
+
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) #lbov.rd{background:#000}:root:not([data-theme="light"]) #lbov.rd .lbtxt{color:rgba(237,230,216,.78)}}
+
+.lbh{margin:18px 0 8px;font-weight:600;color:var(--sub);font-size:13px}
+</style>
+</head>
+<body>
+<div id="lbov"></div>
+<script>
+
+const APP_VERSION = '2026.10.19-1';
+const API_BASE = 'https://api.miaomiaosw.com';       // 你的服务器（自然人声由它向微软合成）
+/* ---------- 基础：本机数据库、提示、小工具 ---------- */
+let _db = null;
+function idb() {
+  if (_db) return _db;
+  _db = new Promise((res, rej) => {
+    const r = indexedDB.open('zhreader', 1);
+    r.onupgradeneeded = () => { const d = r.result; ['meta', 'tts'].forEach(n => { if (!d.objectStoreNames.contains(n)) d.createObjectStore(n); }); };
+    r.onsuccess = () => { const d = r.result; d.onclose = () => { _db = null; }; d.onversionchange = () => { try { d.close(); } catch (e) {} _db = null; }; res(d); };
+    r.onerror = () => { _db = null; rej(r.error); };
+  });
+  _db.catch(() => { _db = null; });
+  return _db;
+}
+async function idbRun(store, mode, fn) {
+  for (let k = 0; k < 2; k++) {
+    let d; try { d = await idb(); } catch (e) { if (k) throw e; await new Promise(r => setTimeout(r, 150)); continue; }
+    try { return await new Promise((res, rej) => fn(d.transaction(store, mode), res, rej)); }
+    catch (e) { const stale = e && /InvalidState|TransactionInactive|closing|closed|UnknownError/i.test((e.name || '') + ' ' + (e.message || '')); if (!stale || k) throw e; _db = null; try { d.close(); } catch (e2) {} }
+  }
+}
+const idbGet = (store, key) => idbRun(store, 'readonly', (t, res, rej) => { const r = t.objectStore(store).get(key); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+const idbPut = (store, val, key) => idbRun(store, 'readwrite', (t, res, rej) => { t.objectStore(store).put(val, key); t.oncomplete = res; t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); });
+const idbDel = (store, key) => idbRun(store, 'readwrite', (t, res, rej) => { t.objectStore(store).delete(key); t.oncomplete = res; t.onerror = () => rej(t.error); });
+const idbDelPrefix = (store, prefix) => idbRun(store, 'readwrite', (t, res, rej) => { t.objectStore(store).delete(IDBKeyRange.bound(prefix, prefix + '￿')); t.oncomplete = res; t.onerror = () => rej(t.error); });
+function toast(msg, ms) {
+  const t = document.createElement('div'); t.className = 'toastPlus'; t.textContent = msg; document.body.appendChild(t);
+  requestAnimationFrame(() => t.classList.add('show')); setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, ms || 850);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function speakNow(u) {
+  try {
+    if (speechSynthesis.speaking || speechSynthesis.pending) { speechSynthesis.cancel(); setTimeout(() => { try { if (speechSynthesis.paused) speechSynthesis.resume(); speechSynthesis.speak(u); } catch (e) {} }, 80); }
+    else { if (speechSynthesis.paused) speechSynthesis.resume(); speechSynthesis.speak(u); }
+  } catch (e) { alert('当前浏览器不支持朗读。'); }
+}
+/* JSZip（读 epub / docx 用），第一次要用时才加载 */
+let LIBS = null;
+function loadScript(src) { return new Promise((res, rej) => { const el = document.createElement('script'); el.src = src; el.onload = res; el.onerror = () => { el.remove(); rej(new Error('组件加载失败')); }; document.head.appendChild(el); }); }
+function loadLibs() { return LIBS || (LIBS = (window.JSZip ? Promise.resolve() : loadScript('../lib/jszip.min.js?v=' + APP_VERSION).catch(() => loadScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'))).catch(e => { LIBS = null; throw e; })); }
+/* ---------- 自然人声的口令：加密后存在本机（密钥不可导出，只在这台设备上能解开） ---------- */
+let admTok = '';
+const b64 = u8 => btoa(String.fromCharCode(...u8)), unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function zhKey() {
+  let k = null; try { k = await idbGet('meta', 'k'); } catch (e) {}
+  if (!k) { k = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']); try { await idbPut('meta', k, 'k'); } catch (e) {} }
+  return k;
+}
+async function admLoad() {
+  try { const o = JSON.parse(localStorage.getItem('zh_adm') || 'null'); if (!o) return; const k = await idbGet('meta', 'k'); if (!k) return; admTok = new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(o.i) }, k, unb64(o.c))); } catch (e) { admTok = ''; }
+}
+async function admSave(t) {
+  admTok = t; const k = await zhKey(), iv = crypto.getRandomValues(new Uint8Array(12));
+  localStorage.setItem('zh_adm', JSON.stringify({ i: b64(iv), c: b64(new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, new TextEncoder().encode(t)))) }));
+}
+async function lbUnlock() {
+  if (admTok && !confirm('自然人声已经开启。要关闭并清除这台设备上保存的口令吗？')) return;
+  if (admTok) { admTok = ''; localStorage.removeItem('zh_adm'); toast('已关闭', 1500); lbOpenShelf(); return; }
+  const t = (prompt('输入服务器上设置的 ADMIN_TOKEN（后台口令）。输入一次后会加密保存在这台设备里，以后不用再输。') || '').trim();
+  if (!t) return; await admSave(t); lb.natOff = false; toast('已开启自然人声', 2000); if (lb.screen === 'shelf') lbOpenShelf(); else lbBar();
+}
+async function zhAdmin(path, opt) {
+  opt = opt || {}; if (!admTok) return { ok: false, msg: '还没有开启自然人声' };
+  try {
+    const r = await fetch(API_BASE + path, Object.assign({}, opt, { headers: Object.assign({ Authorization: 'Bearer ' + admTok }, opt.headers || {}) }));
+    if (r.status === 401) { admTok = ''; localStorage.removeItem('zh_adm'); return { ok: false, msg: '口令不对（已清除，请重新开启）' }; }
+    if (r.status === 429) return { ok: false, msg: '429' };
+    if (!r.ok) return { ok: false, msg: '服务器返回 ' + r.status };
+    return { ok: true, res: r };
+  } catch (e) { return { ok: false, msg: '连不上服务器' }; }
+}
+
+function readAsArrayBuffer(file) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = e => res(e.target.result); r.onerror = rej; r.readAsArrayBuffer(file); }); }
+function readAsText(file) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = e => res(e.target.result); r.onerror = rej; r.readAsText(file); }); }
+function normalizeZipPath(p) {
+  const parts = p.split('/'), out = [];
+  for (const part of parts) { if (part === '.' || part === '') continue; if (part === '..') out.pop(); else out.push(part); }
+  return out.join('/');
+}
+async function parseEpub(buf) {
+  await loadLibs();
+
+  const zip = await JSZip.loadAsync(buf);
+  const cf = zip.file('META-INF/container.xml');
+  if (!cf) throw new Error('这不是有效的 epub 文件');
+  const parser = new DOMParser();
+  const cdoc = parser.parseFromString(await cf.async('string'), 'application/xml');
+  const opfPath = cdoc.querySelector('rootfile').getAttribute('full-path');
+  const opfDir = opfPath.includes('/') ? opfPath.split('/').slice(0, -1).join('/') : '';
+  const odoc = parser.parseFromString(await zip.file(opfPath).async('string'), 'application/xml');
+  const manifest = {};
+  odoc.querySelectorAll('manifest > item').forEach(it => { manifest[it.getAttribute('id')] = it.getAttribute('href'); });
+  const blocks = [];
+  for (const it of odoc.querySelectorAll('spine > itemref')) {
+    const href = manifest[it.getAttribute('idref')]; if (!href) continue;
+    const path = opfDir ? opfDir + '/' + href : href;
+    const f = zip.file(path) || zip.file(decodeURIComponent(path)); if (!f) continue;
+    const doc = parser.parseFromString(await f.async('string'), 'text/html');
+    const fileDir = path.includes('/') ? path.split('/').slice(0, -1).join('/') : '';
+    const images = [];
+    const imgEls = doc.querySelectorAll('img, image');
+    for (const img of imgEls) {
+      let src = img.getAttribute('src') || img.getAttribute('xlink:href') || img.getAttribute('href');
+      if (!src || /^(data:|https?:)/i.test(src)) continue;
+      src = decodeURIComponent(src.split('#')[0]);
+      const imgPath = normalizeZipPath(src.startsWith('/') ? src.slice(1) : (fileDir ? fileDir + '/' + src : src));
+      const imgFile = zip.file(imgPath) || zip.file(decodeURIComponent(imgPath));
+      if (!imgFile) continue;
+      try {
+        const raw = await imgFile.async('blob');
+        const ext = (imgPath.split('.').pop() || '').toLowerCase();
+        const mime = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' }[ext] || raw.type || 'image/jpeg';
+        if (raw.size > 1500) images.push(new Blob([raw], { type: mime }));
+      } catch (e) {}
+    }
+    const hEl = doc.querySelector('h1,h2,h3');
+    const title = hEl ? hEl.textContent.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
+    doc.querySelectorAll('p,div,h1,h2,h3,h4,li,br').forEach(el => el.append(' \n'));
+    const text = (doc.body ? doc.body.textContent : '').trim();
+    if (text || images.length) blocks.push({ text, images, title });
+  }
+  return blocks;
+}
+
+/* ---------- 更多格式：Markdown / Word(.docx) / Kindle(.mobi .azw3 .azw) ---------- */
+function mdToText(s) {
+  s = s.replace(/\r/g, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/^(\s{0,3}#{1,6}\s+)(.*)$/gm, (all, hs, body) => {            // 中英双语标题（如“第一章 · Chapter One”“Before Breakfast（早饭之前）”）拆成“英文一行 + 中文一行”，各自成段，才能一对一配上，不会和下一段错位
+      const zhP = (body.match(/[\u3400-\u9fff][\u3400-\u9fff\s·•，。、：:（）()0-9]*/g) || []).join(' ').replace(/[（）()·•]/g, ' ').replace(/\s+/g, ' ').trim();
+      const enP = body.replace(/[（(][^()（）A-Za-z]*[\u3400-\u9fff][^()（）A-Za-z]*[)）]/g, ' ').replace(/[\u3400-\u9fff]+/g, ' ').replace(/[·•|]/g, ' ').replace(/\s+/g, ' ').trim();
+      return zhP && /[A-Za-z]{2}/.test(enP) ? enP + '\n\n' + zhP : all;
+    })
+  return s.replace(/^```.*$/gm, '').replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '').replace(/^\s{0,3}>\s?/gm, '').replace(/^\s*([-*+]|\d+\.)\s+/gm, '')
+    .replace(/^\s*([-*_]\s*){3,}$/gm, '').replace(/(\*\*|__)(.+?)\1/g, '$2').replace(/\*(.+?)\*/g, '$1')
+    .replace(/(^|\W)_(.+?)_(?=\W|$)/g, '$1$2').replace(/`([^`]+)`/g, '$1').replace(/<[^>]+>/g, '');
+}
+async function parseDocx(buf) {
+  await loadLibs();
+
+  const zip = await JSZip.loadAsync(buf);
+  const f = zip.file('word/document.xml');
+  if (!f) throw new Error('这不是有效的 .docx 文件（旧版 .doc 请先在 Word 里另存为 .docx）');
+  const doc = new DOMParser().parseFromString(await f.async('string'), 'application/xml');
+  const out = [];
+  for (const p of doc.getElementsByTagName('w:p')) {
+    let t = '';
+    for (const n of p.getElementsByTagName('*')) {
+      if (n.nodeName === 'w:t') t += n.textContent;
+      else if (n.nodeName === 'w:tab') t += ' ';
+      else if (n.nodeName === 'w:br' || n.nodeName === 'w:cr') t += '\n';
+    }
+    t = t.trim(); if (t) out.push(t);
+  }
+  return out.join('\n\n');
+}
+function palmDecompress(b) {
+  const out = []; let i = 0; const n = b.length;
+  while (i < n) {
+    const c = b[i++];
+    if (c === 0 || (c >= 9 && c <= 0x7f)) out.push(c);
+    else if (c >= 1 && c <= 8) { for (let k = 0; k < c && i < n; k++) out.push(b[i++]); }
+    else if (c >= 0xc0) { out.push(32, c ^ 0x80); }
+    else { const v = (((c << 8) | b[i++]) & 0x3fff), dist = v >> 3, len = (v & 7) + 3; for (let k = 0; k < len; k++) out.push(out[out.length - dist]); }
+  }
+  return Uint8Array.from(out);
+}
+function mobiTrailingSize(rec, flags) {
+  const entry = size => { let bitpos = 0, result = 0; if (size <= 0) return 0; for (;;) { const v = rec[size - 1]; result |= (v & 0x7f) << bitpos; bitpos += 7; size--; if ((v & 0x80) || bitpos >= 28 || size === 0) return result; } };
+  let num = 0, tf = flags >> 1;
+  while (tf) { if (tf & 1) num += entry(rec.length - num); tf >>= 1; }
+  if (flags & 1) num += (rec[rec.length - num - 1] & 3) + 1;
+  return num;
+}
+function parseMobi(buf) {
+  const u8 = new Uint8Array(buf), dv = new DataView(buf);
+  const nRec = dv.getUint16(76);
+  if (nRec < 2 || String.fromCharCode(...u8.slice(60, 68)) !== 'BOOKMOBI' && String.fromCharCode(...u8.slice(60, 68)) !== 'TEXtREAd') throw new Error('这不是有效的 mobi/azw3 文件');
+  const off = i => dv.getUint32(78 + i * 8);
+  const rec = i => u8.subarray(off(i), i + 1 < nRec ? off(i + 1) : u8.length);
+  const r0 = rec(0), d0 = new DataView(r0.buffer, r0.byteOffset, r0.byteLength);
+  const comp = d0.getUint16(0), count = d0.getUint16(8), crypt = d0.getUint16(12);
+  if (crypt !== 0) throw new Error('这个材料有 DRM 加密，无法读取。请使用没有 DRM 的版本。');
+  if (comp !== 1 && comp !== 2) throw new Error('这个材料使用了暂不支持的压缩方式，请用 Calibre 转成 epub 后再导入。');
+  const enc = r0.length > 32 ? d0.getUint32(28) : 1252;
+  const extra = (r0.length > 0xf4 && d0.getUint32(20) >= 228) ? d0.getUint16(0xf2) : 0;
+  const parts = [];
+  for (let i = 1; i <= count && i < nRec; i++) {
+    let r = rec(i);
+    if (extra) r = r.subarray(0, r.length - mobiTrailingSize(r, extra));
+    parts.push(comp === 2 ? palmDecompress(r) : r);
+  }
+  let total = 0; parts.forEach(a => total += a.length);
+  const all = new Uint8Array(total); let o = 0; parts.forEach(a => { all.set(a, o); o += a.length; });
+  const html = new TextDecoder(enc === 65001 ? 'utf-8' : 'windows-1252').decode(all);
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('p,div,h1,h2,h3,h4,h5,h6,li,br,tr').forEach(el => el.append(' \n'));
+  const text = (doc.body ? doc.body.textContent : html).replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (text.length < 20) throw new Error('没有从这个文件里读出文字');
+  return text;
+}
+/* ---------- 中文听书：单独的区域。看中文、听中文，像微信读书那样一句接一句连续朗读；书可以是你导入的中文书，也可以是书架上的英文书（读中文译文） ---------- */
+const LB_KEY = 'lbidx';
+const lb = { on: false, paused: false, tok: 0, end: 0, timer: 0, fails: 0, list: [], cur: null, screen: '', winA: 0, winB: 0, pre: new Map() };
+const lbSleep = ms => new Promise(r => setTimeout(r, ms));
+const lbEl = () => document.getElementById('lbov');
+async function lbLoadList() { try { lb.list = (await idbGet('meta', LB_KEY)) || []; } catch (e) { lb.list = []; } }
+async function lbSaveList() { try { await idbPut('meta', lb.list, LB_KEY); } catch (e) {} }
+function lbFs() { const n = parseInt(localStorage.getItem('zh_fs')); return n >= 15 && n <= 34 ? n : 22; }
+const lbSans = () => localStorage.getItem('zh_ff') !== 'serif';
+function lbRate() { const r = parseFloat(localStorage.getItem('zh_rate')); return r === 1.25 || r === 1.5 ? r : 1; }
+/* ---- 自然人声（Azure 神经网络语音，经服务器合成成 mp3；只有开发者能用）---- */
+const LB_NAT = [['zh-CN-XiaoxiaoNeural', '晓晓（女·温柔）'], ['zh-CN-YunxiNeural', '云希（男·温和）'], ['zh-CN-XiaoyiNeural', '晓伊（女·清亮）'], ['zh-CN-YunyangNeural', '云扬（男·沉稳）']];
+function lbSilUrl() {                                // 1 秒静音，两句之间循环播放，让 iPhone 锁屏后仍认为“正在播放”，不把页面挂起
+  if (lb.silUrl) return lb.silUrl; const n = 8000, b = new ArrayBuffer(44 + n), v = new DataView(b), w = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, 'data'); v.setUint32(40, n, true);
+  new Uint8Array(b, 44).fill(128); return lb.silUrl = URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
+}
+function lbFiller() { try { const a = lbAud(); a.loop = true; a.src = lbSilUrl(); a.playbackRate = 1; const p = a.play(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
+function lbNat() { return !!admTok && localStorage.getItem('zh_eng') !== 'sys' && !lb.natOff; }
+function lbNatVoice() { const v = localStorage.getItem('zh_nv'); return LB_NAT.find(x => x[0] === v) || LB_NAT[0]; }
+function lbAud() { if (!lb.aud) { lb.aud = new Audio(); lb.aud.preload = 'auto'; lb.aud.setAttribute('playsinline', ''); } return lb.aud; }
+function lbChunks(t) {                               // 服务器一次最多 300 字；长句按标点切开
+  t = String(t).replace(/\s+/g, ' ').trim(); if (t.length <= 260) return t ? [t] : [];
+  const out = []; let cur = ''; for (const p of t.split(/(?<=[。！？!?；;，,、])/)) { if ((cur + p).length > 260 && cur) { out.push(cur); cur = ''; } cur += p; while (cur.length > 280) { out.push(cur.slice(0, 280)); cur = cur.slice(280); } } if (cur) out.push(cur); return out;
+}
+const lbKey = text => 'zl:' + lbNatVoice()[0] + '|' + text;
+async function lbFetchBlob(text) {                   // 向服务器要一句的 mp3；成功后存进这台设备，以后不再联网、不再花额度
+  const r = await zhAdmin('/admin/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice: lbNatVoice()[0] }) });
+  if (!r.ok) { const e = new Error(r.msg || 'tts'); e.code = /429/.test(r.msg || '') ? 'limit' : 'fail'; throw e; }
+  const bl = await r.res.blob(); if (!bl.size) throw new Error('empty');
+  try { await idbPut('tts', bl, lbKey(text)); } catch (e) {}
+  return bl;
+}
+const lbHas = text => idbRun('tts', 'readonly', (t, res, rej) => { const q = t.objectStore('tts').count(lbKey(text)); q.onsuccess = () => res(q.result > 0); q.onerror = () => rej(q.error); }).catch(() => false);
+function lbMp3(text) {                               // 返回 Promise<blobURL>；先看设备里存过没有，再问服务器
+  const k = lbKey(text); lb.mp3 = lb.mp3 || new Map();
+  if (lb.mp3.has(k)) return lb.mp3.get(k);
+  const pr = (async () => {
+    try { const bl = await idbGet('tts', k); if (bl && bl.size) return URL.createObjectURL(bl); } catch (e) {}
+    return URL.createObjectURL(await lbFetchBlob(text));
+  })();
+  lb.mp3.set(k, pr); pr.catch(() => lb.mp3.delete(k));
+  while (lb.mp3.size > 24) { const f = lb.mp3.keys().next().value; const old = lb.mp3.get(f); lb.mp3.delete(f); old.then(u => URL.revokeObjectURL(u), () => {}); }
+  return pr;
+}
+/* 整本预生成：一次把这本书的语音全部存到设备里，之后随时离线听。已经存过的句子自动跳过。 */
+async function lbPregen() {
+  if (lb.pg) { lb.pg.stop = true; return; }
+  const b = lb.cur; if (!b) return;
+  if (!lbNat()) { toast('先切到“自然”声音，再预生成', 2500); return; }
+  const idx = [], texts = []; for (let i = 0; i < b.n; i++) { const t = lbPeek(i); if (t) { idx.push(i); texts.push(...lbChunks(t)); } }
+  if (!texts.length) { toast('这本书还没有可朗读的中文', 2500); return; }
+  const need = []; for (const t of texts) if (!(await lbHas(t))) need.push(t);
+  const chars = need.reduce((a, t) => a + t.length, 0);
+  if (!need.length) { toast('这本书的语音已经全部存在设备里了', 2500); return; }
+  if (!confirm('要提前生成 ' + need.length + ' 段语音（约 ' + chars + ' 字，用的是你自己的 Azure 额度）。\n生成后存在这台设备上，以后随时离线听。\n' + '中途可以再点一次按钮停止。继续吗？')) return;
+  const st = lb.pg = { stop: false, done: 0, total: need.length, err: '' }; let q = 0;
+  const show = () => { lb.pgTxt = st.stop ? '' : '正在生成 ' + st.done + ' / ' + st.total; lbBar(); };
+  const worker = async () => { while (!st.stop && q < need.length) { const t = need[q++]; try { await lbFetchBlob(t); st.done++; } catch (e) { st.err = e.code === 'limit' ? '今天的额度用完了' : '网络或服务器出错'; st.stop = true; } if (st.done % 5 === 0) show(); } };
+  show(); await Promise.all([worker(), worker()]);
+  lb.pg = null; lb.pgTxt = ''; lbBar();
+  toast(st.err ? ('已停止：' + st.err + '，已存 ' + st.done + ' 段，明天再点可继续') : (st.done >= st.total ? '全部生成完了 🎉 以后可以离线听' : '已停止，已存 ' + st.done + ' 段'), 5000);
+}
+async function lbClearSaved() { if (!confirm('清除这台设备上存的所有自然人声语音？（要听时会重新从服务器取，已经生成过的不再花额度）')) return; try { await idbDelPrefix('tts', 'zl:'); } catch (e) {} lb.mp3 = new Map(); toast('已清除', 1800); }
+function lbNatPre(from) { if (!lbNat() || !lb.cur) return; for (let i = from; i < from + 3 && i < lb.cur.n; i++) { const t = lbPeek(i); if (t) lbChunks(t).forEach(c => lbMp3(c).catch(() => {})); } }
+function lbPlayUrl(url, tok) {
+  return new Promise(res => {
+    const a = lbAud(); let done = false; const fin = () => { if (!done) { done = true; lb.audRes = null; a.onended = a.onerror = null; res(); } };
+    lb.audRes = fin; a.onended = () => { if (lb.on && !lb.paused) lbFiller(); fin(); }; a.onerror = () => { lb.fails = 99; fin(); };
+    a.loop = false; a.src = url; a.playbackRate = lbRate(); a.defaultPlaybackRate = lbRate();
+    const p = a.play(); if (p && p.catch) p.catch(() => { if (tok === lb.tok) { lb.fails = 99; } fin(); });
+  });
+}
+async function lbSayNat(text, tok) {
+  for (const c of lbChunks(text)) {
+    if (tok !== lb.tok) return;
+    let url; try { url = await lbMp3(c); lb.natFails = 0; }
+    catch (e) {
+      if (tok !== lb.tok) return;
+      if (e.code === 'limit' || ++lb.natFails >= 2) { lb.natOff = true; toast(e.code === 'limit' ? '今天的自然人声额度用完了，已换成系统声音' : '自然人声连不上，已换成系统声音', 4500); lbBar(); }
+      return lbSaySys(c, tok);
+    }
+    if (tok !== lb.tok) return;
+    await lbPlayUrl(url, tok);
+  }
+}
+function lbHalt() { try { speechSynthesis.cancel(); } catch (e) {} try { if (lb.aud) lb.aud.pause(); } catch (e) {} if (lb.audRes) lb.audRes(); }
+function lbMedia() {
+  if (!('mediaSession' in navigator) || !lb.cur) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({ title: lb.cur.it.title || '中文听书', artist: '中文听书' });
+    navigator.mediaSession.playbackState = lb.on && !lb.paused ? 'playing' : 'paused';
+    navigator.mediaSession.setActionHandler('play', () => lbToggle());
+    navigator.mediaSession.setActionHandler('pause', () => lbToggle());
+    navigator.mediaSession.setActionHandler('previoustrack', () => lbChap(-1));
+    navigator.mediaSession.setActionHandler('nexttrack', () => lbChap(1));
+  } catch (e) {}
+}
+function lbVoices() { try { return (speechSynthesis.getVoices() || []).filter(v => /^zh/i.test(v.lang)); } catch (e) { return []; } }
+function lbVoice() {
+  const vs = lbVoices(), uri = localStorage.getItem('zh_voice') || '';
+  const saved = uri && vs.find(v => v.voiceURI === uri); if (saved) return saved;
+  return vs.find(v => /zh[-_]CN/i.test(v.lang) && /ting|lili|yu-?shu|xiao|hui|yao|kang/i.test(v.name)) || vs.find(v => /zh[-_]CN/i.test(v.lang)) || vs[0] || null;
+}
+/* 把一大段中文切成适合朗读的句子，并记下每个自然段从第几句开始 */
+function lbSplit(text) {
+  text = String(text || '').replace(/\r/g, '').replace(/　/g, ' ');
+  const paras = text.split(/\n+/).map(x => x.replace(/\s+/g, ' ').trim()).filter(x => x && /[㐀-鿿A-Za-z0-9]/.test(x));
+  const sents = [], pst = [];
+  for (const para of paras) {
+    if (sents.length > 200000) break;
+    pst.push(sents.length);
+    const parts = para.match(/[^。！？!?；;…]+(?:[。！？!?；;…]+["”’）)」』]*)?/g) || [para];
+    const out = [];
+    for (let x of parts) {
+      x = x.trim(); if (!x) continue;
+      if (out.length && x.length < 6 && out[out.length - 1].length < 100) { out[out.length - 1] += x; continue; }
+      while (x.length > 120) { let k = x.slice(0, 120).search(/[，、,：:][^，、,：:]*$/); if (k < 30) k = 119; out.push(x.slice(0, k + 1)); x = x.slice(k + 1).trim(); }
+      if (x) out.push(x);
+    }
+    sents.push(...out);
+  }
+  return { s: sents, p: pst };
+}
+/* ---- 当前这本书：统一成“第 i 句的中文是什么” ---- */
+async function lbOpenBookObj(it) {
+  const d = await idbGet('meta', 'lb:' + it.id); if (!d || !d.s) throw new Error('这本书的内容找不到了，请删除后重新导入');
+  return { it, n: d.s.length, s: d.s, p: d.p || [0] };
+}
+function lbPeek(i) { const b = lb.cur; return b ? (b.s[i] || '') : ''; }
+const lbGet = async i => lbPeek(i);
+/* ---- 播放 ---- */
+function lbSay(text, tok) { return lbNat() ? lbSayNat(text, tok) : lbSaySys(text, tok); }
+function lbSaySys(text, tok) {
+  return new Promise(res => {
+    let done = false, began = false; const fin = () => { if (!done) { done = true; res(); } };
+    try {
+      const u = new SpeechSynthesisUtterance(String(text).replace(/\s+/g, ' ').trim());
+      const v = lbVoice(); u.lang = v ? v.lang : 'zh-CN'; if (v) u.voice = v; u.rate = lbRate();
+      u.onstart = () => { began = true; }; u.onend = fin; u.onerror = fin;
+      speakNow(u);
+      setTimeout(() => { if (!done && !began && tok === lb.tok) { try { if (speechSynthesis.speaking || speechSynthesis.pending) return; } catch (e) {} lb.fails = 99; fin(); } }, 6000);
+    } catch (e) { lb.fails = 99; fin(); }
+  });
+}
+async function lbLoop() {
+  const my = ++lb.tok, b = lb.cur;
+  while (lb.on && !lb.paused && my === lb.tok && lb.cur === b) {
+    if (b.it.idx >= b.n) { lbStop(); lbBar(); toast('这本书听完了 🎉', 3000); return; }
+    const i = b.it.idx; lbNatPre(i); lbPaint(true);
+    let text = '';
+    try { text = await lbGet(i); lb.fails = 0; }
+    catch (e) {
+      if (my !== lb.tok) return;
+      if (++lb.fails >= 3) { lbStop(); toast('现在连不上翻译服务，听书停下了。联网后再点播放。', 5000); return; }
+      b.it.idx++; await lbSleep(300); continue;
+    }
+    if (my !== lb.tok || lb.cur !== b) return;
+    lbPaint(true); lbNatPre(i);
+    await lbSay(text, my);
+    if (my !== lb.tok || lb.cur !== b) return;
+    if (lb.fails === 99) { lbStop(); toast('没能播放声音：这台设备的系统朗读好像不可用，请检查是否静音、音量是否调低。', 6000); return; }
+    if (lb.end && Date.now() > lb.end) { b.it.idx++; lbSaveProg(); lbStop(); toast('定时时间到，已停止。晚安 🌙', 5000); return; }
+    b.it.idx++; if (b.it.idx % 5 === 0) lbSaveProg();
+    await lbSleep(lbNat() ? 0 : 150);
+  }
+}
+function lbSaveProg() { const b = lb.cur; if (!b) return; b.it.at = Date.now(); lbSaveList(); }
+function lbPlay() { if (!lb.cur) return; if (lb.cur.it.idx >= lb.cur.n) lb.cur.it.idx = 0; try { speechSynthesis.cancel(); } catch (e) {} lb.on = true; lb.paused = false; lb.fails = 0; lb.natFails = 0; setTimeout(() => { if (lb.on && lb.ui) lbUi(false); }, 1500); if (lb.browse) { lb.browse = false; lbPaint(true, true); } if (lbNat()) { try { lbFiller(); } catch (e) {} } lbMedia(); if (lb.timer && !lb.end) lb.end = Date.now() + lb.timer * 60000; lbBar(); lbLoop(); }
+function lbStop() {
+  const was = lb.on; lb.on = false; lb.paused = false; lb.tok++; lb.end = 0;
+  lbHalt(); try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'none'; } catch (e) {}
+  if (lb.cur) lbSaveProg();
+  if (was && lb.screen === 'read') lbBar();
+}
+function lbToggle() { if (!lb.on) { lbPlay(); return; } if (lb.paused) { lb.paused = false; lbBar(); lbMedia(); lbLoop(); } else { lb.paused = true; lb.tok++; lbHalt(); lbBar(); } }
+function lbJump(i) {
+  const b = lb.cur; if (!b) return; lb.browse = false; b.it.idx = Math.max(0, Math.min(b.n - 1, i)); lbPaint(true); lbBar();
+  if (lb.on && !lb.paused) { lb.tok++; lbHalt(); lbLoop(); } else lbSaveProg();
+}
+function lbRestart() { if (lb.on && !lb.paused) { lb.tok++; lbHalt(); lbLoop(); } }
+function lbSpeed() { const r = lbRate(), n = r === 1 ? 1.25 : r === 1.25 ? 1.5 : 1; localStorage.setItem('zh_rate', String(n)); lbBar(); lbRestart(); toast('语速 ' + n + ' 倍', 1400); }
+function lbTimer() { const o = [0, 15, 30, 60], n = o[(o.indexOf(lb.timer) + 1) % o.length]; lb.timer = n; lb.end = n && lb.on ? Date.now() + n * 60000 : 0; lbBar(); toast(n ? '定时：' + n + ' 分钟后自动停止' : '已取消定时', 1800); }
+function lbFont(d) { const n = Math.max(15, Math.min(34, lbFs() + d)); localStorage.setItem('zh_fs', String(n)); if (lbPage()) { lb.browse = false; lbPaint(true, true); return; } const t = document.querySelector('.lbtxt'); if (t) t.style.fontSize = n + 'px'; }
+function lbFace() { localStorage.setItem('zh_ff', lbSans() ? 'serif' : 'sans'); lbEl().classList.toggle('sans', lbSans()); lbPaint(true, true); lbBar(); }
+window.addEventListener('resize', () => { if (lb.screen === 'read' && lbPage() && lb.cur) { lb.browse = false; lbPaint(true, true); } });
+function lbEngine() { const to = lbNat() ? 'sys' : 'nat'; lb.natOff = false; localStorage.setItem('zh_eng', to); toast(to === 'nat' ? '已换成自然人声（需要联网）' : '已换成系统声音', 2000); lbBar(); lbRestart(); }
+function lbVoiceNext() { if (lbNat()) { const i = LB_NAT.findIndex(x => x[0] === lbNatVoice()[0]), n = LB_NAT[(i + 1) % LB_NAT.length]; localStorage.setItem('zh_nv', n[0]); toast('声音：' + n[1], 2000); lbBar(); lbRestart(); return; } const vs = lbVoices(); if (vs.length < 2) { toast(vs.length ? '这台设备只有一个中文声音' : '这台设备没有找到中文声音', 2500); return; } const c = lbVoice(), n = vs[(vs.findIndex(v => c && v.voiceURI === c.voiceURI) + 1) % vs.length]; localStorage.setItem('zh_voice', n.voiceURI); toast('声音：' + n.name, 1800); lbRestart(); }
+/* ---- 界面 ---- */
+function lbShow(html) { const e = lbEl(); e.innerHTML = html; e.classList.add('show'); e.classList.remove('rd', 'ui'); }
+function lbUi(v) { lb.ui = v === undefined ? !lb.ui : v; lbEl().classList.toggle('ui', !!lb.ui); }
+function lbClose() { lbStop(); lb.cur = null; lbOpenShelf(); }
+function lbBack() { lbClose(); }
+function lbPct(it) { return it.n ? Math.min(100, Math.round(it.idx / it.n * 100)) : 0; }
+async function lbOpenShelf() {
+  lb.screen = 'shelf'; await lbLoadList();
+  const mine = lb.list.slice().sort((a, b) => (b.at || 0) - (a.at || 0));
+  const item = it => '<div class="lbitem" onclick="lbOpenItem(\'' + it.id + '\')"><div class="t"><b>' + esc(it.title) + '</b><span class="note">听到 ' + lbPct(it) + '%</span></div><button class="ghost sm" onclick="event.stopPropagation();lbDelete(\'' + it.id + '\')">删除</button></div>';
+  lbShow('<div class="lbtop"><span></span><b>🎧 中文听书</b></div><div class="lbbody">' +
+    '<div class="note" style="margin-bottom:12px">像微信读书一样：直接看中文，眼睛累了就听，睡前也能听。导入你自己的中文书就能开始。</div>' +
+    '<div class="filebtn" style="margin-bottom:8px"><button type="button" tabindex="-1">＋ 导入中文书（txt / epub / docx / md / mobi）</button><input type="file" accept=".txt,.md,.markdown,.epub,.docx,.mobi,.azw3,.azw" onchange="lbImportFile(event)"></div>' +
+    '<div class="row" style="margin:8px 0 4px"><button class="ghost sm" onclick="lbPasteBox()">粘贴一段中文来听</button><button class="ghost sm" onclick="lbUnlock()">' + (admTok ? '🎙 自然人声：已开启' : '🎙 开启自然人声') + '</button></div><div id="lbStatus" class="note" style="min-height:20px"></div>' +
+    (mine.length ? '<div class="lbh">继续听</div>' + mine.map(item).join('') : '<div class="note" style="margin-top:24px;text-align:center">书架是空的，先导入一本书吧。</div>') + '</div>');
+}
+function lbStatus(m) { const e = document.getElementById('lbStatus'); if (e) e.textContent = m || ''; }
+function lbPasteBox() {
+  lbShow('<div class="lbtop"><button class="iconbtn" onclick="lbOpenShelf()" style="font-size:15px">‹ 返回</button><b>粘贴中文</b></div><div class="lbbody"><textarea id="lbPaste" placeholder="把中文文章粘贴到这里…" style="width:100%;min-height:240px;box-sizing:border-box"></textarea><div class="row" style="margin-top:10px"><button onclick="lbImportText(document.getElementById(\'lbPaste\').value,\'粘贴的文章\')">开始听</button></div></div>');
+}
+function lbDecode(buf) { try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { try { return new TextDecoder('gb18030').decode(buf); } catch (e2) { return new TextDecoder('utf-8').decode(buf); } } }
+async function lbImportFile(ev) {
+  const f = ev.target.files[0]; if (!f) return; const n = f.name.toLowerCase(), title = f.name.replace(/\.[^.]+$/, '');
+  lbStatus('正在读取 ' + f.name + ' …');
+  try {
+    let text = '';
+    if (n.endsWith('.txt') || n.endsWith('.md') || n.endsWith('.markdown')) { text = lbDecode(await readAsArrayBuffer(f)); if (!n.endsWith('.txt')) text = mdToText(text); }
+    else if (n.endsWith('.epub')) { const bl = await parseEpub(await readAsArrayBuffer(f)); text = bl.map(x => (x.title && !x.text.startsWith(x.title) ? x.title + '\n' : '') + x.text).join('\n\n'); }
+    else if (n.endsWith('.docx')) text = await parseDocx(await readAsArrayBuffer(f));
+    else if (/\.(mobi|azw3?|azw)$/.test(n)) text = parseMobi(await readAsArrayBuffer(f));
+    else { alert('请选择 .txt、.md、.epub、.docx、.mobi 或 .azw3 文件。'); lbStatus(''); return; }
+    await lbImportText(text, title);
+  } catch (e) { alert('文件读取失败：' + (e && e.message ? e.message : '未知错误')); lbStatus(''); }
+}
+async function lbImportText(text, title) {
+  const cjk = (String(text).match(/[㐀-鿿]/g) || []).length;
+  if (cjk < 20) { alert('这里面几乎没有中文。英文书请用“学习材料/导入材料”，再回到这里选“听中文译文”。'); lbStatus(''); return; }
+  if (cjk < String(text).length * 0.25 && !confirm('这份文件里中文不多，可能是英文书。仍然当作中文书来听吗？')) { lbStatus(''); return; }
+  const sp = lbSplit(text); if (sp.s.length < 1) { alert('没有读到可以朗读的文字。'); return; }
+  const id = 'z' + Date.now();
+  await idbPut('meta', sp, 'lb:' + id);
+  await lbLoadList(); lb.list.push({ id, title: (title || '中文书').slice(0, 60), kind: 'zh', n: sp.s.length, idx: 0, at: Date.now() }); await lbSaveList();
+  lbOpenItem(id);
+}
+async function lbDelete(id) {
+  const it = lb.list.find(x => x.id === id); if (!it || !confirm('删除《' + it.title + '》的听书记录？' + (it.kind === 'zh' ? '\n导入的中文内容也会一起删除。' : '（英文书本身不会删除）'))) return;
+  if (lb.cur && lb.cur.it.id === id) { lbStop(); lb.cur = null; }
+  lb.list = lb.list.filter(x => x.id !== id); await lbSaveList(); if (it.kind === 'zh') { try { await idbDel('meta', 'lb:' + id); } catch (e) {} }
+  lbOpenShelf();
+}
+async function lbOpenItem(id) {
+  const it = lb.list.find(x => x.id === id); if (!it) return;
+  try { lb.cur = await lbOpenBookObj(it); } catch (e) { alert(e.message); return; }
+  it.n = lb.cur.n; if (it.idx >= it.n) it.idx = 0; lb.screen = 'read'; lb.winA = lb.winB = -1; lb.fails = 0; lb.browse = false;
+  lbShow('<div class="lbtop"><button class="iconbtn" aria-label="关闭" onclick="lbBack()">✕</button></div><div class="lbbody" id="lbBody"></div><div class="lbhead" id="lbHead"></div><div class="lbfoot" id="lbPct"></div><div class="lbbar" id="lbBar"></div>'); lbEl().classList.add('rd'); lbEl().classList.toggle('sans', lbSans()); lbUi(true);
+  lbPaint(false, true); lbBar();
+}
+function lbSentHtml(i) { const b = lb.cur, t = lbPeek(i); return '<span class="lbs' + (t ? '' : ' wait') + (i === b.it.idx ? ' cur' : '') + '" data-i="' + i + '"' + (lbPage() ? '' : ' onclick="lbJump(' + i + ')"') + '>' + (t ? esc(t) : '……') + '</span>'; }
+const lbPage = () => true;                           // 只有翻页模式（滚动模式已去掉）
+function lbParas(a, z) {
+  const b = lb.cur; let h = ''; const ps = b.p; let pi = 0; while (pi + 1 < ps.length && ps[pi + 1] <= a) pi++;
+  for (; pi < ps.length && ps[pi] < z; pi++) { const s0 = Math.max(ps[pi], a), s1 = Math.min(pi + 1 < ps.length ? ps[pi + 1] : b.n, z); let buf = ''; for (let k = s0; k < s1; k++) buf += lbSentHtml(k); h += '<p class="lbp">' + buf + '</p>'; }
+  return h;
+}
+/* ---- 翻页模式：像苹果图书那样左右滑动翻页 ---- */
+const LB_PAD = 24;
+function lbSafe() { if (lb.safe) return lb.safe; const d = document.createElement('div'); d.style.cssText = 'position:fixed;visibility:hidden;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)'; document.body.appendChild(d); const cs = getComputedStyle(d); lb.safe = { t: parseFloat(cs.paddingTop) || 0, b: parseFloat(cs.paddingBottom) || 0 }; d.remove(); return lb.safe; }
+function lbPitch() { const c = document.getElementById('lbClip'); return c ? c.clientWidth : 0; }
+function lbPgSet(p, anim, from) {
+  const st = document.getElementById('lbStrip'); if (!st) return; const pitch = lbPitch(); lb.pgI = Math.max(0, Math.min(lb.pgN - 1, p));
+  if (from !== undefined) { st.style.transition = 'none'; st.style.transform = 'translate3d(' + from + 'px,0,0)'; void st.offsetWidth; }
+  st.style.transition = anim ? 'transform .42s cubic-bezier(.2,.85,.25,1)' : 'none'; st.style.transform = 'translate3d(' + (-lb.pgI * pitch) + 'px,0,0)';
+  const pc = document.getElementById('lbPct'); if (pc && lb.cur) lbFootUpdate();
+}
+function lbPgOf(i) {                                 // 第 i 句在窗口的第几页（用屏幕位置算，各浏览器都准）
+  const st = document.getElementById('lbStrip'), el = st && st.querySelector('.lbs[data-i="' + i + '"]'); if (!el) return -1;
+  const r = el.getClientRects()[0], sr = st.getBoundingClientRect(), pitch = lbPitch(); if (!r || !pitch) return -1;
+  return Math.max(0, Math.min(lb.pgN - 1, Math.floor((r.left - sr.left + 2) / pitch)));
+}
+function lbRenderPage(a, z, startAt) {
+  const b = lb.cur, body = document.getElementById('lbBody'); lb.winA = a; lb.winB = z; body.classList.add('pg');
+  body.innerHTML = '<div class="lbclip" id="lbClip"><div class="lbstrip" id="lbStrip"><div class="lbtxt" style="font-size:' + lbFs() + 'px">' + lbParas(a, z) + '</div></div><div class="lbedge" id="lbEdge"></div>' + (lb.browse ? '<button class="ghost sm lbhome">📍 回到正在读的位置</button>' : '') + '</div>';
+  const clip = document.getElementById('lbClip'), st = document.getElementById('lbStrip'), W = clip.clientWidth - LB_PAD * 2, vt = lbSafe().t + 44, vb = lbSafe().b + 40, H = clip.clientHeight - vt - vb;
+  st.style.cssText += ';left:' + LB_PAD + 'px;top:' + vt + 'px;width:' + W + 'px;height:' + H + 'px;column-width:' + W + 'px;column-gap:' + (LB_PAD * 2) + 'px';
+  lb.pgN = Math.max(1, Math.round((st.scrollWidth + LB_PAD * 2) / (W + LB_PAD * 2)));
+  let pg = startAt === 'end' ? lb.pgN - 1 : startAt === 'start' ? 0 : lbPgOf(b.it.idx); if (pg < 0) pg = 0;
+  lbPgSet(pg, false); lbBindSwipe(clip);
+}
+/* 底部“第几页/共几页”：按字数估算整本书的页数，和苹果图书一样显示 20/1678页；顶部显示当前章节 */
+function lbPrefix() {
+  const b = lb.cur; if (b.pre) return b.pre; const a = new Uint32Array(b.n + 1);
+  for (let i = 0; i < b.n; i++) { const t = b.s[i]; a[i + 1] = a[i] + (t ? t.length : 28); }
+  return b.pre = a;
+}
+function lbFootUpdate() {
+  const b = lb.cur, pc = document.getElementById('lbPct'), hd = document.getElementById('lbHead'); if (!b || !pc) return;
+  const st = document.getElementById('lbStrip'), pitch = lbPitch(); let first = lb.winA;
+  if (st && pitch) { const sr = st.getBoundingClientRect(); for (const el of st.querySelectorAll('.lbs')) { const r = el.getClientRects()[0]; if (r && r.left - sr.left >= lb.pgI * pitch - 2) { first = +el.dataset.i; break; } } }
+  const pre = lbPrefix(), total = pre[b.n]; let cpp = lb.cpp; if (!cpp || lb.cppKey !== lb.winA) { cpp = Math.max(60, (pre[Math.min(b.n, lb.winB)] - pre[lb.winA]) / Math.max(1, lb.pgN)); lb.cpp = cpp; lb.cppKey = lb.winA; }
+  const pages = Math.max(1, Math.round(total / cpp)), cur = Math.min(pages, Math.floor(pre[first] / cpp) + 1);
+  pc.textContent = cur + ' / ' + pages + ' 页';
+  if (hd) { const ch = lbChapters(); let t = ''; if (!ch.auto) { ch.forEach(c => { if (c.i <= first) t = c.t; }); } hd.textContent = t || b.it.title; }
+}
+function lbTurn(d) {
+  const p = lb.pgI + d, b = lb.cur, pitch = lbPitch();
+  if (p >= 0 && p < lb.pgN) { lb.browse = lb.browse || lbPgOf(b.it.idx) !== p; lbPgSet(p, true); lbBrowseUi(); return; }
+  if (d > 0 && lb.winB < b.n) { lb.browse = true; lbRenderPage(lb.winB, Math.min(b.n, lb.winB + 90), 'start'); lbPgSet(0, true, pitch); if (lbPgOf(b.it.idx) === 0) lb.browse = false; lbBrowseUi(); return; }
+  if (d < 0 && lb.winA > 0) { lb.browse = true; lbRenderPage(Math.max(0, lb.winA - 90), lb.winA, 'end'); lbPgSet(lb.pgN - 1, true, -(lb.pgN - 1) * pitch - pitch); lbBrowseUi(); return; }
+  lbPgSet(lb.pgI, true); toast(d > 0 ? '已经是最后一页了' : '这是第一页', 1200);
+}
+function lbBrowseUi() {                              // 翻到别处看时，出现“回到正在读的位置”
+  const clip = document.getElementById('lbClip'); if (!clip) return; const h = clip.querySelector('.lbhome');
+  if (lb.browse && !h) { const e = document.createElement('button'); e.className = 'ghost sm lbhome'; e.textContent = '📍 回到正在读的位置'; clip.appendChild(e); }
+  if (!lb.browse && h) h.remove();
+}
+function lbBindSwipe(clip) {
+  let sx = 0, sy = 0, st0 = 0, dx = 0, drag = false, down = false, tgt = null; const edge = document.getElementById('lbEdge');
+  const pitch = () => clip.clientWidth, strip = document.getElementById('lbStrip');
+  let lt = 0, longDone = false;
+  clip.onpointerdown = e => { down = true; drag = false; longDone = false; sx = e.clientX; sy = e.clientY; st0 = Date.now(); dx = 0; tgt = e.target; clearTimeout(lt); const sent = tgt && tgt.closest && tgt.closest('.lbs'); if (sent) lt = setTimeout(() => { if (down && !drag) { longDone = true; const i = +sent.dataset.i; lbJump(i); if (!lb.on) lbPlay(); toast('从这一句开始听', 1300); } }, 480); };
+  clip.onpointermove = e => {
+    if (!down) return; dx = e.clientX - sx; if (!drag && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(e.clientY - sy)) { drag = true; clearTimeout(lt); try { clip.setPointerCapture(e.pointerId); } catch (x) {} } if (!drag) return;
+    let k = dx; const first = lb.pgI === 0 && lb.winA === 0, last = lb.pgI === lb.pgN - 1 && lb.winB >= lb.cur.n;
+    if ((dx > 0 && first) || (dx < 0 && last)) k = dx * 0.3;            // 到头了，拉不动（有点弹性）
+    strip.style.transition = 'none'; strip.style.transform = 'translate3d(' + (-lb.pgI * pitch() + k) + 'px,0,0)';
+    edge.style.opacity = Math.min(1, Math.abs(k) / 90); edge.style.left = (k < 0 ? pitch() + k : k) + 'px'; edge.style.transform = k < 0 ? 'none' : 'scaleX(-1)';
+  };
+  clip.onpointerup = clip.onpointercancel = e => {
+    if (!down) return; down = false; clearTimeout(lt); edge.style.opacity = 0; if (longDone) return;
+    if (drag) { const v = dx / Math.max(1, Date.now() - st0), W = pitch(); if (dx < -W * 0.18 || v < -0.45) lbTurn(1); else if (dx > W * 0.18 || v > 0.45) lbTurn(-1); else lbPgSet(lb.pgI, true); return; }
+    if (tgt && tgt.closest && tgt.closest('.lbhome')) { lbHome(); return; }
+    const r = clip.getBoundingClientRect(), x = (e.clientX - r.left) / r.width, sent = tgt && tgt.closest && tgt.closest('.lbs');
+    if (x < 0.2) lbTurn(-1); else if (x > 0.8) lbTurn(1); else lbUi();
+  };
+}
+function lbRender(a, z) { return lbRenderPage(a, z); }
+function lbPaint(scroll, force) {
+  const b = lb.cur, body = document.getElementById('lbBody'); if (!b || !body) return;
+  const i = b.it.idx, pc = document.getElementById('lbPct'); if (pc) if (lbPage() && lb.pgN) lbFootUpdate(); else pc.textContent = lbPct(b.it) + '%';
+  if (lb.browse && !force) return;                    // 你正在翻页看别的地方，不把你拉回朗读的位置
+  if (lbPage() && !force && lb.winA >= 0 && i === lb.winB) { lbRenderPage(i, Math.min(b.n, i + 90), 'start'); lbPgSet(0, true, lbPitch()); return; }   // 读到这一段的末尾：翻到下一段的第一页
+  if (lbPage() && !force && lb.winA >= 0 && i >= lb.winA && i < lb.winB) { body.querySelectorAll('.lbs.cur').forEach(e => e.classList.remove('cur')); const c = body.querySelector('.lbs[data-i="' + i + '"]'); if (c) c.classList.add('cur'); const pg = lbPgOf(i); if (pg >= 0 && pg !== lb.pgI) lbPgSet(pg, true); return; }
+  if (force || i < lb.winA + 8 || i > lb.winB - 12 || lb.winA < 0) {            // 只画当前句前后一段，书再长页面也不卡
+    lbRender(Math.max(0, i - 30), Math.min(b.n, i + 70)); scroll = true;
+  } else { body.querySelectorAll('.lbs.cur').forEach(e => e.classList.remove('cur')); const c = body.querySelector('.lbs[data-i="' + i + '"]'); if (c) c.classList.add('cur'); }
+  if (scroll && !lbPage()) { const c = body.querySelector('.lbs.cur'); if (c) c.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+}
+function lbHome() { lb.browse = false; lbPaint(true, true); }
+/* ---- 目录 ---- */
+function lbChapters() {
+  const b = lb.cur; if (b.ch) return b.ch;
+  const re = /^(第\s*[0-9零〇一二三四五六七八九十百千两]+\s*[章节回卷部篇集幕]|[序前后]言|后记|尾声|楔子|引子|番外|序章|终章|chapter\s*[0-9ivxlc]+|part\s*[0-9ivxlc]+|prologue|epilogue)/i; let ch = []; const pst = new Set(b.p);
+  for (let i = 0; i < b.n; i++) {
+    const t = b.s[i] || ''; if (t.length > 40 || !re.test(t.trim())) continue;
+    if (!(pst.has(i) && pst.has(i + 1) || i === b.n - 1 && pst.has(i))) continue;       // 标题单独成段
+    ch.push({ i, t: t.trim() });
+  }
+  if (ch.length < 2) { ch = []; const step = Math.max(50, Math.ceil(b.n / 30 / 10) * 10); for (let i = 0; i < b.n; i += step) { const t = lbPeek(i) || '' || ''; ch.push({ i, t: '第 ' + (i + 1) + ' 句起 · ' + t.slice(0, 14) + (t.length > 14 ? '…' : '') }); } ch.auto = true; }
+  return b.ch = ch;
+}
+function lbChap(d) {                                // 上一章 / 下一章（没有章节标题的书按目录里的分段）
+  const b = lb.cur; if (!b) return; const ch = lbChapters(), i = b.it.idx; let k = 0; ch.forEach((c, j) => { if (c.i <= i) k = j; });
+  let to; if (d > 0) to = ch[k + 1]; else to = (i - ch[k].i > 3 || k === 0) ? ch[k] : ch[k - 1];
+  if (d > 0 && !to) { toast('已经是最后一章了', 1500); return; }
+  lbJump(to ? to.i : 0);
+}
+function lbToc() {
+  const b = lb.cur; if (!b) return; const ch = lbChapters(); let cur = 0; ch.forEach((c, k) => { if (c.i <= b.it.idx) cur = k; });
+  const e = document.createElement('div'); e.className = 'lbtoc'; e.id = 'lbTocBox';
+  e.innerHTML = '<div class="lbtop"><button class="iconbtn" onclick="lbTocClose()" style="font-size:15px">‹ 返回</button><b>目录 · ' + (ch.auto ? '没找到章节标题，按位置分段' : ch.length + ' 章') + '</b></div><div class="lbtl">' + ch.map((c, k) => '<div class="it' + (k === cur ? ' on' : '') + '" onclick="lbGoto(' + c.i + ')"><span>' + esc(c.t) + '</span><small>' + Math.round(c.i / b.n * 100) + '%</small></div>').join('') + '</div>';
+  lbEl().appendChild(e); const on = e.querySelector('.it.on'); if (on) on.scrollIntoView({ block: 'center' });
+}
+function lbTocClose() { const e = document.getElementById('lbTocBox'); if (e) e.remove(); }
+function lbGoto(i) { lbTocClose(); lbJump(i); }
+function lbBar() {
+  const bar = document.getElementById('lbBar'), b = lb.cur; if (!bar || !b) return;
+  bar.innerHTML = '<div class="note" style="text-align:center">第 ' + Math.min(b.it.idx + 1, b.n) + ' / ' + b.n + ' 句' + (lb.on && !lb.paused ? ' · 正在朗读' : lb.paused ? ' · 已暂停' : '') + '</div>' +
+    '<div class="row"><button class="pri" style="min-width:120px;height:52px;font-size:17px" onclick="lbToggle()">' + (lb.on && !lb.paused ? '⏸ 暂停' : '▶ 播放') + '</button></div>' +
+    '<div class="row"><button class="ghost sm" onclick="lbToc()">☰ 目录 · ' + lbPct(b.it) + '%</button><button class="ghost sm" onclick="lbSpeed()">' + lbRate() + '×</button><button class="ghost sm" onclick="lbTimer()">' + (lb.timer ? '⏲ ' + lb.timer + ' 分钟' : '⏲ 定时') + '</button><button class="ghost sm" onclick="lbSheet()">⚙ 更多</button></div>';
+  if (document.getElementById('lbSheet')) lbSheet(true);
+}
+function lbSheet(re) {                               // 低频设置收进这里
+  let e = document.getElementById('lbSheet');
+  if (e && !re) { e.remove(); return; }
+  if (!e) { e = document.createElement('div'); e.className = 'lbsheet'; e.id = 'lbSheet'; e.onclick = ev => { if (ev.target === e) e.remove(); }; lbEl().appendChild(e); }
+  const nat = lbNat();
+  e.innerHTML = '<div class="in"><div class="note" style="text-align:center">阅读与朗读设置</div><div class="g">' +
+    '<button class="ghost sm" onclick="lbFont(-1)">A− 字小一点</button><button class="ghost sm" onclick="lbFont(1)">A＋ 字大一点</button>' +
+    '<button class="ghost sm" onclick="lbFace()">' + (lbSans() ? '字体：黑体' : '字体：宋体') + '</button>' +
+    
+    (admTok ? '' : '<button class="ghost sm" onclick="lbUnlock()">🎙 开启自然人声</button>') + '<button class="ghost sm" onclick="lbVoiceNext()">🔊 声音：' + (nat ? lbNatVoice()[1].slice(0, 2) : '系统') + '</button>' +
+    (admTok ? '<button class="ghost sm" onclick="lbEngine()">' + (nat ? '🎙 自然人声' : '🤖 系统声音') + '</button>' : '') +
+    (nat ? '<button class="ghost sm" onclick="lbPregen()">' + (lb.pg ? '⏹ 停止生成' : '📥 整本预生成') + '</button><button class="ghost sm" onclick="lbClearSaved()">🗑 清除已存</button>' : '') +
+    '</div>' + (lb.pgTxt ? '<div class="note" style="text-align:center;margin-top:8px">' + lb.pgTxt + '</div>' : '') +
+    '<div class="note" style="text-align:center;margin-top:10px;font-size:12px">点屏幕中间：呼出/收起这些按钮。长按某一句：从那一句开始听。' + (nat ? '自然人声听过的句子会存在设备上。' : '') + '</div></div>';
+}
+function lbCur() { return lb.cur.it; }
+
+/* ---------- 启动 ---------- */
+(async () => {
+  await admLoad();
+  lbEl().classList.add('show', 'sans'); if (!lbSans()) lbEl().classList.remove('sans');
+  try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
+  await lbOpenShelf();
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+})();
+
+</script>
+</body>
+</html>
