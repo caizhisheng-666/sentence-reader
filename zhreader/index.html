@@ -231,7 +231,7 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 <div id="lbov"></div><div id="lbDim"></div>
 <script>
 
-const APP_VERSION = '2026.10.20-12';
+const APP_VERSION = '2026.10.20-13';
 const API_BASE = 'https://api.miaomiaosw.com';       // 你的服务器（自然人声由它向微软合成）
 /* ---------- 基础：本机数据库、提示、小工具 ---------- */
 let _db = null;
@@ -776,6 +776,8 @@ async function lbInfo() {                            // 向服务器问：这本
     return d;
   } catch (e) { return null; }
 }
+function lbVName(k) { const one = x => { const v = LB_VOICES.find(y => y[0] === x); return v ? v[1] : ''; }; if (k.indexOf('_x_') > 0) { const [a, d] = k.split('_x_'); return one(a) && one(d) ? one(a) + '+' + one(d) : ''; } return one(k); }   // 声音编号 → 名字；组合声音是 旁白_x_对话
+function lbPickRole() { const n = document.getElementById('rlN').value, d = document.getElementById('rlD').value; lbPickVoice(n === d ? n : n + '_x_' + d); }
 function lbVoiceSt(k) {
   const b = lb.cur, d = lb.zinfo, tot = b._uniq || (b._uniq = new Set(b.s.map(x => String(x).trim()).filter(Boolean)).size);
   const v = ((d && d.voices) || b.it.zvs || []).find(x => x.k === k), clips = v ? v.clips : 0;
@@ -785,15 +787,16 @@ function lbVoicesHtml() {
   const b = lb.cur, it = b.it; if (!lbZl()) return admTok ? '<div class="lbh">声音</div><div class="chips"><button class="ghost sm" onclick="lbShelve()">⬆ 上架到书库，再选声音录音</button></div><div class="note" style="margin-top:6px">上架后，想听哪个声音就点哪个，电脑上的“喵喵录音机”会自动去录。</div>' : '';
   const known = new Set(LB_VOICES.map(v => v[0])), rows = [], cur = it.zv || '';
   for (const v of LB_VOICES) { const st = lbVoiceSt(v[0]); if (!admTok && !st.clips) continue; rows.push([v[0], v[1], v[2], st]); }
-  for (const z of (it.zvs || [])) if (!known.has(z.k) && z.clips > 0) rows.push([z.k, z.name, '', lbVoiceSt(z.k)]);
+  for (const z of (it.zvs || [])) if (!known.has(z.k) && z.clips > 0) rows.push([z.k, lbVName(z.k) || z.name, '', lbVoiceSt(z.k)]);
   if (!rows.length) return '';
   const w = lb.zinfo && lb.zinfo.worker;
   return '<div class="lbh">声音</div><div class="vcs">' + rows.map(r => { const st = r[3], sub = st.complete ? '✓ 已录好' : st.queued ? '⏺ 录制中 ' + st.pct + '%' : st.clips ? (admTok ? '已录 ' + st.pct + '%，点一下继续录' : '已录 ' + st.pct + '%') : '点一下开始录';
     return '<button class="vc' + (cur === r[0] && (st.clips || st.queued) ? ' on' : '') + '" onclick="lbPickVoice(\'' + r[0] + '\')"><b>' + esc(r[1]) + '</b><small>' + (r[2] ? r[2] + ' · ' : '') + sub + '</small></button>'; }).join('') + '</div>' +
+    (admTok ? '<div class="lbh" style="margin-top:10px">分角色：旁白和人物说话用不同声音</div><div class="chips" style="align-items:center"><span class="note">旁白</span><select id="rlN" class="ghost sm">' + LB_VOICES.map(v => '<option value="' + v[0] + '">' + v[1] + '</option>').join('') + '</select><span class="note">对话</span><select id="rlD" class="ghost sm">' + LB_VOICES.map(v => '<option value="' + v[0] + '"' + (v[0] === 'serena' ? ' selected' : '') + '>' + v[1] + '</option>').join('') + '</select><button class="ghost sm" onclick="lbPickRole()">用这个组合</button></div><div class="note" style="margin-top:6px">引号里的话用“对话”声音，其余用“旁白”声音。点一下，电脑录音机就从这里开始录。</div>' : '') +
     (admTok ? '<div class="note" style="margin-top:6px">电脑录音机：' + (w && w.online ? (w.job ? '正在录 ' + esc(w.msg || '') : '在线，空闲') : '没开 —— 请在电脑上双击“喵喵录音机”，不然点了也不会开始录') + '</div>' : '');
 }
 async function lbPickVoice(k) {
-  const b = lb.cur; if (!b) return; const it = b.it, st = lbVoiceSt(k), V = LB_VOICES.find(x => x[0] === k);
+  const b = lb.cur; if (!b) return; const it = b.it, st = lbVoiceSt(k), V = lbVName(k) ? [k, lbVName(k)] : null;
   if (!admTok || st.complete || (!V && st.clips)) {
     if (!st.clips) { toast('这个声音还没有录', 1800); return; }
     it.zv = k; lb.mp3 = new Map(); lbSaveProg(); toast('声音：' + (V ? V[1] : lbZvName()), 1600); lbPanelRender(); lbRestart(); return;
@@ -806,7 +809,7 @@ async function lbPickVoice(k) {
 let lbWfT = 0;
 function lbWantFollow() {                            // 听的时候拖到了别处：让录音机也从新位置开始录
   const it = lb.cur && lb.cur.it; if (!admTok || !it || !it.zl || !it.zv) return; const st = lbVoiceSt(it.zv); if (st.complete || !st.queued) return;
-  clearTimeout(lbWfT); const V = LB_VOICES.find(x => x[0] === it.zv);
+  clearTimeout(lbWfT); const V = lbVName(it.zv) ? [it.zv, lbVName(it.zv)] : null;
   lbWfT = setTimeout(() => { zhAdmin('/admin/zl/' + it.zl + '/want', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ voice: it.zv, name: V ? V[1] : it.zv, from: it.idx }) }); }, 2500);
 }
 async function lbShelve() {                          // 把手机上导入的这本书上架到书库（只传文字，不用电脑）
@@ -831,7 +834,7 @@ async function lbRecWait(c, tok) {                   // 这一句的录音还没
   } finally { lb.waitRec = false; }
 }
 function lbZvs() { const it = lb.cur && lb.cur.it; return ((it && it.zvs) || []).filter(v => v.clips > 0); }       // 这本书有哪几种声音可选
-function lbZvName() { const it = lb.cur && lb.cur.it, v = ((it && it.zvs) || []).find(x => x.k === (it.zv || '')); return v ? v.name : '书自带'; }
+function lbZvName() { const it = lb.cur && lb.cur.it, v = ((it && it.zvs) || []).find(x => x.k === (it.zv || '')); return v ? (lbVName(v.k) || v.name) : '书自带'; }
 function lbVoiceNext() { if (lbZl() && lbNat()) { const vs = lbZvs(); if (vs.length < 2) { toast('这本书只录了一种声音：' + lbZvName(), 2200); return; } const it = lb.cur.it, i = vs.findIndex(v => v.k === (it.zv || '')), n = vs[(i + 1) % vs.length]; it.zv = n.k; lb.mp3 = new Map(); lbSaveProg(); toast('声音：' + n.name, 1800); lbBar(); lbRestart(); return; } if (lbNat()) { const i = LB_NAT.findIndex(x => x[0] === lbNatVoice()[0]), n = LB_NAT[(i + 1) % LB_NAT.length]; localStorage.setItem('zh_nv', n[0]); toast('声音：' + n[1], 2000); lbBar(); lbRestart(); return; } const vs = lbVoices(); if (vs.length < 2) { toast(vs.length ? '这台设备只有一个中文声音' : '这台设备没有找到中文声音', 2500); return; } const c = lbVoice(), n = vs[(vs.findIndex(v => c && v.voiceURI === c.voiceURI) + 1) % vs.length]; localStorage.setItem('zh_voice', n.voiceURI); toast('声音：' + n.name, 1800); lbRestart(); }
 /* ---- 界面 ---- */
 function lbShow(html) { const e = lbEl(); e.innerHTML = html; e.classList.add('show'); e.classList.remove('rd', 'ui', 'pn'); lb.panel = ''; lb.ui = false; }
