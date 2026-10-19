@@ -301,7 +301,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.19-150';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.19-151';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -331,8 +331,25 @@ if ('serviceWorker' in navigator) {
     if (!state && !(typeof rec !== 'undefined' && rec.on) && !document.getElementById('overlay').classList.contains('show')) { swReloaded = true; location.reload(); }
     else { window.__swPending = true; toast('软件已更新到新版本，回到“我的学习”时会自动刷新', 4000); }
   });
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(() => {}));
 }
+/* 自动更新：打开时、从后台切回来时（隔 10 分钟以上）检查有没有新版本；有就让 sw 装好，没在读书/录音时自动刷新 */
+let srLastCheck = Date.now();
+async function srCheckUpdate(manual) {
+  srLastCheck = Date.now();
+  try {
+    const r = await fetch('./index.html?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) throw 0;
+    const m = /const APP_VERSION = '([^']+)'/.exec(await r.text()); if (!m) throw 0;
+    if (m[1] === APP_VERSION) { if (manual) toast('已经是最新版（' + APP_VERSION + '）', 2200); return; }
+    let upd = false; try { const reg = await navigator.serviceWorker.getRegistration(); if (reg) { await reg.update(); upd = true; } } catch (e) {}
+    if (manual) toast('发现新版本 ' + m[1] + '，正在更新…', 3000);
+    try { if (sessionStorage.getItem('sr_upd') === m[1]) return; sessionStorage.setItem('sr_upd', m[1]); } catch (e) {}       // 防止反复刷新
+    if (!upd) { location.reload(); return; }
+    setTimeout(() => { if (!state && !(typeof rec !== 'undefined' && rec.on) && !document.getElementById('overlay').classList.contains('show')) location.reload(); else { window.__swPending = true; toast('软件有新版本 ' + m[1] + '，回到“我的学习”时会自动更新', 4000); } }, 1500);
+  } catch (e) { if (manual) toast('现在连不上服务器，稍后再试', 2500); }
+}
+window.addEventListener('load', () => setTimeout(() => srCheckUpdate(false), 3000));
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && Date.now() - srLastCheck > 600000) srCheckUpdate(false); });
 
 /* ---------- IndexedDB：离线大词典 + 录音 ---------- */
 let _db = null;
@@ -3347,7 +3364,7 @@ function openHelp() {
   const li = t => '<li style="margin:5px 0">' + t + '</li>';
   const sec = (title, body, open) => '<details style="margin-top:10px"' + (open ? ' open' : '') + '><summary style="cursor:pointer;font-weight:600">' + title + '</summary><ul class="note" style="line-height:1.7;margin:8px 0 0;padding-left:20px">' + body + '</ul></details>';
   showPop(
-    '<h3 style="margin:0 0 4px">❓ 帮助与反馈</h3><div class="note">试用版 · 版本 <span onclick="devTap()" style="cursor:default;user-select:none">' + esc(APP_VERSION) + '</span></div><div class="note" style="margin-top:4px">为了统计使用人数，会记录一个匿名的设备编号，不收集姓名、账号、手机号。</div>' +
+    '<h3 style="margin:0 0 4px">❓ 帮助与反馈</h3><div class="note">试用版 · 版本 <span onclick="devTap()" style="cursor:default;user-select:none">' + esc(APP_VERSION) + '</span> <button class="ghost sm" onclick="srCheckUpdate(true)" style="margin-left:6px">检查更新</button></div><div class="note" style="margin-top:4px">为了统计使用人数，会记录一个匿名的设备编号，不收集姓名、账号、手机号。</div>' +
     '<div class="row" style="margin:12px 0 4px"><button onclick="copyDiag()">复制诊断信息</button>' + (FEEDBACK_URL ? '<button class="ghost" onclick="openFeedback()">打开反馈问卷</button>' : '') + '</div>' +
     '<div class="note">遇到问题（没声音、录不了音、材料导入不对等），先点“复制诊断信息”，粘贴发给发你链接的人。诊断信息只有设备和软件状态，没有材料的内容和你的录音。</div>' +
     sec('快速上手',
