@@ -230,7 +230,7 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 <div id="lbov"></div><div id="lbDim"></div>
 <script>
 
-const APP_VERSION = '2026.10.19-8';
+const APP_VERSION = '2026.10.19-9';
 const API_BASE = 'https://api.miaomiaosw.com';       // 你的服务器（自然人声由它向微软合成）
 /* ---------- 基础：本机数据库、提示、小工具 ---------- */
 let _db = null;
@@ -577,8 +577,8 @@ async function lbBuildSeg(b, from, cap, my, st) {
 }
 function lbPlaySeg(seg, my, b, st, prep) {
   return new Promise(res => {
-    const a = lbAud(); let done = false, cur = seg;
-    const fin = ok => { if (done) return; done = true; lb.audRes = null; a.onended = a.onerror = a.ontimeupdate = null; res({ ok, last: cur }); };
+    const a = lbAud(); let done = false, cur = seg; lb.segPlaying = true;
+    const fin = ok => { if (done) return; done = true; lb.segPlaying = false; lb.audRes = null; a.onended = a.onerror = a.ontimeupdate = null; res({ ok, last: cur }); };
     const upd = () => {
       if (done || my !== lb.tok) return;
       const t = a.currentTime, S = cur.st; let k = S.length - 1; while (k > 0 && S[k] > t + 0.03) k--;
@@ -649,8 +649,8 @@ function lbMedia() {
   try {
     navigator.mediaSession.metadata = new MediaMetadata({ title: lb.cur.it.title || '喵喵听书', artist: '喵喵听书' });
     navigator.mediaSession.playbackState = lb.on && !lb.paused ? 'playing' : 'paused';
-    navigator.mediaSession.setActionHandler('play', () => lbToggle());
-    navigator.mediaSession.setActionHandler('pause', () => lbToggle());
+    navigator.mediaSession.setActionHandler('play', () => { if (!lb.on || lb.paused) lbToggle(); });
+    navigator.mediaSession.setActionHandler('pause', () => { if (lb.on && !lb.paused) lbToggle(); });
     try { navigator.mediaSession.setActionHandler('previoustrack', null); navigator.mediaSession.setActionHandler('nexttrack', null); } catch (e) {}
   } catch (e) {}
 }
@@ -735,12 +735,28 @@ function lbStop() {
   if (lb.cur) lbSaveProg();
   if (was && lb.screen === 'read') lbBar();
 }
-function lbToggle() { if (!lb.on) { lbPlay(); return; } if (lb.paused) { lb.paused = false; lbBar(); lbMedia(); lbLoop(); } else { lb.paused = true; lb.tok++; lbHalt(); lbBar(); } }
+function lbMediaState(st) { try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = st; } catch (e) {} }
+function lbToggle() {
+  if (!lb.on) { lbPlay(); return; }
+  if (!lb.paused) {                                  // 暂停：正在播长段时只让声音停住，不拆掉，继续时马上接着播（锁屏上也能）
+    lb.paused = true;
+    if (lb.segPlaying && lb.aud) { try { lb.aud.pause(); } catch (e) {} } else { lb.tok++; lbHalt(); }
+    lbBar(); lbMediaState('paused'); return;
+  }
+  lb.paused = false; lbBar(); lbMedia(); lbMediaState('playing');
+  if (lb.segPlaying && lb.aud && !lb.aud.ended) {    // 继续：必须在这一下点击里立刻出声，iPhone 锁屏后不允许稍后再播
+    const p = lb.aud.play();
+    if (p && p.catch) p.catch(() => { if (!lb.on || lb.paused) return; lbHalt(); if (lbNat()) lbFiller(); lbLoop(); });
+    return;
+  }
+  if (lbNat()) { try { lbFiller(); } catch (e) {} }  // 先立刻放静音，保住“正在播放”的状态，再去准备下一段
+  lbLoop();
+}
 function lbJump(i) {
   const b = lb.cur; if (!b) return; lb.browse = false; b.it.idx = Math.max(0, Math.min(b.n - 1, i)); lbPaint(true); lbBar();
-  if (lb.on && !lb.paused) { lb.tok++; lbHalt(); lbLoop(); } else lbSaveProg();
+  if (lb.on && !lb.paused) { lb.tok++; lbHalt(); lbLoop(); } else { if (lb.on && lb.paused && lb.segPlaying) { lb.tok++; lbHalt(); } lbSaveProg(); }
 }
-function lbRestart() { if (lb.on && !lb.paused) { lb.tok++; lbHalt(); lbLoop(); } }
+function lbRestart() { if (lb.on && !lb.paused) { lb.tok++; lbHalt(); lbLoop(); } else if (lb.on && lb.paused && lb.segPlaying) { lb.tok++; lbHalt(); } }
 function lbSpeed() { const r = lbRate(), n = r === 1 ? 1.25 : r === 1.25 ? 1.5 : 1; localStorage.setItem('zh_rate', String(n)); lbBar(); lbRestart(); toast('语速 ' + n + ' 倍', 1400); }
 function lbTimer() { const o = [0, 15, 30, 60], n = o[(o.indexOf(lb.timer) + 1) % o.length]; lb.timer = n; lb.end = n && lb.on ? Date.now() + n * 60000 : 0; lbBar(); toast(n ? '定时：' + n + ' 分钟后自动停止' : '已取消定时', 1800); }
 window.addEventListener('resize', () => { if (lb.screen === 'read' && lbPage() && lb.cur) { lb.browse = false; lbPaint(true, true); } });
@@ -1080,6 +1096,7 @@ async function lbUpGo() {
   go.disabled = false;
 }
 const LB_LOG = [
+  ['2026.10.19-9', ['修复：锁屏后点暂停、再点播放没有声音']],
   ['2026.10.19-8', ['mobi / azw3 带封面的也会显示封面', '去掉“粘贴一段中文”']],
   ['2026.10.19-7', ['导入 epub / pdf 时自动取封面，书架上直接显示书的封面', '新增导入 pdf（有文字的 PDF）', '去掉“上一章 / 下一章”按钮和搜索']],
   ['2026.10.19-6', ['改进：锁屏后听书不再一会就没声音——把后面的录音提前拼成长段播放，不再每句都靠网页换声音']],
