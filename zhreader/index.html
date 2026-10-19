@@ -230,7 +230,7 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 <div id="lbov"></div><div id="lbDim"></div>
 <script>
 
-const APP_VERSION = '2026.10.19-5';
+const APP_VERSION = '2026.10.19-6';
 const API_BASE = 'https://api.miaomiaosw.com';       // 你的服务器（自然人声由它向微软合成）
 /* ---------- 基础：本机数据库、提示、小工具 ---------- */
 let _db = null;
@@ -530,6 +530,105 @@ function lbPlayUrl(url, tok) {
     const p = a.play(); if (p && p.catch) p.catch(() => { if (tok === lb.tok) { lb.fails = 99; } fin(); });
   });
 }
+/* ---- 锁屏也不断声：把后面几十句的录音拼成一整段（约 2 分钟）再播放 ----
+   iPhone 锁屏后，网页每次“换下一句”都要靠脚本运行，一旦被系统挂起声音就停了。
+   拼成长段之后，大约每 2 分钟才需要换一次，而且下一段提前拼好，在“播完”那一刻立刻接上。 */
+let lbDecCtx = null;
+async function lbBlobOf(text) {
+  const k = lbKey(text); try { const bl = await idbGet('tts', k); if (bl && bl.size) return bl; } catch (e) {}
+  return lbFetchBlob(text);
+}
+async function lbPcm(bl) {
+  const AC = window.OfflineAudioContext || window.webkitOfflineAudioContext; if (!AC) throw new Error('nodec');
+  if (!lbDecCtx) lbDecCtx = new AC(1, 1, 24000);
+  const ab = await bl.arrayBuffer();
+  const buf = await new Promise((ok, no) => { const p = lbDecCtx.decodeAudioData(ab, ok, no); if (p && p.catch) p.catch(no); });
+  const n = buf.length, ch = buf.numberOfChannels, out = new Float32Array(n), a = buf.getChannelData(0);
+  if (ch > 1) { const c2 = buf.getChannelData(1); for (let i = 0; i < n; i++) out[i] = (a[i] + c2[i]) / 2; } else out.set(a);
+  return out;
+}
+function lbSegFree(sg, st) { if (!sg || !sg.url) return; try { URL.revokeObjectURL(sg.url); } catch (e) {} sg.url = ''; if (st) st.urls.delete(sg); }
+async function lbBuildSeg(b, from, cap, my, st) {
+  const RATE = 24000, GAP = Math.round(RATE * 0.12), pcm = [], starts = []; let n = 0, total = 0, j = from;
+  while (j < b.n && n < cap && total < RATE * 130) {
+    const group = []; for (let k = j; k < b.n && group.length < 6 && n + group.length < cap; k++) group.push(k);
+    const res = await Promise.all(group.map(async k => {
+      try { const cs = lbChunks(lbPeek(k)), out = []; for (const c of cs) { const bl = await lbBlobOf(c); try { out.push(await lbPcm(bl)); } catch (e) { e.dec = 1; throw e; } } return { k, a: out }; }
+      catch (e) { return { k, err: e }; }
+    }));
+    if (my !== lb.tok) return null;
+    let stop = false;
+    for (const r of res) {
+      if (r.err) { if (r.err.dec) lb.segBad = (lb.segBad || 0) + 1; stop = true; break; }
+      starts.push(total / RATE); n++; j = r.k + 1;
+      for (const a of r.a) { pcm.push(a); total += a.length; }
+      if (r.a.length) { pcm.push(new Float32Array(GAP)); total += GAP; }
+    }
+    if (stop) break;
+  }
+  if (lb.segBad >= 2) lb.noSeg = true;
+  if (!n || !total) return null;
+  const buf = new ArrayBuffer(44 + total * 2), v = new DataView(buf), w = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + total * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, RATE, true); v.setUint32(28, RATE * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, total * 2, true);
+  let o = 44; for (const a of pcm) for (let i = 0; i < a.length; i++) { const x = Math.max(-1, Math.min(1, a[i])); v.setInt16(o, x < 0 ? x * 32768 : x * 32767, true); o += 2; }
+  const sg = { from, to: from + n - 1, url: URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })), st: starts };
+  if (my !== lb.tok) { lbSegFree(sg); return null; }
+  st.urls.add(sg); return sg;
+}
+function lbPlaySeg(seg, my, b, st, prep) {
+  return new Promise(res => {
+    const a = lbAud(); let done = false, cur = seg;
+    const fin = ok => { if (done) return; done = true; lb.audRes = null; a.onended = a.onerror = a.ontimeupdate = null; res({ ok, last: cur }); };
+    const upd = () => {
+      if (done || my !== lb.tok) return;
+      const t = a.currentTime, S = cur.st; let k = S.length - 1; while (k > 0 && S[k] > t + 0.03) k--;
+      const idx = cur.from + k; if (idx === b.it.idx) return;
+      b.it.idx = idx; if (idx % 5 === 0) lbSaveProg(); lbPaint(true);
+      if (lb.end && Date.now() > lb.end) { lbSaveProg(); lbStop(); toast('定时时间到，已停止。晚安 🌙', 5000); }
+    };
+    const start = sg => { cur = sg; a.loop = false; a.src = sg.url; a.playbackRate = lbRate(); a.defaultPlaybackRate = lbRate(); const p = a.play(); if (p && p.catch) p.catch(() => { if (my === lb.tok) lb.fails = 99; fin(false); }); prep(sg.to + 1); };
+    lb.audRes = () => fin(false); a.ontimeupdate = upd;
+    a.onerror = () => { lb.fails = 99; fin(false); };
+    a.onended = () => {
+      if (!(lb.on && !lb.paused && my === lb.tok)) return fin(false);
+      const nx = st.next;
+      if (nx && nx.from === cur.to + 1) { st.next = null; const old = cur; start(nx); b.it.idx = nx.from; lbPaint(true); setTimeout(() => lbSegFree(old, st), 4000); return; }
+      lbFiller(); fin(true);
+    };
+    start(seg);
+  });
+}
+async function lbSegLoop(my, b) {
+  const st = lb.sg = { urls: new Set(), next: null, building: null };
+  const alive = () => lb.on && !lb.paused && my === lb.tok && lb.cur === b && lbNat();
+  const prep = from => {
+    if (st.building || st.next || from >= b.n) return;
+    st.building = lbBuildSeg(b, from, 40, my, st).then(sg => { st.building = null; if (sg) st.next = sg; }, () => { st.building = null; });
+  };
+  try {
+    while (alive()) {
+      const i = b.it.idx;
+      if (i >= b.n) { lbStop(); lbBar(); toast('这本书听完了 🎉', 3000); return; }
+      lbNatPre(i);
+      if (st.building) await st.building;
+      let sg = null; if (st.next) { if (st.next.from === i) sg = st.next; else lbSegFree(st.next, st); st.next = null; }
+      if (!alive()) return;
+      if (!sg) { try { sg = await lbBuildSeg(b, i, 8, my, st); } catch (e) { sg = null; } }
+      if (!alive()) return;
+      if (!sg) {                                       // 这一句没有录音（或取不到）：只这一句走老办法
+        lbPaint(true); await lbSayNat(lbPeek(i), my);
+        if (my !== lb.tok || lb.cur !== b) return;
+        if (lb.fails === 99) { lbStop(); toast('没能播放声音：请检查是否静音、音量是否调低。', 6000); return; }
+        b.it.idx = i + 1; continue;
+      }
+      lbPaint(true);
+      const r = await lbPlaySeg(sg, my, b, st, prep);
+      if (my !== lb.tok || lb.cur !== b) return;
+      if (!r.ok) { if (lb.fails === 99) { lbStop(); toast('没能播放声音：请检查是否静音、音量是否调低。', 6000); } return; }
+      b.it.idx = r.last.to + 1; lbSaveProg();
+    }
+  } finally { st.urls.forEach(x => lbSegFree(x)); st.urls.clear(); if (lb.sg === st) lb.sg = null; }
+}
 async function lbSayNat(text, tok) {
   for (const c of lbChunks(text)) {
     if (tok !== lb.tok) return;
@@ -605,6 +704,10 @@ function lbSaySys(text, tok) {
 }
 async function lbLoop() {
   const my = ++lb.tok, b = lb.cur;
+  if (b && lbNat() && !lb.noSeg) await lbSegLoop(my, b);
+  if (b && lb.on && !lb.paused && my === lb.tok && lb.cur === b) return lbLoopOne(my, b);
+}
+async function lbLoopOne(my, b) {
   while (lb.on && !lb.paused && my === lb.tok && lb.cur === b) {
     if (b.it.idx >= b.n) { lbStop(); lbBar(); toast('这本书听完了 🎉', 3000); return; }
     const i = b.it.idx; lbNatPre(i); lbPaint(true);
@@ -978,6 +1081,7 @@ async function lbUpGo() {
   go.disabled = false;
 }
 const LB_LOG = [
+  ['2026.10.19-6', ['改进：锁屏后听书不再一会就没声音——把后面的录音提前拼成长段播放，不再每句都靠网页换声音']],
   ['2026.10.19-5', ['修复：打开目录/搜索等面板时，面板和工具栏之间会露出半行文字；搜索框不再出现蓝色边框']],
   ['2026.10.19-4', ['书库的书可以有好几种自然人声：在听书的“进度”面板里点“声音”切换']],
   ['2026.10.19-3', ['新界面（参照微信读书）：默认全屏，上滑呼出菜单；底部目录 / 搜索 / 进度 / 亮度 / 字体', '书架改成封面网格，新增“书架 / 书库 / 我”三个页签，支持排序、置顶、批量删除', '新增书签、全书搜索、听书时长和剩余时间、护眼 / 夜间等主题、行距和边距、首行缩进、楷体']],
