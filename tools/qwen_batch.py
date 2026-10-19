@@ -19,9 +19,19 @@ def load_model(model_name):
     from qwen_tts import Qwen3TTSModel          # 和 batch_read.py 同一个调用方式
     return Qwen3TTSModel.from_pretrained(model_name, device_map="cuda:0", dtype=torch.bfloat16, attn_implementation="sdpa")
 
-def synth_batch(model, texts, speaker, language):
-    """一次录好几句（比一句一句快得多）。返回 [(采样率, numpy 波形), ...]"""
-    wavs, sr = model.generate_custom_voice(text=list(texts), language=[language] * len(texts), speaker=[speaker] * len(texts))
+DEFAULT_INSTRUCT = "请用标准普通话朗读，发音清晰自然，不要带任何方言或地方口音。"
+def synth_batch(model, texts, speaker, language, instruct=None, temperature=None):
+    """一次录好几句（比一句一句快得多）。instruct 是“朗读要求”，用来压住方言口音；返回 [(采样率, numpy 波形), ...]"""
+    n = len(texts); kw = dict(text=list(texts), language=[language] * n, speaker=[speaker] * n)
+    if instruct: kw["instruct"] = [instruct] * n
+    if temperature: kw["temperature"] = float(temperature)
+    try:
+        wavs, sr = model.generate_custom_voice(**kw)
+    except TypeError as e:                              # 这个版本不认某个参数：去掉再试，并提示一次
+        for k in ("instruct", "temperature"):
+            if k in kw and k in str(e): kw.pop(k); print("（这个版本的模型不支持 %s，已忽略）" % k, flush=True)
+        if not any(k in str(e) for k in ("instruct", "temperature")): raise
+        wavs, sr = model.generate_custom_voice(**kw)
     return [(sr, w) for w in wavs]
 
 def synth(model, text, speaker, language):

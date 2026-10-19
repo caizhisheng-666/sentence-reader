@@ -145,7 +145,7 @@ def make_tts(a):
     import qwen_batch as q
     model = q.load_model(a.model)
     def real(items):
-        res = q.synth_batch(model, [t for t, _ in items], a.speaker, a.language)
+        res = q.synth_batch(model, [t for t, _ in items], a.speaker, a.language, a.instruct or None, a.temp)
         for (_, path), (sr, wav) in zip(items, res): q.to_mp3(sr, wav, path, a.bitrate)
     return real
 
@@ -157,7 +157,9 @@ def do_book(path, a, tts_holder):
     cache = os.path.join(os.path.expanduser("~/miaobook_cache"), bid); os.makedirs(cache, exist_ok=True)
     tok = a.tok
     print("\n《%s》 共 %d 句，书库编号 %s" % (title, len(sents), bid), flush=True)
-    have = set(call("GET", "/admin/zl/%s/have" % bid, tok=tok).get("have", []))
+    have = set() if a.redo else set(call("GET", "/admin/zl/%s/have" % bid, tok=tok).get("have", []))
+    if a.redo:
+        import shutil; shutil.rmtree(cache, ignore_errors=True); os.makedirs(cache, exist_ok=True)
     hs = [zl_hash(s) for s in sents]; seen = set(); todo = []
     for s, h in zip(sents, hs):
         if h in seen: continue
@@ -200,6 +202,9 @@ def main():
     ap.add_argument("--model"); ap.add_argument("--speaker", default="Serena")
     ap.add_argument("--language", default="Chinese"); ap.add_argument("--bitrate", default="48k")
     ap.add_argument("--batch", type=int, default=200, help="每录多少句就上传一次"); ap.add_argument("--gen", type=int, default=16, help="每批同时录几句，显存够可以调大"); ap.add_argument("--fake", action="store_true", help="测试用：不真录音")
+    ap.add_argument("--instruct", default="请用标准普通话朗读，发音清晰自然，不要带任何方言或地方口音。", help="朗读要求；传空字符串 \"\" 表示不加")
+    ap.add_argument("--temp", type=float, help="随机程度，调低更稳（比如 0.6），默认用模型自带的")
+    ap.add_argument("--redo", action="store_true", help="重录：忽略已录的和服务器上已有的，全部重新录并覆盖")
     a = ap.parse_args(); a.tok = token()
     if not a.model and not a.fake:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import qwen_batch; a.model = qwen_batch.default_model()
