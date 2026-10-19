@@ -230,7 +230,7 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 <div id="lbov"></div><div id="lbDim"></div>
 <script>
 
-const APP_VERSION = '2026.10.19-7';
+const APP_VERSION = '2026.10.19-8';
 const API_BASE = 'https://api.miaomiaosw.com';       // 你的服务器（自然人声由它向微软合成）
 /* ---------- 基础：本机数据库、提示、小工具 ---------- */
 let _db = null;
@@ -948,7 +948,7 @@ async function lbLibDelSel() {
 }
 function lbPop(html) { lbPopClose(); const d = document.createElement('div'); d.className = 'lbpopbg'; d.id = 'lbPopBg'; d.onclick = e => { if (e.target === d) lbPopClose(); }; d.innerHTML = html; lbEl().appendChild(d); }
 function lbPopClose() { const d = document.getElementById('lbPopBg'); if (d) d.remove(); }
-function lbImportMenu() { lbPop('<div class="lbpop"><label class="popi">📁 选择文件（txt / epub / pdf / docx / md / mobi）<input type="file" accept=".txt,.md,.markdown,.epub,.pdf,.docx,.mobi,.azw3,.azw" onchange="lbPopClose();lbImportFile(event)"></label><button class="popi" onclick="lbPopClose();lbPasteBox()">📋 粘贴一段中文</button></div>'); }
+function lbImportMenu() { lbPop('<div class="lbpop"><label class="popi">📁 选择文件（txt / epub / pdf / docx / md / mobi / azw3）<input type="file" accept=".txt,.md,.markdown,.epub,.pdf,.docx,.mobi,.azw3,.azw" onchange="lbPopClose();lbImportFile(event)"></label></div>'); }
 function lbMeHtml() {
   const row = (t, v, js) => '<div class="lbrow" onclick="' + js + '">' + t + '<span>' + v + '</span></div>';
   return row('使用帮助', '›', 'lbHelp()') + row('版本说明', APP_VERSION + ' ›', 'lbHelp()') + row('检查更新', '›', 'lbCheckUpdate(true)') + row('清除已下载的语音', '›', 'lbClearSaved()') + row(admTok ? '自然人声（Azure）：已连接，点此退出' : '连接 Azure 自然人声（开发者口令）', '', 'lbUnlock()') +
@@ -1080,6 +1080,7 @@ async function lbUpGo() {
   go.disabled = false;
 }
 const LB_LOG = [
+  ['2026.10.19-8', ['mobi / azw3 带封面的也会显示封面', '去掉“粘贴一段中文”']],
   ['2026.10.19-7', ['导入 epub / pdf 时自动取封面，书架上直接显示书的封面', '新增导入 pdf（有文字的 PDF）', '去掉“上一章 / 下一章”按钮和搜索']],
   ['2026.10.19-6', ['改进：锁屏后听书不再一会就没声音——把后面的录音提前拼成长段播放，不再每句都靠网页换声音']],
   ['2026.10.19-5', ['修复：打开目录/搜索等面板时，面板和工具栏之间会露出半行文字；搜索框不再出现蓝色边框']],
@@ -1092,7 +1093,7 @@ function lbHelp() {
   lb.screen = 'help';
   const sec = (t, h) => '<div class="lbh">' + t + '</div><div class="lbhelp">' + h + '</div>';
   lbShow('<div class="lbtop"><button class="iconbtn" onclick="lbOpenShelf()" style="font-size:15px">‹ 返回</button><b>使用帮助</b></div><div class="lbbody">' +
-    sec('怎么开始', '<p><b>导入自己的书：</b>书架右上角点“导入”，支持 txt、epub、pdf、docx、md、mobi、azw3（epub 和 pdf 会自动把封面放到书架上）；也可以“粘贴一段中文来听”。</p><p><b>书库的书：</b>底部点“书库”，选一本，书自带自然人声，不用登录。在读书页菜单的“进度”里点“下载整本语音”，下载后没网也能听。</p>') +
+    sec('怎么开始', '<p><b>导入自己的书：</b>书架右上角点“导入”，支持 txt、epub、pdf、docx、md、mobi、azw3（epub、pdf、mobi、azw3 带封面的，会自动把封面放到书架上；txt、md、docx 没有封面，显示彩色书名封面）。</p><p><b>书库的书：</b>底部点“书库”，选一本，书自带自然人声，不用登录。在读书页菜单的“进度”里点“下载整本语音”，下载后没网也能听。</p>') +
     sec('读书和听书', '<p>打开书默认是全屏。<b>上滑屏幕</b>呼出菜单，再点一下页面（或下滑）收起。<b>点屏幕左 / 右边</b>，或<b>左右滑动</b>：翻页。翻页只是换个地方看，不影响正在听的位置。</p><p>菜单里：<b>目录</b>（含书签）、<b>进度</b>（拖动跳转、剩余时间、语速、定时、声音）、<b>亮度</b>（亮度和主题颜色）、<b>字体</b>（字号、边距、行距、字体、缩进）。右上角书签图标：给当前页加书签。</p><p>点右下角 <b>听</b>：一句接一句连续朗读，当前句子高亮。<b>长按某一句</b>：从这一句开始听。</p>') +
     sec('常见问题', '<p><b>锁屏后还能听吗？</b>自然人声可以继续播放（可以在锁屏界面暂停 / 继续）。系统声音在 iPhone 上锁屏后会停止，所以想睡前听，请用自然人声。</p><p><b>没有声音？</b>先看手机侧面的静音开关和音量。用系统声音时，手机里要有中文语音：设置 → 辅助功能 → 朗读内容 → 声音。</p><p><b>有的句子是系统声音？</b>书库里这一句还没有录音，只有这一句会用系统声音，其余不受影响。</p><p><b>删除一本书会怎样？</b>只删这台手机上的这本书和它的进度，不影响书库。</p><p><b>请不要“清除网站数据”：</b>这样会清掉你的书架、听书进度和已下载的语音。</p>') +
     sec('隐私', '<p>你导入的书只保存在这台手机里，不会上传到任何地方，听书进度也只在本机。使用书库时，只会从服务器下载书和语音。</p>') +
@@ -1118,9 +1119,6 @@ async function lbCheckUpdate(manual) {
 let zhLastCheck = 0;
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && Date.now() - zhLastCheck > 600000) { zhLastCheck = Date.now(); lbCheckUpdate(false); } });
 function lbStatus(m) { const e = document.getElementById('lbStatus'); if (e) e.textContent = m || ''; }
-function lbPasteBox() {
-  lbShow('<div class="lbtop"><button class="iconbtn" onclick="lbOpenShelf()" style="font-size:15px">‹ 返回</button><b>粘贴中文</b></div><div class="lbbody"><textarea id="lbPaste" placeholder="把中文文章粘贴到这里…" style="width:100%;min-height:240px;box-sizing:border-box"></textarea><div class="row" style="margin-top:10px"><button onclick="lbImportText(document.getElementById(\'lbPaste\').value,\'粘贴的文章\')">开始听</button></div></div>');
-}
 function lbDecode(buf) { try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { try { return new TextDecoder('gb18030').decode(buf); } catch (e2) { return new TextDecoder('utf-8').decode(buf); } } }
 async function lbImportFile(ev) {
   const f = ev.target.files[0]; if (!f) return; const n = f.name.toLowerCase(), title = f.name.replace(/\.[^.]+$/, '');
@@ -1131,7 +1129,7 @@ async function lbImportFile(ev) {
     else if (n.endsWith('.epub')) { const buf = await readAsArrayBuffer(f), bl = await parseEpub(buf.slice(0)); text = bl.map(x => (x.title && !x.text.startsWith(x.title) ? x.title + '\n' : '') + x.text).join('\n\n'); try { cv = await lbEpubCover(buf); } catch (e) {} }
     else if (n.endsWith('.pdf')) { const buf = await readAsArrayBuffer(f); text = await lbParsePdf(buf.slice(0)); try { cv = await lbPdfCover(buf); } catch (e) {} }
     else if (n.endsWith('.docx')) text = await parseDocx(await readAsArrayBuffer(f));
-    else if (/\.(mobi|azw3?|azw)$/.test(n)) text = parseMobi(await readAsArrayBuffer(f));
+    else if (/\.(mobi|azw3?|azw)$/.test(n)) { const buf = await readAsArrayBuffer(f); text = parseMobi(buf); try { const bl = lbMobiCover(buf); if (bl) cv = await lbShrink(bl); } catch (e) {} }
     else { alert('请选择 .txt、.md、.epub、.pdf、.docx、.mobi 或 .azw3 文件。'); lbStatus(''); return; }
     await lbImportText(text, title, cv);
   } catch (e) { alert('文件读取失败：' + (e && e.message ? e.message : '未知错误')); lbStatus(''); }
@@ -1161,6 +1159,19 @@ async function lbEpubCover(buf) {
   const f = zip.file(path) || zip.file(decodeURIComponent(path)); if (!f) return '';
   const ext = (path.split('.').pop() || '').toLowerCase(), mime = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp' }[ext] || 'image/jpeg';
   return lbShrink(new Blob([await f.async('arraybuffer')], { type: mime }));
+}
+function lbMobiCover(buf) {                          // mobi / azw3：封面在 EXTH 头的 201 号记录里（图片记录的序号），找不到就取第一张大图
+  const u8 = new Uint8Array(buf), dv = new DataView(buf), nRec = dv.getUint16(76), off = i => dv.getUint32(78 + i * 8);
+  const rec = i => u8.subarray(off(i), i + 1 < nRec ? off(i + 1) : u8.length);
+  const r0 = rec(0), d0 = new DataView(r0.buffer, r0.byteOffset, r0.byteLength); if (r0.length < 132) return null;
+  const hl = d0.getUint32(20), first = d0.getUint32(108), mime = r => r[0] === 0xFF && r[1] === 0xD8 ? 'image/jpeg' : r[0] === 0x89 && r[1] === 0x50 ? 'image/png' : r[0] === 0x47 && r[1] === 0x49 ? 'image/gif' : '';
+  const pick = i => { if (i < 1 || i >= nRec) return null; const r = rec(i), m = mime(r); return m && r.length > 500 ? new Blob([r.slice()], { type: m }) : null; };
+  let b = null;
+  if ((d0.getUint32(128) & 0x40) && first < nRec) {
+    let o = 16 + hl; if (String.fromCharCode(...r0.subarray(o, o + 4)) === 'EXTH') { const cnt = d0.getUint32(o + 8); o += 12; for (let k = 0; k < cnt && o + 8 <= r0.length; k++) { const t = d0.getUint32(o), l = d0.getUint32(o + 4); if (t === 201 && l >= 12) { b = pick(first + d0.getUint32(o + 8)); break; } if (l < 8) break; o += l; } }
+  }
+  if (!b && first > 0 && first < nRec) for (let i = first; i < nRec && i < first + 40 && !b; i++) { const r = rec(i); if (mime(r) && r.length > 8000) b = pick(i); }
+  return b;
 }
 let lbPdfReady = null;
 function lbEnsurePdf() {
