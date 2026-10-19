@@ -26,6 +26,14 @@ const A = { Origin: 'https://ok.example', Authorization: 'Bearer test-admin-toke
     r = await call('/zl/zh-test/book.json'); assert.equal(r.s, 200); assert.equal(JSON.parse(r.b).s[1], '再见。'); assert.equal(r.h['access-control-allow-origin'], '*');
     r = await call('/zl/zh-test/' + hx + '.mp3'); assert.equal(r.s, 200); assert.ok(/immutable/.test(r.h['cache-control']));
     r = await call('/zl/zh-test/' + 'ef'.repeat(32) + '.mp3'); assert.equal(r.s, 404);
+    // 一本书多种声音：默认声音(Qwen3-TTS)在根目录；加 ?voice=vivian 的放 v-vivian/，书的默认声音名不变
+    r = await call('/admin/zl/zh-test/have?voice=vivian', { h: A }); assert.deepEqual(JSON.parse(r.b).have, []);
+    r = await call('/admin/zl/zh-test/book?voice=vivian', { m: 'PUT', h: A, body: JSON.stringify({ title: '测试书', voice: 'Vivian', s: ['你好。', '再见。'], p: [0, 1] }) }); assert.equal(r.s, 200); assert.equal(JSON.parse(r.b).item.voice, 'Qwen3-TTS');
+    r = await call('/admin/zl/zh-test/clips?voice=vivian', { m: 'PUT', h: { ...A, 'Content-Type': 'application/zip' }, body: zipOf(['clips/' + hx + '.mp3']) }); assert.equal(r.s, 200);
+    r = await call('/admin/zl/zh-test/have?voice=vivian', { h: A }); assert.equal(JSON.parse(r.b).have.length, 1);
+    r = await call('/admin/zl/zh-test/book?voice=vivian', { m: 'PUT', h: A, body: JSON.stringify({ title: '测试书', voice: 'Vivian', s: ['你好。', '再见。'], p: [0, 1] }) }); { const it1 = JSON.parse(r.b).item; assert.equal(it1.voices.length, 2); assert.equal(it1.voices[1].k, 'vivian'); assert.equal(it1.voices[1].name, 'Vivian'); assert.equal(it1.voices[1].clips, 1); assert.equal(it1.voices[0].clips, 2); }
+    r = await call('/zl/zh-test/v-vivian/' + hx + '.mp3'); assert.equal(r.s, 200); r = await call('/zl/zh-test/v-vivian/' + hy + '.mp3'); assert.equal(r.s, 404);
+    r = await call('/zl/zh-test/v-vivian/book.json'); assert.equal(r.s, 404);
     r = await call('/admin/zl/zh-test', { m: 'DELETE', h: A }); assert.equal(r.s, 200); r = await call('/zl/catalog'); assert.equal(JSON.parse(r.b).items.length, 0);
     r = await call('/zl/zh-test/book.json'); assert.equal(r.s, 404);
   }
