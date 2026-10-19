@@ -17,7 +17,7 @@ const DAILY_PER_IP = +process.env.DAILY_PER_IP || 20000;      // 每个 IP 每�
 const CACHE_FILE = process.env.CACHE_FILE || path.join(__dirname, 'cache.json');
 const CACHE_MAX = +process.env.CACHE_MAX || 30000;
 const USAGE_FILE = process.env.USAGE_FILE || path.join(__dirname, 'usage.json');
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';              // 故事城后台口令（至少 20 位）。没设置就不开放上架功能
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';              // 故事城后台口令（至少 8 位；连续输错 8 次会被锁 10 分钟）。没设置就不开放上架功能
 const SHOP_DIR = process.env.SHOP_DIR || path.join(path.dirname(USAGE_FILE), 'shop');
 const SHOP_FILE = path.join(SHOP_DIR, 'catalog.json'), SHOP_FILES = path.join(SHOP_DIR, 'files'), SHOP_PRIV = path.join(SHOP_DIR, 'private');   // files 公开下载；private 是收费商品，只有付款后才发给买家
 const MAX_UPLOAD = +process.env.MAX_UPLOAD || 300 * 1048576;
@@ -113,7 +113,7 @@ function send(res, code, obj, origin) {
 function shopRead() { try { const j = JSON.parse(fs.readFileSync(SHOP_FILE, 'utf8')); return Array.isArray(j.items) ? j : { items: [], removed: [] }; } catch (e) { return { items: [], removed: [] }; } }
 function shopWrite(j) { fs.mkdirSync(SHOP_DIR, { recursive: true }); const t = SHOP_FILE + '.tmp'; fs.writeFileSync(t, JSON.stringify(j)); fs.renameSync(t, SHOP_FILE); }
 function adminOk(req) {
-  if (ADMIN_TOKEN.length < 20) return false;
+  if (ADMIN_TOKEN.length < 8) return false;
   const m = /^Bearer (.+)$/.exec(req.headers.authorization || ''); if (!m) return false;
   const a = crypto.createHash('sha256').update(m[1]).digest(), b = crypto.createHash('sha256').update(ADMIN_TOKEN).digest();
   return crypto.timingSafeEqual(a, b);
