@@ -254,7 +254,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.19-154';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.19-155';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1456,6 +1456,7 @@ function playListen() {
 }
 function speakPacked(text, rate) {             // 书的自然语音包里有这个词/句：直接放（单词也录进了包里）；没有就退回原来的办法
   markStopped(); azUnlock();
+  try { if (!azReady()) { const pu = new SpeechSynthesisUtterance(' '); pu.volume = 0; speechSynthesis.speak(pu); } } catch (e) {}   // 手机要求第一次出声必须在点击这一下里：先无声“占位”，包里没有这个词时稍后再用系统声音念才不会被吞掉
   const job = { _stopped: false }, t = String(text).trim(), lo = t.toLowerCase(); lastListenUtt = job;
   (async () => {
     let b = await vpGet(t); if (!b && lo !== t) b = await vpGet(lo);
