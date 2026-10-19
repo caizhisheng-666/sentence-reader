@@ -230,7 +230,7 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 <div id="lbov"></div><div id="lbDim"></div>
 <script>
 
-const APP_VERSION = '2026.10.19-9';
+const APP_VERSION = '2026.10.19-10';
 const API_BASE = 'https://api.miaomiaosw.com';       // 你的服务器（自然人声由它向微软合成）
 /* ---------- 基础：本机数据库、提示、小工具 ---------- */
 let _db = null;
@@ -286,6 +286,8 @@ async function admSave(t) {
   admTok = t; const k = await zhKey(), iv = crypto.getRandomValues(new Uint8Array(12));
   localStorage.setItem('zh_adm', JSON.stringify({ i: b64(iv), c: b64(new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, new TextEncoder().encode(t)))) }));
 }
+let lbVt = 0, lbVtT = 0;
+function lbVerTap() { clearTimeout(lbVtT); lbVtT = setTimeout(() => { lbVt = 0; }, 2500); if (++lbVt >= 5) { lbVt = 0; lbUnlock(); } }   // 在“使用帮助”里连点版本号 5 次，才出现开发者入口
 async function lbUnlock() {
   if (admTok && !confirm('要退出开发者登录，并清除这台设备上保存的口令吗？')) return;
   if (admTok) { admTok = ''; localStorage.removeItem('zh_adm'); toast('已退出', 1500); lbOpenShelf(); return; }
@@ -967,7 +969,7 @@ function lbPopClose() { const d = document.getElementById('lbPopBg'); if (d) d.r
 function lbImportMenu() { lbPop('<div class="lbpop"><label class="popi">📁 选择文件（txt / epub / pdf / docx / md / mobi / azw3）<input type="file" accept=".txt,.md,.markdown,.epub,.pdf,.docx,.mobi,.azw3,.azw" onchange="lbPopClose();lbImportFile(event)"></label></div>'); }
 function lbMeHtml() {
   const row = (t, v, js) => '<div class="lbrow" onclick="' + js + '">' + t + '<span>' + v + '</span></div>';
-  return row('使用帮助', '›', 'lbHelp()') + row('版本说明', APP_VERSION + ' ›', 'lbHelp()') + row('检查更新', '›', 'lbCheckUpdate(true)') + row('清除已下载的语音', '›', 'lbClearSaved()') + row(admTok ? '自然人声（Azure）：已连接，点此退出' : '连接 Azure 自然人声（开发者口令）', '', 'lbUnlock()') +
+  return row('使用帮助', '›', 'lbHelp()') + row('版本说明', APP_VERSION + ' ›', 'lbHelp()') + row('检查更新', '›', 'lbCheckUpdate(true)') + row('清除已下载的语音', '›', 'lbClearSaved()') + (admTok ? row('自然人声（Azure）：已连接，点此退出', '', 'lbUnlock()') : '') +
     '<div class="note" style="text-align:center;margin:30px 0 0">喵喵听书 ' + APP_VERSION + '<br>鞍山市铁东区喵喵软件工作室</div>';
 }
 async function lbLoadLib() {
@@ -1096,6 +1098,7 @@ async function lbUpGo() {
   go.disabled = false;
 }
 const LB_LOG = [
+  ['2026.10.19-10', ['整理设置页面']],
   ['2026.10.19-9', ['修复：锁屏后点暂停、再点播放没有声音']],
   ['2026.10.19-8', ['mobi / azw3 带封面的也会显示封面', '去掉“粘贴一段中文”']],
   ['2026.10.19-7', ['导入 epub / pdf 时自动取封面，书架上直接显示书的封面', '新增导入 pdf（有文字的 PDF）', '去掉“上一章 / 下一章”按钮和搜索']],
@@ -1114,9 +1117,9 @@ function lbHelp() {
     sec('读书和听书', '<p>打开书默认是全屏。<b>上滑屏幕</b>呼出菜单，再点一下页面（或下滑）收起。<b>点屏幕左 / 右边</b>，或<b>左右滑动</b>：翻页。翻页只是换个地方看，不影响正在听的位置。</p><p>菜单里：<b>目录</b>（含书签）、<b>进度</b>（拖动跳转、剩余时间、语速、定时、声音）、<b>亮度</b>（亮度和主题颜色）、<b>字体</b>（字号、边距、行距、字体、缩进）。右上角书签图标：给当前页加书签。</p><p>点右下角 <b>听</b>：一句接一句连续朗读，当前句子高亮。<b>长按某一句</b>：从这一句开始听。</p>') +
     sec('常见问题', '<p><b>锁屏后还能听吗？</b>自然人声可以继续播放（可以在锁屏界面暂停 / 继续）。系统声音在 iPhone 上锁屏后会停止，所以想睡前听，请用自然人声。</p><p><b>没有声音？</b>先看手机侧面的静音开关和音量。用系统声音时，手机里要有中文语音：设置 → 辅助功能 → 朗读内容 → 声音。</p><p><b>有的句子是系统声音？</b>书库里这一句还没有录音，只有这一句会用系统声音，其余不受影响。</p><p><b>删除一本书会怎样？</b>只删这台手机上的这本书和它的进度，不影响书库。</p><p><b>请不要“清除网站数据”：</b>这样会清掉你的书架、听书进度和已下载的语音。</p>') +
     sec('隐私', '<p>你导入的书只保存在这台手机里，不会上传到任何地方，听书进度也只在本机。使用书库时，只会从服务器下载书和语音。</p>') +
-    sec('版本说明', '<p>当前版本：<b>' + APP_VERSION + '</b>　<button class="ghost sm" onclick="lbCheckUpdate(true)">检查更新</button></p><p class="note">打开软件时会自动检查并更新，不用重新安装。</p>' + LB_LOG.map(v => '<p><b>' + v[0] + '</b><br>' + v[1].map(x => '· ' + x).join('<br>') + '</p>').join('')) +
+    sec('版本说明', '<p>当前版本：<b onclick="lbVerTap()">' + APP_VERSION + '</b>　<button class="ghost sm" onclick="lbCheckUpdate(true)">检查更新</button></p><p class="note">打开软件时会自动检查并更新，不用重新安装。</p>' + LB_LOG.map(v => '<p><b>' + v[0] + '</b><br>' + v[1].map(x => '· ' + x).join('<br>') + '</p>').join('')) +
     sec('关于', '<p>喵喵听书 · 鞍山市铁东区喵喵软件工作室</p>') +
-    '<div style="text-align:center;margin:20px 0"><button class="ghost sm" onclick="lbUnlock()" style="opacity:.6">' + (admTok ? '开发者：已登录（点此退出）' : '开发者入口') + '</button></div></div>');
+    '</div>');
 }
 /* ---- 自动更新：打开软件、从后台切回来时检查有没有新版本，有就自动换上（正在听书时等停下来再换） ---- */
 let zhUpdating = false;
