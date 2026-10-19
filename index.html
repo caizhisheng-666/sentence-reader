@@ -254,7 +254,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.19-155';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.19-156';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -291,6 +291,7 @@ let srLastCheck = Date.now();
 async function srCheckUpdate(manual) {
   srLastCheck = Date.now();
   try {
+    try { const reg0 = await navigator.serviceWorker.getRegistration(); if (reg0) await reg0.update(); } catch (e) {}      // 先让浏览器直接问服务器要新的 sw.js（不经过旧缓存），有新版就会自动装好并刷新
     const r = await fetch('./index.html?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) throw 0;
     const m = /const APP_VERSION = '([^']+)'/.exec(await r.text()); if (!m) throw 0;
     if (m[1] === APP_VERSION) { if (manual) toast('已经是最新版（' + APP_VERSION + '）', 2200); return; }

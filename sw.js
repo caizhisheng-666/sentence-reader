@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sentence-reader-v155';
+const CACHE_NAME = 'sentence-reader-v156';
 const PRECACHE = [
   './', './index.html', './dict-basic.js', './grammar.js', './manifest.json', './icon-192.png', './icon-512.png',
   './lib/jszip.min.js', './lib/pdf.min.js', './lib/pdf.worker.min.js'
@@ -30,6 +30,9 @@ self.addEventListener('fetch', event => {
 
   // 故事城的目录和故事文件：要最新的，不经过缓存
   if (url.origin === self.location.origin && url.pathname.includes('/stories/')) return;
+
+  // 检查更新用的请求（带 ?t=）：只走网络，不能被旧缓存顶替
+  if (url.origin === self.location.origin && url.searchParams.has('t')) return;
 
   // 本站文件：缓存优先，马上打开；同时在后台下载最新版存起来，下次打开就是新版（网慢时也不用干等）
   if (url.origin === self.location.origin) {
