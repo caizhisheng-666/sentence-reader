@@ -190,15 +190,16 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .tb{flex:1;background:transparent;color:var(--ink);padding:6px 0 4px;border-radius:12px;display:flex;flex-direction:column;align-items:center;gap:2px}.tb small{font-size:11px;color:var(--sub)}.tb.on{color:var(--accent)}.tb.on small{color:var(--accent)}
 .lblisten{position:absolute;right:18px;bottom:calc(env(safe-area-inset-bottom) + 84px);z-index:7;width:54px;height:54px;border-radius:50%;padding:0;font-size:18px;font-weight:700;box-shadow:0 6px 18px rgba(0,0,0,.25);opacity:0;pointer-events:none;transform:scale(.8);transition:opacity .2s,transform .2s}
 #lbov.ui:not(.pn) .lblisten{opacity:1;pointer-events:auto;transform:none}
-.lbpanel{position:absolute;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 62px);z-index:8;background:var(--card);border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.18);display:none;flex-direction:column;max-height:calc(100vh - 140px)}
-.lbpanel.open{display:flex}.lbpanel.tall{height:66vh}
+.lbpanel{position:absolute;left:0;right:0;bottom:var(--tbh,calc(env(safe-area-inset-bottom) + 62px));z-index:8;background:var(--card);border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.18);display:none;flex-direction:column;max-height:calc(100vh - 140px);max-height:calc(100dvh - 140px)}
+.lbpanel.open{display:flex}.lbpanel.tall{height:66vh;height:66dvh}
+#lbov.pn::after{content:'';position:absolute;inset:0;z-index:5;background:rgba(0,0,0,.38);pointer-events:none}
 .lbpanel .ph{display:flex;align-items:center;gap:4px;padding:6px 8px 0}.lbpanel .ph b{flex:1;text-align:center;margin-right:44px;font-size:16px}
 .lbpanel .pbody{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:8px 18px 22px;position:relative}
 .seg{flex:1;display:flex;justify-content:center;gap:6px;margin-right:44px}.seg button{background:transparent;color:var(--sub);padding:8px 16px;font-size:15px}.seg button.on{color:var(--ink);font-weight:700;background:var(--soft)}
 .lbpanel .tit{padding:13px 6px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center;font-size:16px;cursor:pointer}.tit span{flex:1;min-width:0}.tit small{color:var(--sub);flex:none}.tit.on{color:var(--accent);font-weight:600}.tit mark{background:var(--soft);color:var(--accent);border-radius:3px}.tit .zb.x{width:32px;height:32px;font-size:14px;color:var(--sub)}
 .curline{font-size:13px;color:var(--sub);padding:2px 6px 8px}
 .lbgocur{position:absolute;right:16px;bottom:calc(env(safe-area-inset-bottom) + 16px);box-shadow:0 4px 14px rgba(0,0,0,.2)}
-.sbox{padding:4px 0 8px}.sbox input{width:100%;border:1px solid var(--line);border-radius:12px;padding:11px 14px;background:var(--bg);color:var(--ink)}
+.sbox{padding:4px 0 8px}.sbox input:focus{border-color:var(--accent)}.sbox input{width:100%;outline:none;-webkit-appearance:none;appearance:none;font-size:16px;border:1px solid var(--line);border-radius:12px;padding:11px 14px;background:var(--bg);color:var(--ink)}
 .stats{display:flex;gap:8px;margin:4px 0 14px}.stats>div{flex:1;text-align:center;background:var(--soft);border-radius:14px;padding:10px 4px}.stats b{font-size:22px;display:block}.stats small{font-size:12px;font-weight:400}.stats span{font-size:12px;color:var(--sub)}
 .sl{margin:6px 0 10px}.sl input,.prow input{width:100%;accent-color:var(--accent)}.slt{text-align:center;font-size:13px;color:var(--sub);margin-top:2px;min-height:18px}
 .chips{display:flex;gap:8px;justify-content:center;margin:8px 0}.chips.wrap{flex-wrap:wrap}.chips button.on{background:var(--accent);color:#fff}
@@ -229,7 +230,7 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 <div id="lbov"></div><div id="lbDim"></div>
 <script>
 
-const APP_VERSION = '2026.10.19-4';
+const APP_VERSION = '2026.10.19-5';
 const API_BASE = 'https://api.miaomiaosw.com';       // 你的服务器（自然人声由它向微软合成）
 /* ---------- 基础：本机数据库、提示、小工具 ---------- */
 let _db = null;
@@ -719,6 +720,7 @@ const zph = t => '<div class="ph"><button class="zb" aria-label="收起" onclick
 function lbPanelRender(first) {
   const p = document.getElementById('lbPanel'), k = lb.panel; if (!p || !k) return;
   p.className = 'lbpanel open' + (k === 'toc' ? ' tall' : '');
+  { const tb = document.getElementById('lbTb'); if (tb) lbEl().style.setProperty('--tbh', tb.offsetHeight + 'px'); }
   p.innerHTML = k === 'toc' ? lbTocHtml() : k === 'prog' ? lbProgHtml() : k === 'theme' ? lbThemeHtml() : lbFontHtml();
   lbTbMark();
   if (k === 'toc') { if (lb.ptab === 'search') { if (first) setTimeout(() => { const q = document.getElementById('lbQ'); if (q) q.focus(); }, 80); } else lbTocCur(); }
@@ -976,6 +978,7 @@ async function lbUpGo() {
   go.disabled = false;
 }
 const LB_LOG = [
+  ['2026.10.19-5', ['修复：打开目录/搜索等面板时，面板和工具栏之间会露出半行文字；搜索框不再出现蓝色边框']],
   ['2026.10.19-4', ['书库的书可以有好几种自然人声：在听书的“进度”面板里点“声音”切换']],
   ['2026.10.19-3', ['新界面（参照微信读书）：默认全屏，上滑呼出菜单；底部目录 / 搜索 / 进度 / 亮度 / 字体', '书架改成封面网格，新增“书架 / 书库 / 我”三个页签，支持排序、置顶、批量删除', '新增书签、全书搜索、听书时长和剩余时间、护眼 / 夜间等主题、行距和边距、首行缩进、楷体']],
   ['2026.10.19-2', ['新增“使用帮助 · 版本说明”', '书库：开发者上传的书自带自然人声，点开就能听，不需要口令']],
