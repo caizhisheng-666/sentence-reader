@@ -7,10 +7,13 @@
   2. 有 → 从你在手机上听到的那一句开始往后录（录完最后一句再回到开头补前面的），
          每录一小批就上传一次，手机上马上就能听到；
   3. 全部录完 → 告诉服务器“这个声音录好了”，接着看有没有下一个；没有就等着。
+另外它还会盯着一个文件夹（默认是这个文件夹里的「放这里自动录的书」）：把电子书（txt/md/epub/docx）丢进去，
+它会先看书库里有没有这本书（按书名+内容的指纹判断），没有就先上架，然后马上用默认声音（福伯）边录边传；
+录完把文件移到该文件夹里的「已完成」。手机上点的“开始录这个声音”优先，处理完才轮到文件夹里的书。
 电脑关机或关掉这个窗口时它就停了；下次开着它，没录完的会接着录（已经上传的句子自动跳过）。
 第一次运行会问一次开发者口令（输在你自己电脑上，记在 ~/.miaobook）。
 """
-import argparse, os, sys, time, json, urllib.request
+import argparse, re, os, sys, time, json, hashlib, shutil, urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import miaobook as mb
@@ -40,7 +43,7 @@ def get_book(bid):
 
 class Recorder:
     def __init__(self, a):
-        self.a = a; self.tok = mb.token(); self.model = None; self.q = None
+        self.a = a; self.tok = mb.token(); self.model = None; self.q = None; self.bad = {}
 
     def tts_for(self, speaker):
         """返回 tts(列表[(句子, mp3路径)])"""
@@ -64,7 +67,7 @@ class Recorder:
     def run_job(self, job):
         a, tok = self.a, self.tok
         bid, vk = job["id"], job["voice"]; speaker = SPEAKERS.get(vk) or vk.capitalize()
-        label = "%s|%s" % (bid, vk)
+        label = "%s|%s" % (bid, vk); local = bool(job.get("local"))
         book = get_book(bid); sents = book["s"]; n = len(sents)
         have = set(mb.call("GET", "/admin/zl/%s/have?voice=%s" % (bid, vk), tok=tok).get("have", []))
         start = max(0, min(n - 1, int(job.get("from", 0))))
@@ -107,10 +110,62 @@ class Recorder:
                 log("%s  已用 %.1f 分钟" % (msg, el / 60))
                 # 每批之后看一眼：有没有人换了新的要求（点了别的书/声音，或在这本书里跳到了别处）
                 jobs = get_queue(tok)
+                if local:
+                    if jobs: log("手机上有新的要求，先去处理它（这本书下次接着录）"); return False
+                    continue
                 if not jobs or jobs[0]["id"] != bid or jobs[0]["voice"] != vk or int(jobs[0].get("from", 0)) != int(job.get("from", 0)):
                     log("有新的要求，先去处理它（这个声音录了一部分，下次接着录）"); return False
-        mb.call("POST", "/admin/queue/done", json.dumps({"id": bid, "voice": vk}).encode("utf-8"), "application/json", tok)
+        if not local: mb.call("POST", "/admin/queue/done", json.dumps({"id": bid, "voice": vk}).encode("utf-8"), "application/json", tok)
         log("✅ 《%s》的声音 %s 录好了" % (job.get("title", bid), speaker)); return True
+
+
+    # ---------- 盯文件夹：丢进来的新书自动上架、自动录 ----------
+    BOOK_EXT = (".txt", ".md", ".epub", ".docx")
+
+    def scan_watch(self):
+        """处理文件夹里的一本书。返回 True 表示做了点事（让主循环马上再看一遍队列）"""
+        a = self.a; d = a.watch
+        if not d: return False
+        os.makedirs(d, exist_ok=True); done_dir = os.path.join(d, "已完成")
+        files = [f for f in sorted(os.listdir(d)) if f.lower().endswith(self.BOOK_EXT) and os.path.isfile(os.path.join(d, f)) and not f.startswith("~$")]
+        for f in files:
+            if self.bad.get(f, 0) >= 3: continue
+            path = os.path.join(d, f)
+            try:
+                if self.run_book(path): 
+                    os.makedirs(done_dir, exist_ok=True); dst = os.path.join(done_dir, f)
+                    if os.path.exists(dst): dst = os.path.join(done_dir, time.strftime("%Y%m%d%H%M%S_") + f)
+                    shutil.move(path, dst); log("文件已移到「已完成」：%s" % f)
+                return True
+            except KeyboardInterrupt: raise
+            except SystemExit: raise
+            except Exception as e:
+                self.bad[f] = self.bad.get(f, 0) + 1; log("这本书处理出错（%s）：%s（第 %d 次）" % (f, e, self.bad[f]))
+                if self.bad[f] >= 3: log("多次出错，先跳过它：%s（把文件改个名或重启录音机可再试）" % f)
+                return True
+        return False
+
+    def run_book(self, path):
+        a, tok = self.a, self.tok
+        text, title, author = mb.read_book(path); sents, pst = mb.split(text)
+        if len(sents) < 3: log("跳过（没读到文字）：%s" % os.path.basename(path)); self.bad[os.path.basename(path)] = 99; return False
+        fp = hashlib.sha1((title + "\n" + "\n".join(sents)).encode("utf-8")).hexdigest()
+        vk = re.sub(r"[^a-z0-9_]", "", a.watch_voice.lower())[:24]; speaker = SPEAKERS.get(vk) or a.watch_voice
+        bid = "b" + hashlib.sha1(title.encode("utf-8")).hexdigest()[:10]
+        try:
+            old = get_book(bid); ofp = hashlib.sha1((old.get("title", "") + "\n" + "\n".join(old.get("s", []))).encode("utf-8")).hexdigest()
+            exists = True
+        except Exception: old = None; ofp = ""; exists = False
+        if exists and ofp != fp:                    # 书名一样但内容不同：当成另一本，另起一个编号
+            bid = "b" + fp[:10]
+            try: get_book(bid); exists = True
+            except Exception: exists = False
+        if exists: log("《%s》书库里已经有了，不重复上传，只检查并补录声音" % title)
+        else:
+            log("《%s》书库里还没有，先上架（%d 句）" % (title, len(sents)))
+            mb.put_book(bid, title, author, speaker, sents, pst, tok, vk)
+        r = self.run_job({"id": bid, "voice": vk, "from": 0, "title": title, "local": True})
+        return r
 
     def loop(self):
         a = self.a; log("喵喵录音机已开启，在等手机上点“开始录这个声音”…（关掉这个窗口就停止）")
@@ -118,6 +173,7 @@ class Recorder:
             try:
                 jobs = get_queue(self.tok)
                 if not jobs:
+                    if self.scan_watch(): continue
                     ping(self.tok, "", "空闲")
                     if a.once: return
                     time.sleep(a.poll); continue
@@ -131,6 +187,8 @@ class Recorder:
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--watch", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "放这里自动录的书"), help="盯着的文件夹；传空字符串 \"\" 就不盯")
+    ap.add_argument("--watch-voice", default="uncle_fu", help="文件夹里的书用哪个声音录（默认福伯）")
     ap.add_argument("--model"); ap.add_argument("--bitrate", default="48k")
     ap.add_argument("--gen", type=int, default=16, help="每批同时录几句，显存够可以调大")
     ap.add_argument("--poll", type=float, default=5, help="多少秒问一次服务器")
