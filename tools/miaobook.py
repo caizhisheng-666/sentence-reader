@@ -14,7 +14,7 @@
 需要：pip install soundfile numpy（和 batch_read.py 一样，不需要 ffmpeg）。
 默认读取 C:\\ai\\models\\Qwen3-TTS-12Hz-1.7B-CustomVoice，默认声音 Serena（可用 --speaker 改）。
 """
-import argparse, getpass, hashlib, html.parser, io, json, os, re, sys, time, urllib.request, urllib.error, zipfile
+import urllib.parse, argparse, getpass, hashlib, html.parser, io, json, os, re, sys, time, urllib.request, urllib.error, zipfile
 import xml.etree.ElementTree as ET
 
 API = os.environ.get("MIAO_API", "https://api.miaomiaosw.com")
@@ -110,9 +110,10 @@ def token():
     return t
 
 def call(method, path, body=None, ctype=None, tok=""):
-    req = urllib.request.Request(API + path, data=body, method=method, headers={"Authorization": "Bearer " + tok, "Origin": os.environ.get("MIAO_ORIGIN", "https://app.miaomiaosw.com")})
-    if ctype: req.add_header("Content-Type", ctype)
-    for a in range(3):
+    url = API + path; err = None
+    for a in range(4):
+        req = urllib.request.Request(url, data=body, method=method, headers={"Authorization": "Bearer " + tok, "Origin": os.environ.get("MIAO_ORIGIN", "https://app.miaomiaosw.com")})
+        if ctype: req.add_header("Content-Type", ctype)
         try:
             with urllib.request.urlopen(req, timeout=120) as r: return json.loads(r.read() or b"{}")
         except urllib.error.HTTPError as e:
@@ -120,10 +121,16 @@ def call(method, path, body=None, ctype=None, tok=""):
                 try: os.remove(CFG)
                 except OSError: pass
                 raise SystemExit("口令不对，已清除，请重新运行再输入一次。")
-            if e.code < 500 and e.code != 429: raise SystemExit("服务器拒绝：HTTP %d %s" % (e.code, e.read()[:200]))
+            if e.code in (301, 302, 307, 308):          # 被转址了：跟着新地址再发一次（保持原来的方法和内容）
+                loc = e.headers.get("Location") if e.headers else None
+                print("服务器让我们改去：%s（HTTP %d），照着再发一次" % (loc, e.code), flush=True)
+                if loc: url = urllib.parse.urljoin(url, loc)
+                err = RuntimeError("HTTP %d 转址到 %s" % (e.code, loc)); continue
+            if e.code < 500 and e.code != 429: raise RuntimeError("服务器拒绝：HTTP %d %s" % (e.code, e.read()[:200]))
+            err = e
         except Exception as e: err = e
         time.sleep(2 + a * 3)
-    raise SystemExit("连不上服务器，请检查网络后重新运行（已录好的不会丢）。")
+    raise RuntimeError("连不上服务器或被拒绝（%s），已录好的不会丢，稍后会自动重试" % err)
 
 def put_clips(bid, items, tok, vk=""):
     buf = io.BytesIO()
