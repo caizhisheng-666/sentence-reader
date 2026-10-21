@@ -180,6 +180,10 @@ function zipStore(files) {
   return Buffer.concat([...parts, cd, e]);
 }
 const CLIP_RE = /^clips\/([0-9a-f]{16,64})\.mp3$/;
+/* ---------- 公共单词库：所有英文书共用，同一个词（同一个声音）只录一次。words/<声音>/<单词哈希>.mp3，哈希和句子一样是 SHA-256('vp1\n' + 单词) ---------- */
+const WORDS_DIR = path.join(SHOP_DIR, 'words'), WVK = /^[a-z0-9_]{1,24}$/, HASH_RE = /^[0-9a-f]{16,64}$/;
+const wordsDir = v => path.join(WORDS_DIR, v);
+function linkInto(src, dst) { try { fs.linkSync(src, dst); } catch (e) { if (e.code !== 'EEXIST') fs.copyFileSync(src, dst); } }   // 同一个文件挂到书的目录里，不多占硬盘
 /* ---------- 中文听书·公版书库：开发者上传电子书（句子清单）和本机录好的自然人声，所有人免口令直接听 ---------- */
 const ZL_DIR = path.join(SHOP_DIR, 'zl'), ZL_CAT = path.join(ZL_DIR, 'catalog.json'), ZL_ID = /^[a-z0-9][a-z0-9-]{0,40}$/;
 function zlRead() { try { const j = JSON.parse(fs.readFileSync(ZL_CAT, 'utf8')); return Array.isArray(j.items) ? j : { items: [] }; } catch (e) { return { items: [] }; } }
@@ -433,6 +437,12 @@ async function shopRoutes(req, res) {
     const isBook = zm[2] === 'book.json';   // 注意：book.json 不会出现在 v-xxx/ 里，下面 exists 会判 404
     res.writeHead(200, { 'Access-Control-Allow-Origin': '*', 'Cache-Control': isBook ? 'no-cache' : 'public, max-age=31536000, immutable', 'Content-Type': isBook ? 'application/json; charset=utf-8' : 'audio/mpeg', 'Content-Length': fs.statSync(f).size }); fs.createReadStream(f).pipe(res); return true;
   }
+  const wm = /^\/words\/([a-z0-9_]{1,24})\/([0-9a-f]{16,64})\.mp3$/.exec(url);
+  if (req.method === 'GET' && wm) {                 // 公共单词库：点单词时，书里没有的词来这里取
+    const f = path.join(wordsDir(wm[1]), wm[2] + '.mp3');
+    if (!fs.existsSync(f)) { res.writeHead(404, pubHead); res.end(); return true; }
+    res.writeHead(200, { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=31536000, immutable', 'Content-Type': 'audio/mpeg', 'Content-Length': fs.statSync(f).size }); fs.createReadStream(f).pipe(res); return true;
+  }
   const cm = /^\/files\/([a-z0-9][a-z0-9-]{0,59})\/([0-9a-f]{16,64})\.mp3$/.exec(url);
   if (req.method === 'GET' && cm) {
     const f = path.join(SHOP_FILES, cm[1], cm[2] + '.mp3');
@@ -597,6 +607,32 @@ async function shopRoutes(req, res) {
       fs.rmSync(dst, { recursive: true, force: true }); fs.mkdirSync(dst, { recursive: true });
       let n = 0; for (const h of hs) { const f = path.join(src, h + '.mp3'); if (fs.existsSync(f)) { fs.copyFileSync(f, path.join(dst, h + '.mp3')); n++; } }
       return out(200, { ok: true, copied: n });
+    }
+    if (url === '/admin/words/missing' && req.method === 'POST') {   // 录音机问：这些单词（哈希）公共库里哪些还没有？{voice, hashes} → {missing}
+      const b = JSON.parse(await readBody(req, 6 * 1048576) || '{}'), v = String(b.voice || ''); if (!WVK.test(v)) return out(400, { error: 'bad-voice' });
+      const hs = Array.isArray(b.hashes) ? b.hashes.filter(h => HASH_RE.test(h)).slice(0, 80000) : [];
+      let have = new Set(); try { have = new Set(fs.readdirSync(wordsDir(v)).map(f => f.slice(0, -4))); } catch (e) {}
+      return out(200, { missing: hs.filter(h => !have.has(h)), total: have.size });
+    }
+    if (url === '/admin/words' && req.method === 'PUT') {            // 一批单词语音：zip（不压缩），里面是 clips/<单词哈希>.mp3；?voice=af_heart
+      const v = new URL(req.url, 'http://x').searchParams.get('voice') || ''; if (!WVK.test(v)) return out(400, { error: 'bad-voice' });
+      let ents; try { ents = unzipBuf(await readBodyBuf(req, MAX_UPLOAD)); } catch (e) { return out(e.message === 'too-big' ? 413 : 400, { error: e.message === 'too-big' ? 'too-big' : 'bad-zip' }); }
+      const d = wordsDir(v); fs.mkdirSync(d, { recursive: true }); let n = 0;
+      for (const e of ents) { const k = CLIP_RE.exec(e.name); if (k && e.data.length > 100) { fs.writeFileSync(path.join(d, k[1] + '.mp3'), e.data); n++; } }
+      return out(200, { ok: true, words: n });
+    }
+    m = /^\/admin\/words\/link\/([a-z0-9][a-z0-9-]{0,59})$/.exec(url);
+    if (m && req.method === 'POST') {                  // 把这本书用到的单词从公共库挂进书的语音目录：读者照常按书取语音、下载“全部语音”时也带着单词
+      const b = JSON.parse(await readBody(req, 6 * 1048576) || '{}'), v = String(b.voice || ''); if (!WVK.test(v)) return out(400, { error: 'bad-voice' });
+      const priv = !fs.existsSync(path.join(SHOP_FILES, m[1] + '.srbook')) && fs.existsSync(path.join(SHOP_PRIV, m[1] + '.srbook'));
+      const dir = path.join(priv ? SHOP_PRIV : SHOP_FILES, m[1]); fs.mkdirSync(dir, { recursive: true });
+      let linked = 0; const missing = [];
+      for (const h of (Array.isArray(b.hashes) ? b.hashes : []).filter(x => HASH_RE.test(x)).slice(0, 80000)) {
+        const src = path.join(wordsDir(v), h + '.mp3'), dst = path.join(dir, h + '.mp3');
+        if (!fs.existsSync(src)) { missing.push(h); continue; }
+        if (!fs.existsSync(dst)) { linkInto(src, dst); linked++; }
+      }
+      return out(200, { ok: true, linked, missing });
     }
     m = /^\/admin\/clips\/([a-z0-9][a-z0-9-]{0,59})$/.exec(url);
     if (req.method === 'GET' && m) {                   // 这本书服务器上已经有哪些句子的语音（补语音时只做缺的）
