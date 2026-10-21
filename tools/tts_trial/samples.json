@@ -1,0 +1,45 @@
+{
+  "note": "试听用的固定文本：每个模型念的都是这些，方便对比。en 是连续的 20 句（看一句一句之间起伏大不大），words 是 50 个单词（看单独念一个词准不准），zh 是一段中文小说。repeat 里的句子/单词每个再念 2 遍（共 3 遍），看同一句每次念出来是不是一样。",
+  "en": [
+    "Mr. Brown opened the shop at seven o'clock, just as he had done every morning since 1979.",
+    "The street was still quiet, and a thin fog hung over the river.",
+    "\"Good morning!\" called a small voice from the doorway.",
+    "He looked up and saw a girl in a yellow raincoat holding a wet cardboard box.",
+    "\"I found him under the bridge,\" she said. \"Can you help?\"",
+    "Inside the box, a grey kitten was shivering and crying softly.",
+    "Mr. Brown didn't know much about cats, but he knew the kitten was cold.",
+    "He fetched an old towel, warmed some milk, and set the box beside the heater.",
+    "Within a few minutes, the kitten stopped shaking and began to purr.",
+    "\"What's his name?\" the girl asked.",
+    "\"He doesn't have one yet,\" said Mr. Brown, smiling for the first time that week.",
+    "They argued happily about names for nearly half an hour.",
+    "Was he a Max, a Pepper, or perhaps something grander, like Sir Whiskers the Third?",
+    "In the end they chose Biscuit, because that was exactly the colour of his paws.",
+    "The girl promised to visit after school on Wednesday and Friday.",
+    "She kept her promise, and soon she was coming every single day.",
+    "Customers began to stop by just to see the kitten sleeping in the window.",
+    "Business had never been better, though Mr. Brown pretended not to notice.",
+    "Years later, people still called it the Biscuit Shop.",
+    "And if you walk past on a rainy morning, you might see a grey cat watching the street."
+  ],
+  "words": [
+    "the", "a", "of", "and", "i", "you", "cat", "water", "read", "live",
+    "lead", "tear", "wind", "record", "comfortable", "wednesday", "february", "colonel", "rhythm", "thorough",
+    "through", "though", "enough", "schedule", "privacy", "tomato", "either", "often", "island", "knight",
+    "queue", "choir", "daughter", "laughed", "hermione", "biscuit", "don't", "wouldn't", "it's", "she'd",
+    "beautiful", "whispered", "suddenly", "squirrel", "environment", "necessary", "vegetable", "temperature", "mischievous", "pronunciation"
+  ],
+  "zh": [
+    "我冒了严寒，回到相隔二千余里，别了二十余年的故乡去。",
+    "时候既然是深冬；渐近故乡时，天气又阴晦了，冷风吹进船舱中，呜呜的响。",
+    "从篷隙向外一望，苍黄的天底下，远近横着几个萧索的荒村，没有一些活气。",
+    "我的心禁不住悲凉起来了。",
+    "“你回来了？”母亲站在门口，笑着问我。",
+    "“回来了。”我放下行李，忽然不知道该说什么好。",
+    "院子里的那棵老槐树还在，只是比记忆里矮了许多。",
+    "“饭早做好了，就等你呢！”她一边说，一边把我往屋里拉。",
+    "灯光下，我才看清她的头发已经白了一半。",
+    "那一夜，我们说了很久的话，直到窗外的鸡叫了头遍。"
+  ],
+  "repeat": {"en": [0, 2, 4, 9, 12], "words": [0, 8, 9, 15, 17, 19, 30, 34, 38, 49], "zh": [0, 4, 7]}
+}
