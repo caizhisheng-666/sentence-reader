@@ -8,7 +8,7 @@
          每录一小批就上传一次，手机上马上就能听到；
   3. 全部录完 → 告诉服务器“这个声音录好了”，接着看有没有下一个；没有就等着。
 另外它还会盯着一个文件夹（默认是这个文件夹里的「放这里自动录的书」）：把电子书（txt/md/epub/docx）丢进去，
-它会先看书库里有没有这本书（按书名+内容的指纹判断），没有就先上架，然后马上用默认声音（晓雅，CosyVoice 女声）边录边传；
+它会先看书库里有没有这本书（按书名+内容的指纹判断），没有就先上架，然后马上用默认声音（福伯·稳）边录边传；
 录完把文件移到该文件夹里的「已完成」。手机上点的“开始录这个声音”优先，处理完才轮到文件夹里的书。
 电脑关机或关掉这个窗口时它就停了；下次开着它，没录完的会接着录（已经上传的句子自动跳过）。
 声音：Qwen 的五个（十三、苏瑶、福伯、晓东、程川）在本环境里录；“稳定声音”（晓雅、福伯·稳、阿七，见 zhvoices.py）
@@ -325,7 +325,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--watch", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "放这里自动录的书"), help="盯着的文件夹；传空字符串 \"\" 就不盯")
     ap.add_argument("--watch-dialogue", default="", help="文件夹里的书：对话用另一个声音（比如 eric），不填就全书一个声音")
-    ap.add_argument("--watch-voice", default=os.environ.get("MIAO_WATCH_VOICE", "cv_nv"), help="文件夹里的书用哪个声音录（默认 CosyVoice 女声“晓雅”；以前是 uncle_fu 福伯）")
+    ap.add_argument("--watch-voice", default=os.environ.get("MIAO_WATCH_VOICE", "cv_fu"), help="文件夹里的书用哪个声音录（默认“福伯·稳”，CosyVoice 模仿福伯；以前是 Qwen 的 uncle_fu）")
     ap.add_argument("--model"); ap.add_argument("--bitrate", default="48k")
     ap.add_argument("--gen", type=int, default=int(os.environ.get("MIAO_GEN", "16")), help="每批同时录几句，显存够可以调大")
     ap.add_argument("--poll", type=float, default=5, help="多少秒问一次服务器")
