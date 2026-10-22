@@ -256,7 +256,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.22-158';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.22-159';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -461,7 +461,7 @@ async function deleteSelectedBooks() {
   const names = ids.map(id => (l.find(x => x.id === id) || {}).title || '').filter(Boolean).slice(0, 3).join('、');
   if (!confirm('要删除 ' + ids.length + ' 份材料吗？\n' + names + (ids.length > 3 ? ' 等' : '') + '\n\n阅读进度、翻译缓存和跟读录音会一起删除，不能恢复。')) return;
   let gone = new Set();                                         // 这些书的语音（按句子内容存的），稍后清掉没有被其他书用到的
-  for (const id of ids) { try { const bk = await idbGet('books', id); if (bk && bk.sentences) for (const t of bk.sentences) gone.add(await vpKey(t)); } catch (e) {} }
+  for (const id of ids) { try { const bk = await idbGet('books', id); if (bk && bk.sentences) for (const v of ['', ...(bk.natVoices || [])]) for (const t of bk.sentences) gone.add(await vpKeyAs(t, v)); } catch (e) {} }
   for (const id of ids) {
     try { await idbDel('books', id); } catch (e) {}
     try { await idbDelPrefix('images', id + ':'); } catch (e) {}
@@ -1329,11 +1329,11 @@ function speakPacked(text, rate) {             // 书的自然语音包里有这
 const WORD_VOICE = 'af_heart', wbMiss = new Set();
 function wbWord(text) { const w = String(text).trim().toLowerCase().replace(/[’‘]/g, "'"); return /^[a-z]+(?:'[a-z]+)*$/.test(w) && w.length <= 24 ? w : ''; }
 async function wordBankFetch(text) {
-  const w = wbWord(text); if (!w || wbMiss.has(w) || navigator.onLine === false) return null;
+  const w = wbWord(text); if (!w || wbMiss.has((vkCur() || WORD_VOICE) + w) || navigator.onLine === false) return null;
   try {
-    const k = await vpKey(w), r = await fetchT(shopUrl('api:words/' + WORD_VOICE + '/' + k + '.mp3'), 3000);
-    if (!r.ok) { wbMiss.add(w); return null; }
-    const blob = new Blob([await r.arrayBuffer()], { type: 'audio/mpeg' }); if (blob.size < 200) { wbMiss.add(w); return null; }
+    const k = await vpKeyV(w), r = await fetchT(shopUrl('api:words/' + (vkCur() || WORD_VOICE) + '/' + k + '.mp3'), 3000);
+    if (!r.ok) { wbMiss.add((vkCur() || WORD_VOICE) + w); return null; }
+    const blob = new Blob([await r.arrayBuffer()], { type: 'audio/mpeg' }); if (blob.size < 200) { wbMiss.add((vkCur() || WORD_VOICE) + w); return null; }
     try { await idbPut('vpack', { b: blob }, k); vpCount++; } catch (e) {}
     return blob;
   } catch (e) { return null; }
@@ -1396,6 +1396,7 @@ function natPossible() {                           // 这个材料可能用到�
 }
 function natOn() { return !!(state && state.natVoice && !state.useSys); }   // 这个材料带自然语音，并且没有改用系统声音
 function voiceSelectHtml() {
+  natVoicesCheck();
   const en = (voiceListCache || []).filter(v => /^en/i.test(v.lang)), cur = natOn() ? '__nat' : getSavedVoiceURI();
   const cv = curatedVoices(en);
   const opt = (v, tag) => '<option value="' + esc(v.voiceURI) + '"' + (v.voiceURI === cur ? ' selected' : '') + '>' + esc(shortVoiceName(v).replace(/\s*\(.*$/, '')) + '（' + (tag ? tag : (/GB/i.test(v.lang) ? '英音' : '美音')) + (v.localService ? '' : '·在线') + '）</option>';
@@ -1403,13 +1404,24 @@ function voiceSelectHtml() {
   const shown = [...cv.us.f, ...cv.us.m, ...cv.gb.f, ...cv.gb.m, ...cv.other];
   const saved = cur && !shown.some(v => v.voiceURI === cur) ? en.find(v => v.voiceURI === cur) : null;     // 以前选过、不在精选里的音色：继续保留，免得选项消失
   return '<select id="voiceSel" class="voicesel" onchange="onVoiceChange(this.value)" aria-label="选择朗读音色">' +
-    (state && state.natVoice ? '<option value="__nat"' + (cur === '__nat' ? ' selected' : '') + '>🎧 自然语音' + (natVoiceName(state.natVoice) ? '（' + esc(natVoiceName(state.natVoice)) + '）' : '') + '</option>' : '') +
+    (state && state.natVoice ? '<option value="__nat"' + (cur === '__nat' && !state.natVk ? ' selected' : '') + '>🎧 自然语音' + (natVoiceName(state.natVoice) ? '（' + esc(natVoiceName(state.natVoice)) + '）' : natMale() ? '（女声）' : '') + '</option>' : '') +
+    (natMale() ? '<option value="__nat:am_michael"' + (cur === '__nat' && state.natVk === 'am_michael' ? ' selected' : '') + '>🎧 自然语音（男声）</option>' : '') +
     '<option value=""' + (cur ? '' : ' selected') + '>' + (state && state.natVoice ? '系统默认音色' : '默认音色') + '</option>' +
     (saved ? '<optgroup label="当前使用">' + opt(saved, '') + '</optgroup>' : '') + grp('🇺🇸 美音', cv.us.f, cv.us.m) + grp('🇬🇧 英音', cv.gb.f, cv.gb.m) + (cv.other.length ? '<optgroup label="更多">' + cv.other.map(v => opt(v, '')).join('') + '</optgroup>' : '') + '</select>';
 }
 function refreshVoiceSelect() { const el = document.getElementById('voiceSel'); if (el) el.outerHTML = voiceSelectHtml(); }
+function natMale() { return !!(state && state.natVoice && (state.natVoices || []).includes('am_michael')); }
+let natVoicesAsked = {};
+function natVoicesCheck() {                     // 从学习材料加的书：看看服务器上有没有录男声（以前加的书没记这个，问一次服务器）
+  const st = state; if (!st || !st.natSrc || st.natVoices || natVoicesAsked[st.bookId] || !/^story-/.test(st.bookId)) return;
+  natVoicesAsked[st.bookId] = 1;
+  fetchJsonT(SHOP_BASE + '/catalog?t=' + Date.now(), 8000).then(j => {
+    const it = ((j && j.items) || []).find(x => 'story-' + x.id === st.bookId); if (!it) return;
+    st.natVoices = it.voices || []; if (state === st) { saveState(); if (natMale()) refreshVoiceSelect(); }
+  }).catch(() => {});
+}
 function onVoiceChange(uri) {
-  if (uri === '__nat') { if (state) { state.useSys = false; saveState(); } toast('已改用自然语音，点底部的“▶ 朗读”试试', 2200); return; }
+  if (uri === '__nat' || uri === '__nat:am_michael') { if (state) { state.useSys = false; state.natVk = uri === '__nat' ? '' : 'am_michael'; saveState(); } toast('已改用自然语音' + (uri === '__nat' ? '' : '（男声）') + '，点底部的“▶ 朗读”试试', 2200); return; }
   if (state && state.natVoice) { state.useSys = true; saveState(); }      // 这个材料改用系统声音
   localStorage.setItem('sr_voice_uri', uri || '');
   previewVoice(uri);                            // 换了音色马上试听一句
@@ -1657,6 +1669,7 @@ async function getStory(id, tk0) {
     const buf = await fetchProgress(shopUrl(tk ? 'api:pfiles/' + tk + '/story.srbook' : it.file), p => setScStatus('正在下载《' + it.title + '》' + p + '%…'));
     await loadLibs();
     const r = await installStory(await JSZip.loadAsync(buf), it.title, it.voice && tk ? { natSrc: 'api:pfiles/' + tk + '/' } : it.voice && /^api:files\//.test(it.file) ? { natSrc: 'api:files/' + it.id + '/' } : null);
+    if (it.voice) { const bid = 'story-' + it.id, nvs = it.voices || []; try { const bk = await idbGet('books', bid); if (bk) { bk.natVoices = nvs; await idbPut('books', bk, bid); } } catch (e) {} if (state && state.bookId === bid) { state.natVoices = nvs; refreshVoiceSelect(); } }
     { const l = shelfGet(), e = l.find(x => x.id === 'story-' + it.id); if (e) { e.ver = it.ver || r.ver || 1; if (tk) e.tk = tk; delete e.sample; if (fromSample && e0) e.idx = e0.idx || 0; shelfSet(l); } }
     if (fromSample && oldB) { try { const b = await idbGet('books', bid); if (b) { b.idx = Math.min(oldB.idx || 0, b.sentences.length - 1); if (oldB.prog) b.prog = oldB.prog; await idbPut('books', b, bid); } } catch (e) {} }
     if (it.voice && !r.clips) toast('《' + it.title + '》已加入“我的学习”。自然语音读到哪句取哪句，不用等整本下载；想离线听，可以在学习材料里点“下载全部语音”。', 5000);
@@ -1675,29 +1688,30 @@ async function getSample(id) {                     // 收费材料的试读版�
   } catch (e) { setScStatus('试读版下载失败：' + (e && e.message ? e.message : '未知错误') + '。请检查网络后重试。'); }
 }
 const isSample = bid => !!(shelfGet().find(x => x.id === bid) || {}).sample;
-async function getStoryVoice(it) {
-  if (voiceDl[it.id] != null) return;
-  voiceDl[it.id] = 0;
+async function getStoryVoice(it, vk) {               // vk：第二个声音（比如男声 am_michael），语音放在“编号--am-michael”下
+  const dk = it.id + (vk ? '~' + vk : ''), pid = 'story-' + dk, vurl = vk ? shopUrl(String(it.file).replace(/\.srbook$/, '--' + vk.replace(/_/g, '-') + '.voice.zip')) : voiceUrlOf(it);
+  if (voiceDl[dk] != null) return;
+  voiceDl[dk] = 0;
   toast('《' + it.title + '》已加入“我的学习”，可以先读。自然语音正在后台下载…', 4000);
-  const upd = () => { const el = document.getElementById('scVoice-' + it.id); if (el) el.textContent = '语音下载中 ' + voiceDl[it.id] + '%'; };
+  const upd = () => { const el = document.getElementById('scVoice-' + dk); if (el) el.textContent = '语音下载中 ' + voiceDl[dk] + '%'; };
   try {
-    const buf = await fetchProgress(voiceUrlOf(it), p => { voiceDl[it.id] = p; upd(); });
+    const buf = await fetchProgress(vurl, p => { voiceDl[dk] = p; upd(); });
     await loadLibs();
     const z = await JSZip.loadAsync(buf), man = JSON.parse(await z.file('manifest.json').async('string'));
     const names = Object.keys(z.files).filter(n => /^clips\/[0-9a-f]{16,64}\.mp3$/.test(n));
     if (!names.length) throw new Error('语音文件是空的');
-    await vpImportClips(z, names, { id: 'story-' + it.id, title: it.title }, it.title, null);
+    await vpImportClips(z, names, { id: pid, title: it.title + (vk ? '（男声）' : '') }, it.title, null);
     for (let k = 2; k <= (man.parts || 1); k++) {            // 语音很大时服务器分成了好几份：一份一份下载，手机内存不会撑爆
-      const bk2 = await fetchProgress(voiceUrlOf(it).replace(/voice\.zip(?=$|\?)/, 'voice' + k + '.zip'), p => { voiceDl[it.id] = Math.min(99, Math.round(((k - 1) * 100 + p) / man.parts)); upd(); });
+      const bk2 = await fetchProgress(vurl.replace(/voice\.zip(?=$|\?)/, 'voice' + k + '.zip'), p => { voiceDl[dk] = Math.min(99, Math.round(((k - 1) * 100 + p) / man.parts)); upd(); });
       const z2 = await JSZip.loadAsync(bk2), nm2 = Object.keys(z2.files).filter(n => /^clips\/[0-9a-f]{16,64}\.mp3$/.test(n));
-      if (nm2.length) await vpImportClips(z2, nm2, { id: 'story-' + it.id, title: it.title }, it.title, null);
+      if (nm2.length) await vpImportClips(z2, nm2, { id: pid, title: it.title + (vk ? '（男声）' : '') }, it.title, null);
     }
     const bid = 'story-' + it.id, nv = man.voice || 'natural';
-    const bk = await idbGet('books', bid); if (bk) { bk.natVoice = nv; await idbPut('books', bk, bid); }
-    if (state && state.bookId === bid) { state.natVoice = nv; refreshVoiceSelect(); }
-    const l = shelfGet(), e = l.find(x => x.id === bid); if (e) { e.nv = 1; shelfSet(l); }
-    delete voiceDl[it.id];
-    toast('《' + it.title + '》的自然语音下载好了，点底部的“▶ 朗读”就能听到', 3500);
+    if (!vk) { const bk = await idbGet('books', bid); if (bk) { bk.natVoice = nv; await idbPut('books', bk, bid); } }
+    if (!vk && state && state.bookId === bid) { state.natVoice = nv; refreshVoiceSelect(); }
+    const l = shelfGet(), e = l.find(x => x.id === bid); if (e) { e[vk ? 'nv_' + vk : 'nv'] = 1; shelfSet(l); }
+    delete voiceDl[dk];
+    toast('《' + it.title + '》的' + (vk ? '男声' : '') + '自然语音下载好了，点底部的“▶ 朗读”就能听到', 3500);
     if (document.getElementById('scList')) renderStoryCity('');
   } catch (e) {
     delete voiceDl[it.id];
@@ -2276,7 +2290,8 @@ function scCard(it, owned) {
         (freeNow(it) ? '<button class="sm" onclick="claimFree(\'' + it.id + '\')">🎁 限时免费解锁完整内容</button>' : '<button class="sm" onclick="scBuy(\'' + it.id + '\')">🔓 解锁完整内容 ¥' + esc(String(it.price)) + '</button>')
       : have ? '<button class="sm" onclick="closePop();openBook(\'story-' + it.id + '\')">继续学习</button>' +
         ((it.file || tkOf(it.id)) && it.ver && ((shelfGet().find(x => x.id === 'story-' + it.id) || {}).ver || 1) < it.ver ? '<button class="sm" onclick="updateStory(\'' + it.id + '\')">🔄 有更新，点击更新</button>' : '') +
-        (it.voice && (it.file || tkOf(it.id)) && !(shelfGet().find(x => x.id === 'story-' + it.id) || {}).nv ? (voiceDl[it.id] != null ? '<span class="note" id="scVoice-' + it.id + '">语音下载中 ' + voiceDl[it.id] + '%</span>' : '<button class="ghost sm" onclick="getStoryVoice(storyCat.items.find(x => x.id === \'' + it.id + '\'))">⬇ 下载全部语音（离线听）</button>') : '')
+        (it.voice && (it.file || tkOf(it.id)) && !(shelfGet().find(x => x.id === 'story-' + it.id) || {}).nv ? (voiceDl[it.id] != null ? '<span class="note" id="scVoice-' + it.id + '">语音下载中 ' + voiceDl[it.id] + '%</span>' : '<button class="ghost sm" onclick="getStoryVoice(storyCat.items.find(x => x.id === \'' + it.id + '\'))">⬇ 下载全部语音（离线听）</button>') : '') +
+        (it.voice && it.file && (it.voices || []).includes('am_michael') && !(shelfGet().find(x => x.id === 'story-' + it.id) || {}).nv_am_michael ? (voiceDl[it.id + '~am_michael'] != null ? '<span class="note" id="scVoice-' + it.id + '~am_michael">语音下载中 ' + voiceDl[it.id + '~am_michael'] + '%</span>' : '<button class="ghost sm" onclick="getStoryVoice(storyCat.items.find(x => x.id === \'' + it.id + '\'), \'am_michael\')">⬇ 下载男声语音</button>') : '')
       : free ? '<button class="sm" onclick="getStory(\'' + it.id + '\')">＋ 加入我的学习</button>'
       : freeNow(it) ? '<button class="sm" onclick="claimFree(\'' + it.id + '\')">🎁 限时免费解锁</button><button class="ghost sm" onclick="scBuy(\'' + it.id + '\')">🔓 解锁 ¥' + esc(String(it.price)) + '</button>'
       : '<button class="sm" onclick="scBuy(\'' + it.id + '\')">🔓 解锁 ¥' + esc(String(it.price)) + '</button>') +
@@ -2394,12 +2409,17 @@ async function openStoryCity(fresh) {               // fresh = 刚上架/修改�
 // 包是 zip：manifest.json + clips/<哈希>.mp3，哈希 = SHA-256('vp1\n' + 英文句子)。按句子内容找，不靠序号，切句规则以后改了也不会错位。
 let vpCount = 0;
 async function vpKey(text) { return azHash('vp1\n' + String(text).trim()); }
-async function vpGet(text) { try { const v = await idbGet('vpack', await vpKey(text)); return v && v.b ? v.b : null; } catch (e) { return null; } }
+/* 第二个声音（男声 am_michael 等）：同一句话的语音文件名里多带一个声音名，和女声的分开存、分开取 */
+function vkCur() { return state && state.natVk && natOn() ? state.natVk : ''; }
+async function vpKeyAs(text, v) { return v ? azHash('vp1\n' + v + '\n' + String(text).trim()) : vpKey(text); }
+async function vpKeyV(text) { return vpKeyAs(text, vkCur()); }
+function natSrcOf(b) { return b.natVk && !b.useSys && /^api:files\//.test(b.natSrc) ? b.natSrc.replace(/\/$/, '--' + b.natVk.replace(/_/g, '-') + '/') : b.natSrc; }
+async function vpGet(text) { try { const v = await idbGet('vpack', await vpKeyV(text)); return v && v.b ? v.b : null; } catch (e) { return null; } }
 async function vpList() { try { return (await idbGet('meta', 'vpacks')) || []; } catch (e) { return []; } }
 async function vpPurge(gone, keepIds) {             // 删书后，把只属于这些书的语音清掉（其他书也用到的句子语音保留）
   try {
     if (!gone.size) return;
-    for (const id of keepIds) { const bk = await idbGet('books', id); if (bk && bk.sentences) for (const t of bk.sentences) gone.delete(await vpKey(t)); }
+    for (const id of keepIds) { const bk = await idbGet('books', id); if (bk && bk.sentences) for (const v of ['', ...(bk.natVoices || [])]) for (const t of bk.sentences) gone.delete(await vpKeyAs(t, v)); }
     if (gone.size) {
       const d = await idb(), keys = [...gone];
       for (let i = 0; i < keys.length; i += 500) await new Promise((res, rej) => { const t = d.transaction('vpack', 'readwrite'), st = t.objectStore('vpack'); keys.slice(i, i + 500).forEach(k => st.delete(k)); t.oncomplete = res; t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); });
@@ -3557,7 +3577,7 @@ function pgMark(idx) {
 async function natFetch(text, bk) {                  // 从服务器取这一句的自然语音（十几 KB），存进本机，下次不用再取
   const b = bk || state; if (!b || !b.natSrc) return null;
   try {
-    const k = await vpKey(text), r = await fetchT(shopUrl(b.natSrc + k + '.mp3'), 10000);
+    const k = await vpKeyV(text), r = await fetchT(shopUrl(natSrcOf(b) + k + '.mp3'), 10000);
     if (!r.ok) return null;
     const blob = new Blob([await r.arrayBuffer()], { type: 'audio/mpeg' });
     if (blob.size < 200) return null;
