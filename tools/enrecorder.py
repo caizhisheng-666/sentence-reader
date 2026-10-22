@@ -57,14 +57,8 @@ def slug(t): return re.sub(r"^-+|-+$", "", re.sub(r"[^a-z0-9]+", "-", str(t or "
 
 # ---------------- 录音：Kokoro ----------------
 class Kokoro:
-    def __init__(self, device=None):
-        import torch
+    def __init__(self, device="cpu"):                         # 默认 CPU：已经够快，而且中文录音机随时会把显卡占满，抢显卡反而慢到一分钟一个词
         from kokoro import KPipeline
-        if device is None:                                     # 显卡空闲 2GB 以上才用显卡；中文录音机占着显卡时用 CPU
-            device = "cpu"
-            try:
-                if torch.cuda.is_available() and torch.cuda.mem_get_info()[0] > 2 * 1024 ** 3: device = "cuda"
-            except Exception: pass
         log("Kokoro 用 %s 录音" % ("显卡" if device == "cuda" else "CPU"))
         self.pipes, self.device, self.KPipeline = {}, device, KPipeline
 
@@ -77,21 +71,21 @@ class Kokoro:
         return np.concatenate(parts)
 
 
-def polish(w):
+def polish(w, sr=None):
     """切掉头尾的静音（各留 60 毫秒），音量统一：每句、每个词听起来一样响"""
     import numpy as np
     w = np.asarray(w, dtype="float32")
     if not len(w): return w
     a = np.abs(w); thr = max(a.max() * 0.02, 1e-4); idx = np.where(a > thr)[0]
-    if len(idx): pad = int(0.06 * SR); w = w[max(0, idx[0] - pad): idx[-1] + pad]
+    if len(idx): pad = int(0.06 * (sr or SR)); w = w[max(0, idx[0] - pad): idx[-1] + pad]
     rms = float(np.sqrt((w ** 2).mean()) or 1e-6); w = w * min(10 ** (-20 / 20) / rms, 0.95 / (np.abs(w).max() or 1))   # 目标 -20 dB，不削顶
     return w
 
 
-def to_mp3(w, path):
+def to_mp3(w, path, sr=None):
     import soundfile as sf
     tmp = path + ".tmp.mp3"
-    with sf.SoundFile(tmp, "w", samplerate=SR, channels=1, format="MP3") as f: f.write(w)
+    with sf.SoundFile(tmp, "w", samplerate=sr or SR, channels=1, format="MP3") as f: f.write(w)
     os.replace(tmp, path)
 
 
@@ -236,7 +230,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--folder", default=os.path.join(HERE, "放这里自动录的英文书"))
     ap.add_argument("--voice", default="af_heart", choices=sorted(VOICES))
-    ap.add_argument("--device", default=None, choices=["cpu", "cuda"])
+    ap.add_argument("--device", default="cpu", choices=["cpu", "cuda"], help="默认 CPU；cuda 只在中文录音机没开时用")
     ap.add_argument("--once", action="store_true", help="文件夹里的书录完就退出（测试用）")
     ap.add_argument("--fake", action="store_true", help="不真录音，用假声音（测试用）")
     a = ap.parse_args()
