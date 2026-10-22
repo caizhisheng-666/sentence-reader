@@ -110,25 +110,29 @@ class Cosy:
         log("加载 CosyVoice 2（%s）…" % ("显卡" if torch.cuda.is_available() else "CPU，会比较慢"))
         self.cv = CosyVoice2(os.path.join(repo, "pretrained_models", "CosyVoice2-0.5B"), load_jit=False, load_trt=False, fp16=False)
         self.sr = self.cv.sample_rate; self.spk = {}
+        import inspect                                          # 新版 CosyVoice 要的是录音文件路径，旧版要 16k 的声音数据
+        try: self.by_path = "load_wav" in inspect.getsource(self.cv.frontend._extract_speech_feat)
+        except Exception: self.by_path = False
+
+    def _wav(self, path):
+        if self.by_path: return path
+        from cosyvoice.utils.file_utils import load_wav
+        return load_wav(path, 16000)
 
     def _prompt(self, k):
         if k in self.spk: return self.spk[k]
-        from cosyvoice.utils.file_utils import load_wav
         wav, txt = zv.ref_of(k, self.repo); log("声音 %s 的参考录音：%s「%s」" % (k, wav, txt))
         p = {"text": txt, "path": wav, "id": None}
         try:                                                    # 新版可以把参考录音先算好存起来，每句不用重算
-            if self.cv.add_zero_shot_spk(txt, load_wav(wav, 16000), "miao_" + k): p["id"] = "miao_" + k
-        except Exception: pass
+            if self.cv.add_zero_shot_spk(txt, self._wav(wav), "miao_" + k): p["id"] = "miao_" + k
+        except Exception as e: log("参考录音没能先算好（%s），每句现算" % e)
         self.spk[k] = p; return p
 
     def synth(self, k, text):
         import numpy as np
-        from cosyvoice.utils.file_utils import load_wav
         p = self._prompt(k)
         if p["id"]: gen = self.cv.inference_zero_shot(text, "", "", zero_shot_spk_id=p["id"], stream=False)
-        else:
-            try: gen = self.cv.inference_zero_shot(text, p["text"], load_wav(p["path"], 16000), stream=False)
-            except (TypeError, AttributeError): gen = self.cv.inference_zero_shot(text, p["text"], p["path"], stream=False)
+        else: gen = self.cv.inference_zero_shot(text, p["text"], self._wav(p["path"]), stream=False)
         return np.concatenate([np.asarray(j["tts_speech"]).reshape(-1) for j in gen])
 
 
@@ -136,7 +140,10 @@ class ChatTTSEngine:
     def __init__(self):
         import ChatTTS, torch
         log("加载 ChatTTS（%s）…" % ("显卡" if torch.cuda.is_available() else "CPU"))
-        self.ChatTTS = ChatTTS; self.chat = ChatTTS.Chat(); self.chat.load(compile=False); self.sr = 24000; self.spk = {}
+        self.ChatTTS = ChatTTS; self.chat = ChatTTS.Chat(); self.sr = 24000; self.spk = {}
+        # 试听时模型下到了 huggingface 缓存里；默认的 local 是在当前文件夹找，找不到会去下载（Windows 上常失败）
+        if not any(self.chat.load(compile=False, source=s) for s in ("huggingface", "local")):
+            raise RuntimeError("ChatTTS 模型加载失败（huggingface 缓存和当前文件夹 asset 里都没有）")
 
     def synth(self, k, text):
         import numpy as np, torch
