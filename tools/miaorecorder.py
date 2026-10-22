@@ -8,19 +8,23 @@
          每录一小批就上传一次，手机上马上就能听到；
   3. 全部录完 → 告诉服务器“这个声音录好了”，接着看有没有下一个；没有就等着。
 另外它还会盯着一个文件夹（默认是这个文件夹里的「放这里自动录的书」）：把电子书（txt/md/epub/docx）丢进去，
-它会先看书库里有没有这本书（按书名+内容的指纹判断），没有就先上架，然后马上用默认声音（福伯）边录边传；
+它会先看书库里有没有这本书（按书名+内容的指纹判断），没有就先上架，然后马上用默认声音（晓雅，CosyVoice 女声）边录边传；
 录完把文件移到该文件夹里的「已完成」。手机上点的“开始录这个声音”优先，处理完才轮到文件夹里的书。
 电脑关机或关掉这个窗口时它就停了；下次开着它，没录完的会接着录（已经上传的句子自动跳过）。
+声音：Qwen 的五个（十三、苏瑶、福伯、晓东、程川）在本环境里录；“稳定声音”（晓雅、福伯·稳、阿七，见 zhvoices.py）
+交给 tts-cosy / tts-chattts 环境里的 zhtts_worker.py 录。一次只开一个模型，换模型时先把上一个卸下来。
 第一次运行会问一次开发者口令（输在你自己电脑上，记在 ~/.miaobook）。
 """
-import argparse, re, os, sys, time, json, hashlib, shutil, urllib.request
+import argparse, re, os, sys, time, json, hashlib, shutil, subprocess, urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import miaobook as mb
+import zhvoices as zv
 
 # 手机上显示的声音 → Qwen 模型里的名字
 SPEAKERS = {"vivian": "Vivian", "serena": "Serena", "uncle_fu": "Uncle_Fu", "dylan": "Dylan", "eric": "Eric"}
 CN = {"vivian": "十三", "serena": "苏瑶", "uncle_fu": "福伯", "dylan": "晓东", "eric": "程川"}
+CN.update({k: v["name"] for k, v in zv.VOICES.items()})
 FIRST_BATCHES = [6, 10]          # 刚开始先录小批，让你更快听到第一句
 
 
@@ -48,7 +52,55 @@ def split_key(vk):
     return vk, None
 
 
-def spk_name(k): return SPEAKERS.get(k) or k.capitalize()
+def spk_name(k): return CN.get(k) if zv.is_stable(k) else (SPEAKERS.get(k) or k.capitalize())
+
+
+def conda_python(env):
+    """conda 环境 env 里的 python。录音机自己在 qwen3-tts 环境里跑，别的环境和它在同一个 conda 下面"""
+    o = os.environ.get("MIAO_PY_" + env.upper().replace("-", "_"))
+    if o: return o
+    roots = []
+    if os.environ.get("CONDA_EXE"): roots.append(os.path.dirname(os.path.dirname(os.environ["CONDA_EXE"])))
+    p = os.path.abspath(sys.prefix)
+    if os.path.basename(os.path.dirname(p)).lower() == "envs": roots.append(os.path.dirname(os.path.dirname(p)))
+    roots.append(p)
+    for r in roots:
+        for py in (os.path.join(r, "envs", env, "python.exe"), os.path.join(r, "envs", env, "bin", "python")):
+            if os.path.exists(py): return py
+    raise RuntimeError("找不到 conda 环境 %s（试听时建的那个）" % env)
+
+
+class Worker:
+    """在别的 conda 环境里开一个 zhtts_worker.py（CosyVoice / ChatTTS），模型一直留在里面，一批一批交给它录"""
+    def __init__(self, engine, a):
+        self.engine = engine
+        cmd = [conda_python(zv.ENGINES[engine]["env"]), "-u", os.path.join(os.path.dirname(os.path.abspath(__file__)), "zhtts_worker.py"), "--engine", engine, "--bitrate", a.bitrate]
+        env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
+        if a.cpu: env["CUDA_VISIBLE_DEVICES"] = ""
+        log("启动 %s（第一次加载要一两分钟）…" % engine)
+        self.p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env, encoding="utf-8", errors="replace", bufsize=1)
+        self.read()                                             # 等它说“模型加载好了”
+
+    def read(self):
+        while True:
+            line = self.p.stdout.readline()
+            if not line: raise RuntimeError("%s 帮手意外退出了（看上面的报错）" % self.engine)
+            if line.startswith("@@ZHTTS "):
+                r = json.loads(line[8:])
+                if r.get("err"): raise RuntimeError(r["err"])
+                return r
+            print(line, end="", flush=True)
+
+    def tts(self, voice, items):
+        self.p.stdin.write(json.dumps({"voice": voice, "texts": [t for t, _ in items], "paths": [p for _, p in items]}, ensure_ascii=False) + "\n"); self.p.stdin.flush()
+        r = self.read()
+        if r.get("errs") and len(r["errs"]) == len(items): raise RuntimeError(r["errs"][0])
+
+    def close(self):
+        try: self.p.stdin.close(); self.p.wait(15)
+        except Exception:
+            try: self.p.kill()
+            except Exception: pass
 
 
 def dialogue_flags(sents, pst):
@@ -73,10 +125,29 @@ def dialogue_flags(sents, pst):
 
 class Recorder:
     def __init__(self, a):
-        self.a = a; self.tok = mb.token(); self.model = None; self.q = None; self.bad = {}; self.pre = set(); self.cur_file = ""
+        self.a = a; self.tok = mb.token(); self.model = None; self.q = None; self.worker = None; self.bad = {}; self.pre = set(); self.cur_file = ""
+
+    def free_qwen(self):
+        if self.model is None: return
+        log("先把 Qwen 模型从显卡上卸下来，腾地方给新声音"); self.model = None
+        try:
+            import gc, torch; gc.collect(); torch.cuda.empty_cache()
+        except Exception: pass
+
+    def free_worker(self):
+        if self.worker: log("关掉 %s 帮手" % self.worker.engine); self.worker.close(); self.worker = None
+
+    def stable_tts(self, items, voice):
+        """稳定声音（CosyVoice / ChatTTS）：交给对应环境里的帮手录。一次只开一个模型，显卡不打架"""
+        eng = zv.VOICES[voice]["engine"]
+        if self.worker and self.worker.engine != eng: self.free_worker()
+        if not self.worker: self.free_qwen(); self.worker = Worker(eng, self.a)
+        try: self.worker.tts(voice, items)
+        finally:
+            if self.worker.p.poll() is not None: self.worker = None      # 帮手退出了：下次重新开一个
 
     def tts_for(self):
-        """返回 tts(列表[(句子, mp3路径)], 说话人)"""
+        """返回 tts(列表[(句子, mp3路径)], 声音编号)"""
         a = self.a
         if a.fake:
             src = os.environ.get("MIAO_FAKE_MP3"); blob = open(src, "rb").read() if src else b"ID3" + bytes(600)     # 测试用：不真录音，写一个现成的小 mp3
@@ -85,10 +156,13 @@ class Recorder:
             return fake
         import qwen_batch as q
         self.q = q
-        if self.model is None:
-            ping(self.tok, "", "正在加载模型…"); log("正在加载模型（第一次要一两分钟）…")
-            self.model = q.load_model(a.model or q.default_model())
-        def real(items, speaker):
+        def real(items, voice):
+            if zv.is_stable(voice): return self.stable_tts(items, voice)
+            self.free_worker()
+            if self.model is None:
+                ping(self.tok, "", "正在加载模型…"); log("正在加载 Qwen 模型（第一次要一两分钟）…")
+                self.model = q.load_model(a.model or q.default_model())
+            speaker = spk_name(voice)
             ins = None if speaker in ("Dylan", "Eric") else (a.instruct or None)      # 北京话、四川话本来就是方言，不要压它
             res = q.synth_batch(self.model, [t for t, _ in items], speaker, "Chinese", ins, a.temp)
             for (_, path), (sr, wav) in zip(items, res): q.to_mp3(sr, wav, path, a.bitrate)
@@ -108,7 +182,7 @@ class Recorder:
             t = sents[i]; h = mb.zl_hash(t)
             if not t.strip() or h in seen: continue
             seen.add(h)
-            if h not in have: todo.append((t, h, spk_name(dk if flags[i] else nk)))
+            if h not in have: todo.append((t, h, dk if flags[i] else nk))
         log("《%s》声音 %s：共 %d 句，从第 %d 句开始，还要录 %d 句" % (job.get("title", bid), speaker, n, start + 1, len(todo)))
         if todo:
             tts = self.tts_for()
@@ -251,12 +325,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--watch", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "放这里自动录的书"), help="盯着的文件夹；传空字符串 \"\" 就不盯")
     ap.add_argument("--watch-dialogue", default="", help="文件夹里的书：对话用另一个声音（比如 eric），不填就全书一个声音")
-    ap.add_argument("--watch-voice", default="uncle_fu", help="文件夹里的书用哪个声音录（默认福伯）")
+    ap.add_argument("--watch-voice", default=os.environ.get("MIAO_WATCH_VOICE", "cv_nv"), help="文件夹里的书用哪个声音录（默认 CosyVoice 女声“晓雅”；以前是 uncle_fu 福伯）")
     ap.add_argument("--model"); ap.add_argument("--bitrate", default="48k")
     ap.add_argument("--gen", type=int, default=int(os.environ.get("MIAO_GEN", "16")), help="每批同时录几句，显存够可以调大")
     ap.add_argument("--poll", type=float, default=5, help="多少秒问一次服务器")
     ap.add_argument("--instruct", default="请用标准普通话朗读，发音清晰自然，不要带任何方言或地方口音。")
     ap.add_argument("--temp", type=float, default=0.6)
+    ap.add_argument("--cpu", action="store_true", help="CosyVoice / ChatTTS 用 CPU 录（慢，显卡被别的程序占着时用）")
     ap.add_argument("--fake", action="store_true", help="测试用：不真录音"); ap.add_argument("--once", action="store_true", help="测试用：清单空了就退出")
     Recorder(ap.parse_args()).loop()
 
