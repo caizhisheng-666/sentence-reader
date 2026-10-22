@@ -231,7 +231,7 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 <div id="lbov"></div><div id="lbDim"></div>
 <script>
 
-const APP_VERSION = '2026.10.20-15';
+const APP_VERSION = '2026.10.22-1';
 const API_BASE = 'https://api.miaomiaosw.com';       // 你的服务器（自然人声由它向微软合成）
 /* ---------- 基础：本机数据库、提示、小工具 ---------- */
 let _db = null;
@@ -767,7 +767,7 @@ function lbTimer() { const o = [0, 15, 30, 60], n = o[(o.indexOf(lb.timer) + 1) 
 window.addEventListener('resize', () => { if (lb.screen === 'read' && lbPage() && lb.cur) { lb.browse = false; lbPaint(true, true); } });
 function lbEngine() { const to = lbNat() ? 'sys' : 'nat'; lb.natOff = false; localStorage.setItem('zh_eng', to); toast(to === 'nat' ? '已换成自然人声（需要联网）' : '已换成系统声音', 2000); lbBar(); lbRestart(); }
 /* ---- 点播录音：想听哪个声音，点一下，电脑上的“喵喵录音机”就录那个声音（从你正在听的那一句开始） ---- */
-const LB_VOICES = [['vivian', '十三', '女声'], ['serena', '苏瑶', '女声'], ['uncle_fu', '福伯', '男声'], ['dylan', '晓东', '北京话'], ['eric', '程川', '四川话']];
+const LB_VOICES = [['cv_nv', '晓雅', '女声·稳'], ['cv_fu', '福伯·稳', '男声·稳'], ['ct_4099', '阿七', 'ChatTTS'], ['vivian', '十三', '女声'], ['serena', '苏瑶', '女声'], ['uncle_fu', '福伯', '男声'], ['dylan', '晓东', '北京话'], ['eric', '程川', '四川话']];
 async function lbInfo() {                            // 向服务器问：这本书各个声音录到哪了、录音机在不在
   const it = lb.cur && lb.cur.it; if (!it || !it.zl) return null;
   try {
@@ -792,7 +792,7 @@ function lbVoicesHtml() {
   const w = lb.zinfo && lb.zinfo.worker;
   return '<div class="lbh">声音</div><div class="vcs">' + rows.map(r => { const st = r[3], sub = st.complete ? '✓ 已录好' : st.queued ? '⏺ 录制中 ' + st.pct + '%' : st.clips ? (admTok ? '已录 ' + st.pct + '%，点一下继续录' : '已录 ' + st.pct + '%') : '点一下开始录';
     return '<button class="vc' + (cur === r[0] && (st.clips || st.queued) ? ' on' : '') + '" onclick="lbPickVoice(\'' + r[0] + '\')"><b>' + esc(r[1]) + '</b><small>' + (r[2] ? r[2] + ' · ' : '') + sub + '</small></button>'; }).join('') + '</div>' +
-    (admTok ? '<div class="lbh" style="margin-top:10px">分角色：旁白和人物说话用不同声音</div><div class="chips" style="align-items:center"><span class="note">旁白</span><select id="rlN" class="ghost sm" onchange="lb.rlN = this.value">' + LB_VOICES.map(v => '<option value="' + v[0] + '"' + (v[0] === (lb.rlN || 'uncle_fu') ? ' selected' : '') + '>' + v[1] + '</option>').join('') + '</select><span class="note">对话</span><select id="rlD" class="ghost sm" onchange="lb.rlD = this.value">' + LB_VOICES.map(v => '<option value="' + v[0] + '"' + (v[0] === (lb.rlD || 'eric') ? ' selected' : '') + '>' + v[1] + '</option>').join('') + '</select><button class="ghost sm" onclick="lbPickRole()">用这个组合</button></div><div class="note" style="margin-top:6px">引号里的话用“对话”声音，其余用“旁白”声音。点一下，电脑录音机就从这里开始录。</div>' : '') +
+    (admTok ? '<div class="lbh" style="margin-top:10px">分角色：旁白和人物说话用不同声音</div><div class="chips" style="align-items:center"><span class="note">旁白</span><select id="rlN" class="ghost sm" onchange="lb.rlN = this.value">' + LB_VOICES.map(v => '<option value="' + v[0] + '"' + (v[0] === (lb.rlN || 'cv_fu') ? ' selected' : '') + '>' + v[1] + '</option>').join('') + '</select><span class="note">对话</span><select id="rlD" class="ghost sm" onchange="lb.rlD = this.value">' + LB_VOICES.map(v => '<option value="' + v[0] + '"' + (v[0] === (lb.rlD || 'cv_nv') ? ' selected' : '') + '>' + v[1] + '</option>').join('') + '</select><button class="ghost sm" onclick="lbPickRole()">用这个组合</button></div><div class="note" style="margin-top:6px">引号里的话用“对话”声音，其余用“旁白”声音。点一下，电脑录音机就从这里开始录。</div>' : '') +
     (admTok ? '<div class="note" style="margin-top:6px">电脑录音机：' + (w && w.online ? (w.job ? '正在录 ' + esc(w.msg || '') : '在线，空闲') : '没开 —— 请在电脑上双击“喵喵录音机”，不然点了也不会开始录') + '</div>' : '');
 }
 async function lbPickVoice(k) {
@@ -1168,6 +1168,7 @@ async function lbUpGo() {
   go.disabled = false;
 }
 const LB_LOG = [
+  ['2026.10.22-1', ['新增三个稳定的声音：晓雅（女声）、福伯·稳（男声）、阿七，句子和句子之间不会忽高忽低；电脑上新放进文件夹的书默认用福伯·稳录']],
   ['2026.10.19-11', ['想听哪个声音就点哪个：在“进度”里选声音（十三、苏瑶、福伯、晓东、程川），没录过的会通知电脑上的“喵喵录音机”从当前位置开始录，录到哪里就能听到哪里', '开发者可以把手机上导入的书一键上架到书库']],
   ['2026.10.19-10', ['整理设置页面']],
   ['2026.10.19-9', ['修复：锁屏后点暂停、再点播放没有声音']],
