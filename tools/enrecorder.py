@@ -77,21 +77,21 @@ class Kokoro:
         return np.concatenate(parts)
 
 
-def polish(w):
+def polish(w, sr=None):
     """切掉头尾的静音（各留 60 毫秒），音量统一：每句、每个词听起来一样响"""
     import numpy as np
     w = np.asarray(w, dtype="float32")
     if not len(w): return w
     a = np.abs(w); thr = max(a.max() * 0.02, 1e-4); idx = np.where(a > thr)[0]
-    if len(idx): pad = int(0.06 * SR); w = w[max(0, idx[0] - pad): idx[-1] + pad]
+    if len(idx): pad = int(0.06 * (sr or SR)); w = w[max(0, idx[0] - pad): idx[-1] + pad]
     rms = float(np.sqrt((w ** 2).mean()) or 1e-6); w = w * min(10 ** (-20 / 20) / rms, 0.95 / (np.abs(w).max() or 1))   # 目标 -20 dB，不削顶
     return w
 
 
-def to_mp3(w, path):
+def to_mp3(w, path, sr=None):
     import soundfile as sf
     tmp = path + ".tmp.mp3"
-    with sf.SoundFile(tmp, "w", samplerate=SR, channels=1, format="MP3") as f: f.write(w)
+    with sf.SoundFile(tmp, "w", samplerate=sr or SR, channels=1, format="MP3") as f: f.write(w)
     os.replace(tmp, path)
 
 

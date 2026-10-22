@@ -256,7 +256,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.10.21-157';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.10.22-158';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1307,9 +1307,11 @@ function playListen() {
   speakNow(u);
   render();
 }
+let ssPrimed = false;
 function speakPacked(text, rate) {             // 书的自然语音包里有这个词/句：直接放（单词也录进了包里）；没有就退回原来的办法
   markStopped(); azUnlock();
-  try { if (!azReady()) { const pu = new SpeechSynthesisUtterance(' '); pu.volume = 0; speechSynthesis.speak(pu); } } catch (e) {}   // 手机要求第一次出声必须在点击这一下里：先无声“占位”，包里没有这个词时稍后再用系统声音念才不会被吞掉
+  let primed = false;                         // 手机要求系统朗读第一次出声必须在点击这一下里：只在第一次先无声“占位”。每次都占位的话，系统朗读一开口手机就把别的声音压低，单词录音听起来比句子轻
+  try { if (!ssPrimed && !azReady()) { const pu = new SpeechSynthesisUtterance(' '); pu.volume = 0; speechSynthesis.speak(pu); ssPrimed = primed = true; } } catch (e) {}
   const job = { _stopped: false }, t = String(text).trim(), lo = t.toLowerCase(); lastListenUtt = job;
   (async () => {
     let b = await vpGet(t); if (!b && lo !== t) b = await vpGet(lo);
@@ -1318,7 +1320,7 @@ function speakPacked(text, rate) {             // 书的自然语音包里有这
     return b;
   })().then(b => {
     if (job._stopped) return;
-    if (b) { const a = azSetSrc(b); a.onended = a.onerror = null; a.play().catch(() => {}); return; }
+    if (b) { if (primed) try { speechSynthesis.cancel(); } catch (e) {} const a = azSetSrc(b); a.onended = a.onerror = null; a.play().catch(() => {}); return; }
     if (azReady()) { azSpeakShort(text); return; }
     try { const u = new SpeechSynthesisUtterance(text); applyVoiceSync(u); u.rate = rate || getRate(); speakNow(u); } catch (e) {}
   });
