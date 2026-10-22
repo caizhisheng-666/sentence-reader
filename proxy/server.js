@@ -658,6 +658,27 @@ async function shopRoutes(req, res) {
       const books = zlRead().items, jobs = zqRead().jobs.map(j => { const it = books.find(x => x.id === j.id); return it ? { ...j, n: it.n, title: it.title } : null; }).filter(Boolean);
       return out(200, { jobs });
     }
+    if (req.method === 'POST' && url === '/admin/zl/purge-voices') {   // 删掉所有书里不在 keep 里的声音（旧的 Qwen 录音）：{keep:[声音编号], dry:true 只看不删}
+      const b = JSON.parse(await readBody(req, 4000) || '{}'), keep = new Set((Array.isArray(b.keep) ? b.keep : []).map(vkey).filter(Boolean)), dry = !!b.dry;
+      if (!keep.size) return out(400, { error: 'no-keep' });
+      const kept = k => k.split('_x_').every(x => keep.has(x)), isClip = f => /^[0-9a-f]{16,64}\.mp3$/.test(f), j = zlRead(), rep = []; let files = 0;
+      for (const it of j.items) {
+        const base = path.join(ZL_DIR, it.id), r = { id: it.id, title: it.title, del: [] }; let names = [];
+        try { names = fs.readdirSync(base); } catch (e) { continue; }
+        const root = names.filter(isClip);
+        if (root.length && !kept(vkey(it.voice))) { r.del.push({ k: '', name: it.voice, clips: root.length }); files += root.length; if (!dry) for (const f of root) fs.rmSync(path.join(base, f), { force: true }); }
+        for (const d of names) {
+          const m = /^v-([a-z0-9_]{1,24})$/.exec(d); if (!m || kept(m[1])) continue;
+          let n = 0; try { n = fs.readdirSync(path.join(base, d)).filter(isClip).length; } catch (e) {}
+          r.del.push({ k: m[1], clips: n }); files += n; if (!dry) fs.rmSync(path.join(base, d), { recursive: true, force: true });
+        }
+        if (r.del.length) rep.push(r);
+        if (!dry) { it.voices = zlVoices(it.id, it); it.clips = it.voices[0].clips; }
+      }
+      const q = zqRead(), qdel = q.jobs.filter(x => !kept(x.voice));
+      if (!dry) { zlWrite(j); q.jobs = q.jobs.filter(x => kept(x.voice)); zqWrite(q); zlLive.at = 0; }
+      return out(200, { ok: true, dry, books: rep.length, files, queue: qdel.map(x => ({ id: x.id, voice: x.voice })), detail: rep });
+    }
     if (req.method === 'POST' && url === '/admin/queue/done') { const b = JSON.parse(await readBody(req, 2000) || '{}'), vk = vkey(b.voice), q = zqRead(); q.jobs = q.jobs.filter(j => !(j.id === b.id && j.voice === vk)); zqWrite(q); return out(200, { ok: true }); }
     if (req.method === 'POST' && url === '/admin/worker/ping') { const b = JSON.parse(await readBody(req, 2000) || '{}'); ZL_WORKER.ts = Date.now(); ZL_WORKER.job = String(b.job || '').slice(0, 80); ZL_WORKER.msg = String(b.msg || '').slice(0, 80); return out(200, { ok: true }); }
     m = /^\/admin\/zl\/([a-z0-9][a-z0-9-]{0,40})(?:\/(have|clips|book))?$/.exec(url);
