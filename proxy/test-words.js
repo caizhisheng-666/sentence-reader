@@ -48,5 +48,20 @@ function zipOf(entries) {                         // [{n, d}] → 不压缩的 z
   r = await call('/admin/words/link/paid', { m: 'POST', h: A, body: JSON.stringify({ voice: 'af_heart', hashes: [hw] }) }); assert.equal(JSON.parse(r.b).linked, 1);
   assert.ok(fs.existsSync('/tmp/wordstest/shop/private/paid/' + hw + '.mp3'));
   r = await call('/files/paid/' + hw + '.mp3'); assert.equal(r.s, 404);
+  // 第二个声音：语音放在“编号--am-michael”，挂单词、打包都认得出是哪本书；学习材料里记上 voices
+  r = await call('/admin/item', { m: 'POST', h: A, body: JSON.stringify({ id: 'kit', kind: 'story', title: 'Kit', voice: true, file: 'api:files/kit.srbook', voices: ['am_michael', 'Bad!'] }) }); assert.equal(r.s, 200);
+  r = await call('/catalog'); assert.deepEqual(JSON.parse(r.b).items.find(x => x.id === 'kit').voices, ['am_michael']);
+  r = await call('/admin/voices/kit', { m: 'POST', h: A, body: JSON.stringify({ voice: 'am_michael' }) }); assert.deepEqual(JSON.parse(r.b).voices, ['am_michael']);
+  r = await call('/admin/item', { m: 'POST', h: A, body: JSON.stringify({ id: 'kit', kind: 'story', title: 'Kit 2', voice: true, file: 'api:files/kit.srbook' }) });
+  r = await call('/catalog'); assert.deepEqual(JSON.parse(r.b).items.find(x => x.id === 'kit').voices, ['am_michael']);   // 改书名不丢男声
+  r = await call('/admin/voices/nope', { m: 'POST', h: A, body: JSON.stringify({ voice: 'am_michael' }) }); assert.equal(r.s, 404);
+  r = await call('/admin/words?voice=am_michael', { m: 'PUT', h: { ...A, 'Content-Type': 'application/zip' }, body: zipOf([{ n: 'clips/' + hy + '.mp3', d: mp3 }]) }); assert.equal(JSON.parse(r.b).words, 1);
+  r = await call('/admin/words/link/kit--am-michael', { m: 'POST', h: A, body: JSON.stringify({ voice: 'am_michael', hashes: [hy] }) }); assert.equal(JSON.parse(r.b).linked, 1);
+  r = await call('/admin/file/kit--am-michael.voice.zip?last=0', { m: 'PUT', h: { ...A, 'Content-Type': 'application/zip' }, body: zipOf([{ n: 'clips/' + hx + '.mp3', d: Buffer.alloc(300, 7) }]) }); assert.equal(JSON.parse(r.b).clips, 1);
+  r = await call('/admin/repack/kit--am-michael', { m: 'POST', h: A }); assert.equal(r.s, 200); assert.equal(JSON.parse(r.b).clips, 2);
+  r = await call('/files/kit--am-michael/' + hy + '.mp3'); assert.equal(r.s, 200);
+  r = await call('/files/kit--am-michael.voice.zip'); assert.equal(r.s, 200);
+  r = await call('/files/kit/' + hx + '.mp3'); assert.equal(r.b.length, 400);          // 女声的没被动
+  r = await call('/admin/repack/paid--am-michael', { m: 'POST', h: A }); assert.equal(r.s, 200);   // 收费书：认得出在私有目录
   console.log('WORDS OK'); process.exit(0);
 })().catch(e => { console.error('FAIL', e); process.exit(1); });

@@ -110,6 +110,7 @@ function send(res, code, obj, origin) {
 }
 
 // ---- 故事城商品目录：软件里“生成语音”后直接上架，不用再推送网站 ----
+const baseOf = id => String(id).replace(/--[a-z0-9-]+$/, '');      // “编号--am-michael” 是这本书第二个声音的语音目录
 function shopRead() { try { const j = JSON.parse(fs.readFileSync(SHOP_FILE, 'utf8')); return Array.isArray(j.items) ? j : { items: [], removed: [] }; } catch (e) { return { items: [], removed: [] }; } }
 function shopWrite(j) { fs.mkdirSync(SHOP_DIR, { recursive: true }); const t = SHOP_FILE + '.tmp'; fs.writeFileSync(t, JSON.stringify(j)); fs.renameSync(t, SHOP_FILE); }
 function adminOk(req) {
@@ -137,6 +138,7 @@ function cleanItem(b) {
   if (typeof b.buyUrl === 'string' && /^https:\/\/[^\s<>"']{4,300}$/.test(b.buyUrl)) o.buyUrl = b.buyUrl;      // 购买链接（比如闲鱼商品页），只收 https
   if (Number.isFinite(+b.freeUntil) && +b.freeUntil > 1e12 && +b.freeUntil < 4e12) o.freeUntil = Math.round(+b.freeUntil);      // 限时免费截止时间（毫秒时间戳）
   if (b.voice === true) o.voice = true;
+  if (Array.isArray(b.voices)) { const v = [...new Set(b.voices.filter(x => typeof x === 'string' && /^[a-z0-9_]{1,24}$/.test(x)))].slice(0, 8); if (v.length) o.voices = v; }   // 另外录好的声音（比如男声 am_michael），语音在“编号--am-michael”目录
   if (Number.isFinite(+b.ver) && +b.ver >= 1 && +b.ver < 100000) o.ver = Math.round(+b.ver);      // 内容更新次数：买家书架里的版本比它小，就提示“有更新”
   if (typeof b.file === 'string' && /^(api:files\/[A-Za-z0-9._-]{1,90}|stories\/[A-Za-z0-9._-]{1,90})$/.test(b.file)) o.file = b.file;
   if (typeof b.sample === 'string' && /^api:files\/[a-z0-9][a-z0-9-]{0,59}-sample\.srbook$/.test(b.sample)) o.sample = b.sample;      // 收费故事的免费试读版（比如第一章）
@@ -624,7 +626,7 @@ async function shopRoutes(req, res) {
     m = /^\/admin\/words\/link\/([a-z0-9][a-z0-9-]{0,59})$/.exec(url);
     if (m && req.method === 'POST') {                  // 把这本书用到的单词从公共库挂进书的语音目录：读者照常按书取语音、下载“全部语音”时也带着单词
       const b = JSON.parse(await readBody(req, 6 * 1048576) || '{}'), v = String(b.voice || ''); if (!WVK.test(v)) return out(400, { error: 'bad-voice' });
-      const priv = !fs.existsSync(path.join(SHOP_FILES, m[1] + '.srbook')) && fs.existsSync(path.join(SHOP_PRIV, m[1] + '.srbook'));
+      const bk = baseOf(m[1]), priv = !fs.existsSync(path.join(SHOP_FILES, bk + '.srbook')) && fs.existsSync(path.join(SHOP_PRIV, bk + '.srbook'));
       const dir = path.join(priv ? SHOP_PRIV : SHOP_FILES, m[1]); fs.mkdirSync(dir, { recursive: true });
       let linked = 0; const missing = [];
       for (const h of (Array.isArray(b.hashes) ? b.hashes : []).filter(x => HASH_RE.test(x)).slice(0, 80000)) {
@@ -737,7 +739,8 @@ async function shopRoutes(req, res) {
     }
     if (req.method === 'POST' && url === '/admin/item') {
       const it = cleanItem(JSON.parse(await readBody(req, 20000))); if (!it) return out(400, { error: 'bad-item' });
-      const j = shopRead(); const k = j.items.findIndex(x => x.id === it.id); if (k >= 0) j.items[k] = it; else j.items.push(it);
+      const j = shopRead(); const k = j.items.findIndex(x => x.id === it.id); if (k >= 0 && !it.voices && j.items[k].voices) it.voices = j.items[k].voices;   // 在开发者页改书名、价格时，别把录好的男声弄丢
+      if (k >= 0) j.items[k] = it; else j.items.push(it);
       j.removed = (j.removed || []).filter(x => x !== it.id); shopWrite(j); return out(200, { ok: true, count: j.items.length });
     }
     m = /^\/admin\/price\/([a-z0-9][a-z0-9-]{0,59})$/.exec(url);
@@ -774,10 +777,16 @@ async function shopRoutes(req, res) {
     if (req.method === 'DELETE' && m) {
       const j = shopRead(); j.items = j.items.filter(x => x.id !== m[1]); j.removed = [...new Set([...(j.removed || []), m[1]])]; shopWrite(j); return out(200, { ok: true });
     }
+    m = /^\/admin\/voices\/([a-z0-9][a-z0-9-]{0,59})$/.exec(url);
+    if (m && req.method === 'POST') {                  // 录音机录好了第二个声音：在学习材料里记上，手机上就能选
+      const b = JSON.parse(await readBody(req, 1000) || '{}'), v = String(b.voice || ''); if (!WVK.test(v)) return out(400, { error: 'bad-voice' });
+      const j = shopRead(), it = j.items.find(x => x.id === m[1]); if (!it) return out(404, { error: 'story-not-found' });
+      it.voices = [...new Set([...(it.voices || []), v])].slice(0, 8); shopWrite(j); return out(200, { ok: true, voices: it.voices });
+    }
     m = /^\/admin\/repack\/([a-z0-9][a-z0-9-]{0,59})$/.exec(url);       // 语音已经齐全、但总包没生成（或太大没合成）时：只重新打一遍“下载全部语音”包，不用重传
     if (m && req.method === 'POST') {
-      const priv = !fs.existsSync(path.join(SHOP_FILES, m[1] + '.srbook'));
-      if (priv && !fs.existsSync(path.join(SHOP_PRIV, m[1] + '.srbook'))) return out(404, { error: 'not-found' });
+      const bk = baseOf(m[1]), priv = !fs.existsSync(path.join(SHOP_FILES, bk + '.srbook'));
+      if (priv && !fs.existsSync(path.join(SHOP_PRIV, bk + '.srbook'))) return out(404, { error: 'not-found' });
       const r = rebuildVoiceZip(m[1], priv); if (r && r.tooBig) return out(200, { ok: true, tooBig: true, total: r.total });
       const base = priv ? SHOP_PRIV : SHOP_FILES; let parts = 0; for (let k = 1; k < 200; k++) { if (fs.existsSync(path.join(base, m[1] + (k === 1 ? '.voice' : '.voice' + k) + '.zip'))) parts = k; else break; }
       return out(200, { ok: true, clips: r || 0, parts });
