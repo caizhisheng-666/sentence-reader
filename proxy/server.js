@@ -168,13 +168,17 @@ function unzipBuf(buf) {
 const SITE_DIR = process.env.SITE_DIR || '/var/www/sentence-reader';
 const IW = { ok: null, failAt: 0, cache: new Map(), lem: new Map() };
 function iwInit() {
+  const xf = path.join(SITE_DIR, 'ielts', 'extra', 'words-extra.json');     // 补充词条（生成后才有）：文件变了就整个重新加载
+  let xm = 0; try { xm = fs.statSync(xf).mtimeMs; } catch (e) {}
+  if (IW.ok && xm !== IW.xm) { IW.ok = null; IW.cache.clear(); IW.lem.clear(); }
   if (IW.ok) return true;
   if (IW.ok === false && Date.now() - IW.failAt < 600000) return false;   // 失败了 10 分钟后再试（比如词库还没传上来）
   try {
     const vm = require('vm'), ctx = { window: {} }; ctx.self = ctx.window; vm.createContext(ctx);
     vm.runInContext(fs.readFileSync(path.join(SITE_DIR, 'grammar.js'), 'utf8'), ctx);
     const words = JSON.parse(fs.readFileSync(path.join(SITE_DIR, 'ielts', 'words.json'), 'utf8'));
-    IW.EG = ctx.window.EG; IW.words = words; IW.ok = !!(IW.EG && IW.EG.lemmaCandidates);
+    try { const x = JSON.parse(fs.readFileSync(xf, 'utf8')); for (const k in x) if (!words[k]) words[k] = x[k]; } catch (e) {}
+    IW.EG = ctx.window.EG; IW.words = words; IW.xm = xm; IW.ok = !!(IW.EG && IW.EG.lemmaCandidates);
   } catch (e) { IW.ok = false; IW.failAt = Date.now(); console.error('雅思词统计暂不可用：' + e.message); }
   return IW.ok;
 }
@@ -416,6 +420,23 @@ function ipMask(ip) {                                  // 只留网段，不留�
   return ip.split(':').slice(0, 3).join(':') + ':*';
 }
 const hitLog = new Map();
+// ---- 单词报错：读者觉得雅思词条（释义、例句、插图、发音）有错，点一下报上来；开发者在软件里集中查看、改完标“已处理”。不记 IP ----
+const REPORT_FILE = path.join(SHOP_DIR, 'reports.jsonl'), REPORT_DONE = path.join(SHOP_DIR, 'reports-done.json'), REPORT_WHY = ['释义不对', '例句有问题', '插图不对', '发音不对', '等级不对', '其他'];
+const repLog = new Map();
+function repLimited(ip) {
+  const now = Date.now(), arr = (repLog.get(ip) || []).filter(t => now - t < 3600000); arr.push(now); repLog.set(ip, arr);
+  if (repLog.size > 5000) for (const [k, v] of repLog) if (now - v[v.length - 1] > 3600000) repLog.delete(k);
+  return arr.length > 30;
+}
+function repDone() { try { return JSON.parse(fs.readFileSync(REPORT_DONE, 'utf8')); } catch (e) { return {}; } }
+function repList() {
+  let lines = []; try { lines = fs.readFileSync(REPORT_FILE, 'utf8').split('\n').filter(Boolean).slice(-5000); } catch (e) {}
+  const done = repDone(), by = new Map();
+  for (const l of lines) { let r; try { r = JSON.parse(l); } catch (e) { continue; }
+    const g = by.get(r.w) || { w: r.w, n: 0, why: {}, notes: [], last: 0 }; g.n++; g.why[r.why] = (g.why[r.why] || 0) + 1;
+    if (r.note && g.notes.length < 10) g.notes.push(r.note); g.last = Math.max(g.last, r.t); by.set(r.w, g); }
+  return [...by.values()].map(g => ({ ...g, done: !!(done[g.w] && done[g.w] >= g.last) })).sort((a, b) => (a.done - b.done) || (b.n - a.n) || (b.last - a.last));
+}
 function hitLimited(ip) {
   const now = Date.now(), arr = (hitLog.get(ip) || []).filter(t => now - t < 3600000); arr.push(now); hitLog.set(ip, arr);
   if (hitLog.size > 5000) for (const [k, v] of hitLog) if (now - v[v.length - 1] > 3600000) hitLog.delete(k);
@@ -541,6 +562,19 @@ async function shopRoutes(req, res) {
     const d0 = String(b0.d || ''); if (!/^[a-z0-9]{12,40}$/.test(d0)) return out0(400, { error: 'bad-id' });
     if (hitLimited(ip)) return out0(429, { error: 'too-many' });
     recordHit(d0, ip, req.headers['user-agent'], String(b0.v || '').slice(0, 30), b0.pwa);
+    return out0(200, { ok: true });
+  }
+  if (req.method === 'POST' && url === '/report') {  // 单词报错
+    const origin0 = req.headers.origin, okO0 = origin0 && ALLOW.includes(origin0) ? origin0 : null;
+    const hd0 = { 'Content-Type': 'application/json; charset=utf-8' }; if (okO0) { hd0['Access-Control-Allow-Origin'] = okO0; hd0.Vary = 'Origin'; }
+    const out0 = (c, o) => { res.writeHead(c, hd0); res.end(JSON.stringify(o)); return true; };
+    if (!okO0) return out0(403, { error: 'origin-not-allowed' });
+    let b0; try { b0 = JSON.parse(await readBody(req, 2000)) || {}; } catch (e) { return out0(400, { error: 'bad-request' }); }
+    const w0 = String(b0.w || '').toLowerCase().trim(), why0 = REPORT_WHY.includes(b0.why) ? b0.why : '其他';
+    if (!/^[a-z][a-z' .\-]{0,40}$/.test(w0)) return out0(400, { error: 'bad-word' });
+    if (repLimited(ip)) return out0(429, { error: 'too-many' });
+    fs.mkdirSync(SHOP_DIR, { recursive: true });
+    fs.appendFileSync(REPORT_FILE, JSON.stringify({ t: Date.now(), w: w0, why: why0, note: String(b0.note || '').replace(/\s+/g, ' ').slice(0, 200), from: String(b0.from || '').slice(0, 10), v: String(b0.v || '').slice(0, 30) }) + '\n');
     return out0(200, { ok: true });
   }
   if (req.method === 'POST' && url === '/explain') {  // AI 讲解
@@ -793,6 +827,11 @@ async function shopRoutes(req, res) {
     if (req.method === 'DELETE' && m) {
       const j = codesRead(), c = normCode(m[1]); if (!j.codes[c]) return out(404, { error: 'not-found' });
       j.codes[c].revoked = true; codesWrite(j); return out(200, { ok: true });
+    }
+    if (req.method === 'GET' && url === '/admin/reports') return out(200, { items: repList() });
+    if (req.method === 'POST' && url === '/admin/reports/done') {   // 标为已处理：这个词在此之前的报错都算处理过了；之后再有人报还会出来
+      const b = JSON.parse(await readBody(req, 500)), w = String(b.w || '').toLowerCase(); if (!w) return out(400, { error: 'bad-word' });
+      const d = repDone(); d[w] = Date.now(); fs.mkdirSync(SHOP_DIR, { recursive: true }); fs.writeFileSync(REPORT_DONE, JSON.stringify(d)); return out(200, { ok: true });
     }
     if (url === '/admin/devdoc') {                       // 开发者使用说明：存在服务器私有目录（不在公开的 GitHub 仓库里），只有带后台口令才能看、能改
       const f = path.join(SHOP_DIR, 'devdoc.md');

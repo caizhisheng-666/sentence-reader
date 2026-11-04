@@ -287,7 +287,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.11.05-167';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.11.05-169';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2646,7 +2646,7 @@ function openNaturalSettings() {
     '<div class="row"><button onclick="azTest()">保存并试听</button><button class="ghost" onclick="azSaveClose()">保存并关闭</button></div>' +
     '<div id="azStatus" class="note" style="margin-top:10px;min-height:20px"></div>' +
     '<div id="azStats" class="note" style="margin-top:6px"></div>' +
-    '<div class="row" style="margin-top:8px"><button class="ghost sm" onclick="azLock();closePop()">' + ic('lock') + '立即锁定</button><button class="ghost sm" onclick="azClearCacheBtn()">清空语音缓存</button><button class="ghost sm" onclick="azExitDev()">退出开发者模式</button><button class="sm" onclick="closePop();openDevDoc()">' + ic('book') + '开发者使用说明</button></div>' +
+    '<div class="row" style="margin-top:8px"><button class="ghost sm" onclick="azLock();closePop()">' + ic('lock') + '立即锁定</button><button class="ghost sm" onclick="azClearCacheBtn()">清空语音缓存</button><button class="ghost sm" onclick="azExitDev()">退出开发者模式</button><button class="sm" onclick="closePop();openReports()">' + ic('chart') + '单词报错</button><button class="sm" onclick="closePop();openDevDoc()">' + ic('book') + '开发者使用说明</button></div>' +
     '<div class="note" style="margin-top:10px">费用：免费档每月 50 万字符免费（约 6000 句）；每句只生成一次，之后用缓存，不再计费。用量请在 Azure 门户里查看。</div>'
   );
   azRefreshStats();
@@ -2688,6 +2688,39 @@ async function devDocUpload(ev) {
   toast(r.ok ? '已上传，正在重新读取' : '上传失败：' + r.msg, 3000);
   if (r.ok) openDevDoc();
 }
+/* ---------- 单词报错：雅思词条（AI 生成，没逐条审过）有错时，读者点一下报给开发者 ---------- */
+const REPORT_WHY = ['释义不对', '例句有问题', '插图不对', '发音不对', '等级不对', '其他'];
+function reportFormHtml(k, from) {
+  return '<div class="repf" data-k="' + esc(k) + '" data-from="' + from + '"><div class="vbsec" style="margin-top:4px">“' + esc((IELTS && IELTS[k] && IELTS[k].w) || k) + '”哪里有错？</div>' +
+    '<div class="vbchips">' + REPORT_WHY.map((w, i) => '<button class="scChip' + (i ? '' : ' on') + '" onclick="this.parentNode.querySelectorAll(\'.scChip\').forEach(b=>b.classList.remove(\'on\'));this.classList.add(\'on\')">' + w + '</button>').join('') + '</div>' +
+    '<textarea class="repnote" maxlength="200" placeholder="补充说明（可不填），比如正确的意思应该是……" style="width:100%;margin-top:10px;min-height:60px"></textarea>' +
+    '<button style="width:100%;margin-top:8px" onclick="reportSend(this)">提交</button><div class="note" style="margin-top:6px">只发送单词和你写的说明，不包含任何个人信息。</div></div>';
+}
+function reportWord(k) { closeWordPop(); showPop('<h3 style="margin:0 0 6px">' + ic('pencil') + '报告词条错误</h3><div class="note">词库内容由 AI 生成，没有逐条人工审核。发现错误告诉我们，会集中修正。</div>' + reportFormHtml(k, 'pop')); }
+function vbReportWord() { const r = document.getElementById('vbRev'); if (!r || r.querySelector('.repf')) return; r.insertAdjacentHTML('beforeend', '<div class="vbcard" style="margin-top:12px;text-align:left">' + reportFormHtml(vbQ.k, 'vb') + '</div>'); r.querySelector('.repf').scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+async function reportSend(btn) {
+  const f = btn.closest('.repf'), why = (f.querySelector('.scChip.on') || {}).textContent || '其他', note = f.querySelector('.repnote').value.trim();
+  btn.disabled = true; btn.textContent = '正在提交…';
+  try {
+    const r = await fetch(SHOP_BASE + '/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ w: f.dataset.k, why, note, from: f.dataset.from, v: APP_VERSION }) });
+    if (!r.ok) throw new Error(r.status === 429 ? '提交太频繁，过一会儿再试' : '服务器返回 ' + r.status);
+    f.innerHTML = '<div class="note" style="padding:8px 0">✓ 已收到，谢谢你！</div>';
+    if (f.dataset.from === 'pop') setTimeout(closePop, 1200);
+  } catch (e) { btn.disabled = false; btn.textContent = '提交'; toast(navigator.onLine ? '提交失败：' + e.message : '现在没联网，联网后再提交', 3500); }
+}
+async function openReports() {                       // 开发者：看大家报的错，按次数排；改完点“已处理”
+  showFullscreen('单词报错', '<div class="note">正在读取…</div>');
+  const r = await devAdmin('/admin/reports'); if (!r.ok) { setFullscreenBody('<div class="note">读取失败：' + esc(r.msg) + '</div>'); return; }
+  const items = (await r.res.json()).items || [];
+  await ieltsLoad();
+  setFullscreenBody('<div class="note">共 ' + items.length + ' 个词被报过错，' + items.filter(x => !x.done).length + ' 个未处理。改词条要改仓库里的 ielts/words.json（补充词在服务器 ielts/extra/）。</div>' +
+    (items.length ? items.map(x => '<div class="vbcard" style="text-align:left;margin-top:10px;' + (x.done ? 'opacity:.5' : '') + '"><div class="row" style="justify-content:space-between"><b style="font-size:17px">' + esc(x.w) + '</b><span class="note">' + x.n + ' 次 · ' + new Date(x.last).toLocaleDateString('zh-CN') + '</span></div>' +
+      '<div class="note">' + Object.entries(x.why).map(([k, n]) => esc(k) + ' ' + n).join(' · ') + '</div>' +
+      (x.notes.length ? '<ul class="note" style="margin:6px 0;padding-left:18px">' + x.notes.map(t => '<li>' + esc(t) + '</li>').join('') + '</ul>' : '') +
+      (IELTS && IELTS[x.w] ? '<div class="note">现在的释义：' + esc((IELTS[x.w].s || []).map(s => s[0] + ' ' + s[1]).join('；')) + '</div>' : '') +
+      (x.done ? '<div class="note">已处理</div>' : '<button class="ghost sm" style="margin-top:6px" data-w="' + esc(x.w) + '" onclick="reportDone(this)">标为已处理</button>') + '</div>').join('') : '<div class="note" style="margin-top:12px">还没有人报错。</div>'));
+}
+async function reportDone(btn) { const r = await devAdmin('/admin/reports/done', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ w: btn.dataset.w }) }); if (r.ok) { btn.outerHTML = '<div class="note">已处理</div>'; } else toast('失败：' + r.msg); }
 function recKey() { return state.bookId + ':' + state.idx; }
 async function loadRecs() {
   if (!state) return;
@@ -2948,7 +2981,12 @@ let IELTS = null, ieltsP = null;
 const IELTS_MEDIA = /github\.io$/.test(location.hostname) ? 'https://app.miaomiaosw.com/ielts/' : './ielts/';   // 插图和录音（约 620MB）只放在香港服务器上，不进 GitHub 仓库
 function ieltsLoad() {                              // 第一次查词时才下载（约 1.8MB 压缩后），之后由 sw 缓存
   if (IELTS) return Promise.resolve(IELTS);
-  if (!ieltsP) ieltsP = fetch('./ielts/words.json').then(r => { if (!r.ok) throw 0; return r.json(); }).then(j => (IELTS = j)).catch(() => { ieltsP = null; return null; });
+  if (!ieltsP) ieltsP = fetch('./ielts/words.json').then(r => { if (!r.ok) throw 0; return r.json(); }).then(async j => {
+    if (!/github\.io$/.test(location.hostname)) try {           // 补充词条（词光缺的雅思词，按同样规范生成，只在香港服务器上）：有就合并，没有不影响
+      const r2 = await fetch('./ielts/extra/words-extra.json'); if (r2.ok) { const x = await r2.json(); for (const k in x) if (!j[k]) j[k] = x[k]; }
+    } catch (e) {}
+    return (IELTS = j);
+  }).catch(() => { ieltsP = null; return null; });
   return ieltsP;
 }
 function ieltsFind(raw, res) {
@@ -3011,7 +3049,7 @@ async function ieltsAttach(clean, res) {
   body.insertAdjacentHTML('beforeend', '<div class="iexs"><div class="ilv">雅思例句（点一下朗读）</div>' +
     (e.e || []).map((x, n) => '<div class="iex" data-t="' + esc(x[0]) + '" data-a="' + ((n === 0 && a & 4) ? au('ex') : (n === 1 && a & 8) ? au('ex2') : '') + '" onclick="ieltsPlay(this.dataset.a, this.dataset.t)"><div>' + esc(x[0]) + '</div><div class="note">' + esc(x[1]) + '</div></div>').join('') +
     (e.t ? '<div class="note" style="margin-top:8px">提示：' + esc(e.t) + '</div>' : '') +
-    '<div class="isrc">雅思词库与插图来自 Word Atlas contributors · CC BY 4.0</div></div>');
+    '<div class="isrc">' + (e.x ? '补充词条：按 Word Atlas 规范由 AI 生成' : '雅思词库与插图来自 Word Atlas contributors · CC BY 4.0') + ' · <button class="link" style="font-size:11px" data-k="' + esc(f.k) + '" onclick="reportWord(this.dataset.k)">这个词有错？</button></div></div>');
   const im = body.querySelector('.itop img'); if (im) im.addEventListener('load', rp);
   rp();
 }
@@ -3500,7 +3538,7 @@ function vbReveal(res, label) {
     (ex ? '<div class="iex" onclick="ieltsPlay(vbAu(vbQ.k,\'ex\'), this.dataset.t)" data-t="' + esc(ex[0]) + '"><div>' + esc(ex[0]) + '</div><div class="note">' + esc(ex[1]) + '</div></div>' : '') +
     (e.k && e.k.length ? '<div class="ik">' + e.k.slice(0, 3).map(c => esc(c.replace('｜', ' '))).join(' · ') + '</div>' : '') + '</div>';
   const box = document.getElementById('fsBody');
-  box.insertAdjacentHTML('beforeend', '<div id="vbRev">' + head + card + '<button style="width:100%;margin-top:14px" onclick="vbNext()">下一个</button></div>');
+  box.insertAdjacentHTML('beforeend', '<div id="vbRev">' + head + card + '<button style="width:100%;margin-top:14px" onclick="vbNext()">下一个</button><div style="text-align:center;margin-top:8px"><button class="link" style="font-size:13px" onclick="vbReportWord()">这个词有错？</button></div></div>');
   const r = document.getElementById('vbRev'); if (r) r.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 function vbNext() { vbQ.i++; if (vbQ.i >= vbQ.list.length) vbDone(); else vbAsk(); }
