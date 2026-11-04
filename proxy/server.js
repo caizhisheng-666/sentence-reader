@@ -347,16 +347,20 @@ const EXPLAIN_SYS = '你是耐心的英语老师，学生是中国的小学生�
 /* 可以接多家模型：先用智谱的免费 GLM-Flash，出错/太忙再用豆包顶上。哪家没配 Key 就跳过 */
 const GLM_KEY = process.env.GLM_API_KEY || '', GLM_MODEL = process.env.GLM_MODEL || 'glm-4.7-flash', GLM_HOST = process.env.GLM_HOST || 'https://open.bigmodel.cn';
 const AI_PROVIDERS = [
-  GLM_KEY && { name: 'glm', key: GLM_KEY, model: GLM_MODEL, host: GLM_HOST, path: '/api/paas/v4/chat/completions' },
+  GLM_KEY && { name: 'glm', key: GLM_KEY, model: GLM_MODEL, host: GLM_HOST, path: '/api/paas/v4/chat/completions', timeout: +process.env.GLM_TIMEOUT_MS || 20000 },
   ARK_KEY && { name: 'ark', key: ARK_KEY, model: ARK_MODEL, host: ARK_HOST, path: '/api/v3/chat/completions' },
 ].filter(Boolean);
 const AI_ON = AI_PROVIDERS.length > 0;
 const aiStat = {};                                    // 每家调用了几次、失败几次，开发者排查用
 function aiRaw(p, payload) {
-  const body = JSON.stringify(Object.assign({}, payload, { model: p.model }));
+  const pl = Object.assign({}, payload, { model: p.model });
+  if (p.name === 'glm' && !/^glm-4/i.test(p.model)) {   // GLM-5 系列始终思考：不能发 thinking 字段，只能用 reasoning_effort（low/high/max）；思考也占 max_tokens，要给够
+    delete pl.thinking; pl.reasoning_effort = process.env.GLM_EFFORT || 'low'; pl.max_tokens = Math.max(pl.max_tokens || 0, 2048);
+  }
+  const body = JSON.stringify(pl);
   const u = new URL(p.host), isHttp = u.protocol === 'http:';
   return new Promise(ok => {
-    const q = (isHttp ? http : https).request({ hostname: u.hostname, port: u.port || (isHttp ? 80 : 443), path: p.path, method: 'POST', timeout: 25000,
+    const q = (isHttp ? http : https).request({ hostname: u.hostname, port: u.port || (isHttp ? 80 : 443), path: p.path, method: 'POST', timeout: p.timeout || 25000,
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + p.key, 'Content-Length': Buffer.byteLength(body) } }, r => {
       const ch = []; r.on('data', c => ch.push(c)); r.on('end', () => ok({ s: r.statusCode, b: Buffer.concat(ch).toString('utf8') }));
     });
