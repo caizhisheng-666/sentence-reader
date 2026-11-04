@@ -210,6 +210,14 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .wordpop.above .wp-arrow{bottom:-7px;border-left:none;border-top:none}
 #pop{background:var(--card);border-radius:16px 16px 0 0;padding:22px;width:100%;max-width:680px;max-height:86vh;overflow-y:auto;padding-bottom:calc(22px + env(safe-area-inset-bottom,0px))}
 .dentry{padding:10px 0;border-bottom:1px solid var(--line)}
+.itop{display:flex;gap:12px;align-items:center;margin:10px 0 2px}
+.itop img{width:96px;height:96px;border-radius:10px;object-fit:cover;flex:none;background:var(--soft)}
+.ib{display:inline-block;background:var(--accent);color:var(--on);font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px;margin-right:6px}
+.ilv{font-size:12px;color:var(--sub)}
+.ik{margin-top:6px;font-size:12px;color:var(--sub);line-height:1.6}
+.iex{margin-top:8px;font-size:14px;line-height:1.5;cursor:pointer}
+.iexs{margin-top:10px;padding-top:6px;border-top:1px solid var(--line)}
+.isrc{margin-top:8px;font-size:11px;color:var(--sub)}
 .ctxm{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--soft)}
 .ctxm .ctxl{font-size:12px;color:var(--sub)}
 .ctxm .ctxv{font-size:20px;font-weight:600;color:var(--accent);margin-top:2px;line-height:1.4}
@@ -261,7 +269,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.11.04-160';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.11.04-161';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2874,6 +2882,49 @@ async function dictLookup(w) {
   if (!dictInfo || !dictInfo.count) return null;
   try { return (await idbGet('dict', w)) || (await idbGet('dict', '^' + w)) || null; } catch (e) { return null; }
 }
+/* ---------- 雅思词库：Word Atlas（词光，CC BY 4.0）。查到的词如果是雅思词，在词典上方加插图和等级，下方加雅思例句 ---------- */
+let IELTS = null, ieltsP = null;
+const IELTS_MEDIA = /github\.io$/.test(location.hostname) ? 'https://app.miaomiaosw.com/ielts/' : './ielts/';   // 插图和录音（约 620MB）只放在香港服务器上，不进 GitHub 仓库
+function ieltsLoad() {                              // 第一次查词时才下载（约 1.8MB 压缩后），之后由 sw 缓存
+  if (IELTS) return Promise.resolve(IELTS);
+  if (!ieltsP) ieltsP = fetch('./ielts/words.json').then(r => { if (!r.ok) throw 0; return r.json(); }).then(j => (IELTS = j)).catch(() => { ieltsP = null; return null; });
+  return ieltsP;
+}
+function ieltsFind(raw, res) {
+  if (!IELTS) return null;
+  let keys = [raw.toLowerCase()].concat((res || []).map(r => String(r.head || '').toLowerCase()));
+  try { keys = keys.concat(EG.lemmaCandidates(raw).map(c => c.w)); } catch (e) {}
+  for (const k of keys) if (k && IELTS[k]) return { k, e: IELTS[k] };
+  return null;
+}
+let ieltsAu = null;
+function ieltsPlay(url, fallback) {                 // 词光的真人风格录音；没有或播放失败时改用系统朗读
+  try { stopSpeech(); } catch (e) {}
+  try { if (ieltsAu) ieltsAu.pause(); } catch (e) {}
+  if (!url) { if (fallback) speakText(fallback); return; }
+  ieltsAu = new Audio(url);
+  ieltsAu.play().catch(() => { if (fallback) speakText(fallback); });
+}
+async function ieltsAttach(clean, res) {
+  const d = await ieltsLoad(); if (!d || curWord !== clean) return;
+  const f = ieltsFind(clean, res); if (!f) return;
+  const body = document.getElementById('wpBody'), head = body && body.firstElementChild; if (!head) return;
+  const e = f.e, id = encodeURIComponent(e.i || f.k), img = IELTS_MEDIA + 'img/' + id + '.webp', a = e.a || 0, wd = esc(e.w || f.k);
+  const au = kind => IELTS_MEDIA + 'audio/' + kind + '/' + id + '.mp3';
+  const rp = () => { if (lastWordEl) positionWordPop(lastWordEl.getBoundingClientRect()); };
+  head.insertAdjacentHTML('afterend', '<div class="itop"><img src="' + img + '" alt="" onerror="this.remove()">' +
+    '<div><div><span class="ib">雅思词</span><span class="ilv">' + esc(e.c || '') + '</span></div>' +
+    '<div class="row" style="gap:6px;margin-top:6px">' + (a & 1 ? '<button class="sm ghost" style="padding:3px 10px;font-size:12px" data-a="' + au('uk') + '" data-t="' + wd + '" onclick="ieltsPlay(this.dataset.a, this.dataset.t)">英 ' + esc(e.u || '') + '</button>' : '') +
+    (a & 2 ? '<button class="sm ghost" style="padding:3px 10px;font-size:12px" data-a="' + au('us') + '" data-t="' + wd + '" onclick="ieltsPlay(this.dataset.a, this.dataset.t)">美</button>' : '') + '</div>' +
+    '<div style="margin-top:4px;font-size:14px">' + (e.s || []).slice(0, 2).map(x => esc(x[0] + ' ' + x[1])).join('<br>') + '</div>' +
+    (e.k && e.k.length ? '<div class="ik">' + e.k.slice(0, 2).map(c => esc(c.replace('｜', ' '))).join(' · ') + '</div>' : '') + '</div></div>');
+  body.insertAdjacentHTML('beforeend', '<div class="iexs"><div class="ilv">雅思例句（点一下朗读）</div>' +
+    (e.e || []).map((x, n) => '<div class="iex" data-t="' + esc(x[0]) + '" data-a="' + ((n === 0 && a & 4) ? au('ex') : (n === 1 && a & 8) ? au('ex2') : '') + '" onclick="ieltsPlay(this.dataset.a, this.dataset.t)"><div>' + esc(x[0]) + '</div><div class="note">' + esc(x[1]) + '</div></div>').join('') +
+    (e.t ? '<div class="note" style="margin-top:8px">提示：' + esc(e.t) + '</div>' : '') +
+    '<div class="isrc">雅思词库与插图来自 Word Atlas contributors · CC BY 4.0</div></div>');
+  const im = body.querySelector('.itop img'); if (im) im.addEventListener('load', rp);
+  rp();
+}
 async function lookupWord(raw) {
   await loadLibs();
   const cands = EG.lemmaCandidates(raw), results = [], seen = new Set(), extra = [];
@@ -2924,7 +2975,7 @@ document.addEventListener('click', e => {
   if (pop.contains(e.target) || e.target.closest('.w')) return;
   closeWordPop();
 }, true);
-window.addEventListener('scroll', closeWordPop, true);
+window.addEventListener('scroll', e => { const p = document.getElementById('wordpop'); if (p && e.target instanceof Node && p.contains(e.target)) return; closeWordPop(); }, true);   // 在弹窗里面滑动看例句时不关
 window.addEventListener('resize', closeWordPop);
 
 let lastWordIdx = -1, lastWordEl = null, lastWordSentIdx = -1;
@@ -2971,6 +3022,7 @@ async function wordClick(i, el) {
   if (!dictInfo || !dictInfo.count) html += '<div class="note" style="margin-top:12px">现在用的是内置基础词典（常用词）。完整离线词典还没就绪，' + '<button class="link" onclick="closeWordPop();openDictSettings()">查看词典状态</button></div>';
   document.getElementById('wpBody').innerHTML = html;
   positionWordPop(rect);
+  ieltsAttach(clean, res);
 }
 function defSplit(t) {                              // 词典释义只先显示最常用的：第一个词性最多 2 个意思，其余词性各 1 个；冷门意思（如 kitten“卖弄风情”）收进“更多释义”
   const lines = String(t).split(/\n+/).map(x => x.trim()).filter(Boolean), main = [], rest = [];
@@ -3168,7 +3220,7 @@ function openHelp() {
       li('<b>自然语音（仅开发者可用）</b>：需要开发者口令解锁。启用后，当前要朗读的那一句英文会发到开发者自己的微软 Azure 账号生成语音。Key 用口令加密后只保存在开发者的设备里，软件代码里没有任何 Key。') +
       li('软件本身不收集任何使用数据。')) +
     sec('开源与致谢',
-      li('英汉词典数据：ECDICT（skywind3000，MIT 许可）') + li('PDF 解析：pdf.js（Mozilla，Apache-2.0）') + li('epub 解压：JSZip（MIT / GPLv3 双许可）') +
+      li('英汉词典数据：ECDICT（skywind3000，MIT 许可）') + li('雅思词库与插图：Word Atlas（词光），Word Atlas contributors，CC BY 4.0 许可（creativecommons.org/licenses/by/4.0）；本软件精简了词条字段，插图原样使用。内容由 AI 生成，不是雅思官方词表') + li('PDF 解析：pdf.js（Mozilla，Apache-2.0）') + li('epub 解压：JSZip（MIT / GPLv3 双许可）') +
       li('各组件版权归原作者所有。')) +
     sec('免责声明',
       li('请只导入你有权使用的材料（如公版作品、你自己购买的读物）。') +

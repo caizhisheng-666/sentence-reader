@@ -1,1 +1,4 @@
 __pycache__/
+# 雅思插图和录音太大（约 620MB），只放在香港服务器上，由服务器从 Word Atlas 仓库下载
+ielts/img/
+ielts/audio/
