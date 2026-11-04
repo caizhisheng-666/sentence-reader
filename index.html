@@ -218,6 +218,17 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .iex{margin-top:8px;font-size:14px;line-height:1.5;cursor:pointer}
 .iexs{margin-top:10px;padding-top:6px;border-top:1px solid var(--line)}
 .isrc{margin-top:8px;font-size:11px;color:var(--sub)}
+.ico{width:1.1em;height:1.1em;vertical-align:-.18em;margin-right:.3em;flex:none}h3 .ico{width:1em;height:1em;vertical-align:-.12em}
+.vbhome{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--card);color:var(--ink);border-radius:16px;padding:12px 16px;margin:0 2px 18px;font-weight:400;width:calc(100% - 4px)}
+.vbhome img{width:40px;height:40px;flex:none}.vbhome span{flex:1;display:flex;flex-direction:column}.vbhome b{font-size:16px}.vbhome small{color:var(--sub);font-size:13px;margin-top:2px}.vbhome i{font-style:normal;font-size:22px;color:var(--sub)}
+.vbsec{margin:18px 0 8px;font-weight:600;font-size:14px}.vbchips{display:flex;flex-wrap:wrap;gap:8px}
+.vbbar{height:6px;border-radius:3px;background:var(--soft);overflow:hidden;margin-bottom:4px}.vbbar span{display:block;height:100%;background:var(--accent);border-radius:3px}
+.vbq{text-align:center;padding:18px 0 8px}.vbw{font-family:var(--serif);font-size:40px;line-height:1.2;margin:10px 0 4px;word-break:break-word}.vbph{color:var(--sub);font-size:15px}
+.vbmean{font-size:20px;margin:12px 0}.vbopts{display:flex;flex-direction:column;gap:10px;margin-top:12px}.vbopts button{border-radius:14px;padding:14px 16px;text-align:left;font-size:16px;color:var(--ink);background:var(--card);border:1px solid var(--line)}
+.vbopts button.vbok{background:#2e8b47;color:#fff;border-color:#2e8b47;opacity:1}.vbopts button.vbno{background:#c0392b;color:#fff;border-color:#c0392b;opacity:1}
+.vbres{text-align:center;font-weight:600;margin:18px 0 6px;font-size:16px}.vbres.ok{color:#2e8b47}.vbres.no{color:#c0392b}
+.vbcard{background:var(--card);border-radius:16px;padding:16px;text-align:center}.vbcard img{width:180px;height:180px;border-radius:14px;object-fit:cover;background:var(--soft)}.vbcard .iex,.vbcard .ik{text-align:left}
+.vbsenses{font-size:15px;line-height:1.7;margin:4px 0 6px}
 .ctxm{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--soft)}
 .ctxm .ctxl{font-size:12px;color:var(--sub)}
 .ctxm .ctxv{font-size:20px;font-weight:600;color:var(--accent);margin-top:2px;line-height:1.4}
@@ -269,7 +280,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.11.04-161';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.11.04-162';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -277,6 +288,9 @@ let rec = { mr: null, on: false, start: 0, timer: null };
 let recView = { key: '', urls: [] };
 /* 体积大、不常用的组件：用到时才加载（PDF 导入、词典文件导入），不拖慢打开软件 */
 function loadScript(src) { return new Promise((res, rej) => { const el = document.createElement('script'); el.src = src; el.onload = res; el.onerror = () => { el.remove(); rej(new Error('组件加载失败')); }; document.head.appendChild(el); }); }
+/* 线条图标：Lucide（ISC 许可，lucide.dev），颜色跟随文字，替代彩色 emoji，和黄黑主题统一 */
+const ICONS = {book: '<path d="M12 5v16"/> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z"/>', mic: '<path d="M12 19v3"/> <path d="M19 10v2a7 7 0 0 1-14 0v-2"/> <rect x="9" y="2" width="6" height="13" rx="3"/>', phones: '<path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/>', unlock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/> <path d="M7 11V7a5 5 0 0 1 9.9-1"/>', lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/> <path d="M7 11V7a5 5 0 0 1 10 0v4"/>', gift: '<path d="M12 7v14"/> <path d="M20 11v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8"/> <path d="M7.5 7a1 1 0 0 1 0-5A4.8 8 0 0 1 12 7a4.8 8 0 0 1 4.5-5 1 1 0 0 1 0 5"/> <rect x="3" y="7" width="18" height="4" rx="1"/>', refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/> <path d="M21 3v5h-5"/> <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/> <path d="M8 16H3v5"/>', repeat: '<path d="m17 2 4 4-4 4"/> <path d="M3 11v-1a4 4 0 0 1 4-4h14"/> <path d="m7 22-4-4 4-4"/> <path d="M21 13v1a4 4 0 0 1-4 4H3"/>', help: '<circle cx="12" cy="12" r="10"/> <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/> <path d="M12 17h.01"/>', key: '<path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/> <circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/>', bot: '<path d="M12 8V4H8"/> <rect width="16" height="12" x="4" y="8" rx="2"/> <path d="M2 14h2"/> <path d="M20 14h2"/> <path d="M15 13v2"/> <path d="M9 13v2"/>', chat: '<path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719"/>', pencil: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/> <path d="m15 5 4 4"/>', spark: '<path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/> <path d="M20 2v4"/> <path d="M22 4h-4"/> <circle cx="4" cy="20" r="2"/>', volume: '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/> <path d="M16 9a5 5 0 0 1 0 6"/> <path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>', target: '<circle cx="12" cy="12" r="10"/> <circle cx="12" cy="12" r="6"/> <circle cx="12" cy="12" r="2"/>', lang: '<path d="m5 8 6 6"/> <path d="m4 14 6-6 2-3"/> <path d="M2 5h12"/> <path d="M7 2h1"/> <path d="m22 22-5-10-5 10"/> <path d="M14 18h6"/>', list: '<path d="M3 5h.01"/> <path d="M3 12h.01"/> <path d="M3 19h.01"/> <path d="M8 5h13"/> <path d="M8 12h13"/> <path d="M8 19h13"/>', file: '<path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/> <path d="M14 2v5a1 1 0 0 0 1 1h5"/> <path d="M10 9H8"/> <path d="M16 13H8"/> <path d="M16 17H8"/>', wait: '<path d="M5 22h14"/> <path d="M5 2h14"/> <path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/> <path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>', stop: '<rect width="18" height="18" x="3" y="3" rx="2"/>', snail: '<path d="M2 13a6 6 0 1 0 12 0 4 4 0 1 0-8 0 2 2 0 0 0 4 0"/> <circle cx="10" cy="13" r="8"/> <path d="M2 21h12c4.4 0 8-3.6 8-8V7a2 2 0 1 0-4 0v6"/> <path d="M18 3 19.1 5.2"/> <path d="M22 3 20.9 5.2"/>', rabbit: '<path d="M13 16a3 3 0 0 1 2.24 5"/> <path d="M18 12h.01"/> <path d="M18 21h-8a4 4 0 0 1-4-4 7 7 0 0 1 7-7h.2L9.6 6.4a1 1 0 1 1 2.8-2.8L15.8 7h.2c3.3 0 6 2.7 6 6v1a2 2 0 0 1-2 2h-1a3 3 0 0 0-3 3"/> <path d="M20 8.54V4a2 2 0 1 0-4 0v3"/> <path d="M7.612 12.524a3 3 0 1 0-1.6 4.3"/>', clip: '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/> <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/> <path d="M12 11h4"/> <path d="M12 16h4"/> <path d="M8 11h.01"/> <path d="M8 16h.01"/>', chart: '<path d="M3 3v16a2 2 0 0 0 2 2h16"/> <path d="M18 17V9"/> <path d="M13 17V5"/> <path d="M8 17v-3"/>', party: '<path d="M5.8 11.3 2 22l10.7-3.79"/> <path d="M4 3h.01"/> <path d="M22 8h.01"/> <path d="M15 2h.01"/> <path d="M22 20h.01"/> <path d="m22 2-2.24.75a2.9 2.9 0 0 0-1.96 3.12c.1.86-.57 1.63-1.45 1.63h-.38c-.86 0-1.6.6-1.76 1.44L14 10"/> <path d="m22 13-.82-.33c-.86-.34-1.82.2-1.98 1.11c-.11.7-.72 1.22-1.43 1.22H17"/> <path d="m11 2 .33.82c.34.86-.2 1.82-1.11 1.98C9.52 4.9 9 5.52 9 6.23V7"/> <path d="M11 13c1.93 1.93 2.83 4.17 2 5-.83.83-3.07-.07-5-2-1.93-1.93-2.83-4.17-2-5 .83-.83 3.07.07 5 2Z"/>'};
+function ic(n) { return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[n] || '') + '</svg>'; }
 let LIBS = null;
 function loadLibs() {                                // 后台加载常用组件；带版本号，服务器可以让浏览器长期缓存
   const v = '?v=' + APP_VERSION;
@@ -495,11 +509,11 @@ function shelfHtml() {
   const sel = shelfSel;
   const sh = statsHtml();
   let html = '<div class="shelfbar"><h2>我的学习</h2>' + (l.length ? '<button class="link shsel" onclick="toggleShelfSel()">' + (sel ? '取消' : '选择') + '</button>' : '') + '</div>' +
-    '<div class="shacts"><button onclick="openStoryCity()">📚 学习材料</button><button class="ghost" onclick="openImportPop()">＋ 导入材料</button></div>' +
+    '<div class="shacts"><button onclick="openStoryCity()">' + ic('book') + '学习材料</button><button class="ghost" onclick="openImportPop()">＋ 导入材料</button></div>' + vbHomeBtn() +
     '';
   if (sh) html += '<div class="levelbar" style="margin:-6px 0 14px"><div id="statsLine">' + sh + '</div></div>';
   if (!l.length) {
-    html += '<div class="card" style="text-align:center;padding:36px 20px"><div style="font-size:38px">📚</div><div style="margin:10px 0 4px;font-size:17px;color:var(--ink)">还没有学习材料</div><div class="note">点上面的“学习材料”挑一本材料，<br>或“导入材料”添加你自己的英文内容（epub、PDF、文本），也可以粘贴一段英文。</div></div>';
+    html += '<div class="card" style="text-align:center;padding:36px 20px"><div style="font-size:38px;line-height:1">' + ic('book') + '</div><div style="margin:10px 0 4px;font-size:17px;color:var(--ink)">还没有学习材料</div><div class="note">点上面的“学习材料”挑一本材料，<br>或“导入材料”添加你自己的英文内容（epub、PDF、文本），也可以粘贴一段英文。</div></div>';
     return html;
   }
   html += '<div class="shelf">' + l.map(b => {
@@ -868,7 +882,7 @@ const STOP = new Set('the a an and or but is are was were be been being to of in
 /* ---------- 听写练习 ---------- */
 function openDictation() {
   const html = '<div class="note">点播放听这句话（可以反复听），凭听力打出你听到的内容，然后点"检查"。</div>' +
-    '<div class="row" style="margin:12px 0"><button onclick="playDictationAudio()">🔊 播放</button></div>' +
+    '<div class="row" style="margin:12px 0"><button onclick="playDictationAudio()">' + ic('volume') + '播放</button></div>' +
     '<textarea id="dictationInput" placeholder="在这里输入你听到的英文…" style="min-height:90px"></textarea>' +
     '<div class="row" style="margin-top:10px"><button onclick="checkDictation()">检查</button><button class="ghost sm" onclick="revealDictation()">直接看答案</button></div>' +
     '<div id="dictationResult"></div>';
@@ -932,7 +946,7 @@ function checkJumble() {
   const el = document.getElementById('jumbleResult');
   if (!el) return;
   el.innerHTML = ok
-    ? '<div class="note" style="margin-top:10px;color:var(--accent2);font-weight:600">🎉 完全正确！</div>'
+    ? '<div class="note" style="margin-top:10px;color:var(--accent2);font-weight:600">✓ 完全正确！</div>'
     : '<div class="note" style="margin-top:10px">还不完全对：' + correctCount + '/' + jumbleState.target.length + ' 个词位置正确。再试试，或点"重新打乱"。</div>';
 }
 
@@ -940,16 +954,16 @@ function checkJumble() {
 function speechRecoSupported() { return !!(window.SpeechRecognition || window.webkitSpeechRecognition); }
 function openSpeechScore() {
   if (!speechRecoSupported()) {
-    showFullscreen('🎯 跟读打分', '<div class="note">这个功能依赖浏览器自带的语音识别，你现在用的浏览器不支持（常见于 iPhone/Mac 的 Safari）。请换 <b>Chrome 或 Edge</b> 浏览器打开试试。</div>');
+    showFullscreen('跟读打分', '<div class="note">这个功能依赖浏览器自带的语音识别，你现在用的浏览器不支持（常见于 iPhone/Mac 的 Safari）。请换 <b>Chrome 或 Edge</b> 浏览器打开试试。</div>');
     return;
   }
   stopSpeech();
-  showFullscreen('🎯 跟读打分', '<div class="sentence" style="font-size:22px">' + esc(state.sentences[state.idx]) + '</div><div class="note">点"开始"后对着麦克风朗读上面这句话，说完稍等一下会自动识别打分。需要联网。</div><div class="row" style="margin-top:12px"><button onclick="startSpeechScore()">🎙️ 开始</button></div><div id="speechScoreResult"></div>');
+  showFullscreen('跟读打分', '<div class="sentence" style="font-size:22px">' + esc(state.sentences[state.idx]) + '</div><div class="note">点"开始"后对着麦克风朗读上面这句话，说完稍等一下会自动识别打分。需要联网。</div><div class="row" style="margin-top:12px"><button onclick="startSpeechScore()">' + ic('mic') + '开始</button></div><div id="speechScoreResult"></div>');
 }
 function startSpeechScore() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const el = document.getElementById('speechScoreResult');
-  if (el) el.innerHTML = '<div class="note" style="margin-top:10px">🎙️ 正在聆听，请朗读这句话…</div>';
+  if (el) el.innerHTML = '<div class="note" style="margin-top:10px">' + ic('mic') + '正在聆听，请朗读这句话…</div>';
   let rec;
   try { if (fsSpeechRec) fsSpeechRec.abort(); } catch (e) {}
   try { rec = new SR(); } catch (e) { if (el) el.innerHTML = '<div class="note">无法启动语音识别：' + esc(e.message) + '</div>'; return; }
@@ -961,7 +975,7 @@ function startSpeechScore() {
     let html = '<div class="note" style="margin-top:10px;font-weight:600;color:var(--ink)">正确率约 ' + r.pct + '%（' + r.matchedCount + '/' + r.total + ' 词）</div>';
     html += '<div class="eg" style="margin-top:8px">识别到你说的：' + r.userHtml + '</div>';
     if (r.missing.length) html += '<div class="note" style="margin-top:6px">没说到或没识别出的词：' + esc(r.missing.join(', ')) + '</div>';
-    html += '<div class="row" style="margin-top:10px"><button onclick="startSpeechScore()">🔁 再来一次</button></div>';
+    html += '<div class="row" style="margin-top:10px"><button onclick="startSpeechScore()">' + ic('repeat') + '再来一次</button></div>';
     if (document.getElementById('speechScoreResult')) document.getElementById('speechScoreResult').innerHTML = html;
   };
   rec.onerror = (e) => {
@@ -1008,8 +1022,8 @@ function aiHtml() {
     (r.grammar ? '<div class="ait">语法小课堂</div><div class="aiw">' + esc(r.grammar) + '</div>' : '') +
     (r.tip ? '<div class="ait">小提示</div><div class="aiw">' + esc(r.tip) + '</div>' : '') +
     '<div class="note" style="margin-top:8px;font-size:12px">由 AI 生成，偶尔会有不准确的地方，仅供参考。</div></div>';
-  if (aiBusy === s) return '<div class="note">🤖 AI 老师正在备课，大约要几秒钟…</div>';
-  return (aiErr ? '<div class="note" style="color:#b94a48;margin-bottom:6px">' + esc(aiErr) + '</div>' : '') + '<button class="ghost sm" onclick="aiExplain()">🤖 请 AI 老师讲讲这一句</button>';
+  if (aiBusy === s) return '<div class="note">' + ic('bot') + 'AI 老师正在备课，大约要几秒钟…</div>';
+  return (aiErr ? '<div class="note" style="color:#b94a48;margin-bottom:6px">' + esc(aiErr) + '</div>' : '') + '<button class="ghost sm" onclick="aiExplain()">' + ic('bot') + '请 AI 老师讲讲这一句</button>';
 }
 /* ---------- AI 对话：围绕这一句，和 AI 老师用简单英语聊几句。聊天记录按句子存在本机 ---------- */
 let chatOpen = '', chatBusy = false, chatErr = '', chatDraft = '';
@@ -1055,17 +1069,17 @@ function chatScroll() { setTimeout(() => { const el = document.getElementById('c
 function chatClear() { const s = state.sentences[state.idx]; if (state.chats) delete state.chats[s]; saveState(); chatErr = ''; render(); chatSend(true); }
 function chatHtml() {
   const s = state.sentences[state.idx], open = chatOpen === s;
-  if (!open) return '<button class="ghost sm" style="margin-top:8px" onclick="chatToggle()">💬 和 AI 老师聊聊这一句' + (chatGet(s).length ? '（继续）' : '') + '</button>';
+  if (!open) return '<button class="ghost sm" style="margin-top:8px" onclick="chatToggle()">' + ic('chat') + '和 AI 老师聊聊这一句' + (chatGet(s).length ? '（继续）' : '') + '</button>';
   const log = chatGet(s);
-  return '<div class="chat"><div class="chead"><b>💬 和 AI 老师聊聊</b><span><button class="link" onclick="chatClear()">重新开始</button> <button class="link" onclick="chatToggle()">收起</button></span></div>' +
+  return '<div class="chat"><div class="chead"><b>' + ic('chat') + '和 AI 老师聊聊</b><span><button class="link" onclick="chatClear()">重新开始</button> <button class="link" onclick="chatToggle()">收起</button></span></div>' +
     '<div class="clog" id="chatLog">' + log.map(m => m.r === 'me'
       ? '<div class="cme"><div class="cb">' + esc(m.t) + '</div></div>'
-      : '<div class="cai"><div class="cb">' + esc(m.t) + (m.zh ? '<div class="czh">' + esc(m.zh) + '</div>' : '') + '</div>' + (m.fix ? '<div class="cfix">✏️ 更好的说法：<b>' + esc(m.fix) + '</b>' + (m.fixZh ? '<br>' + esc(m.fixZh) : '') + '</div>' : '') + '</div>').join('') +
+      : '<div class="cai"><div class="cb">' + esc(m.t) + (m.zh ? '<div class="czh">' + esc(m.zh) + '</div>' : '') + '</div>' + (m.fix ? '<div class="cfix">' + ic('pencil') + '更好的说法：<b>' + esc(m.fix) + '</b>' + (m.fixZh ? '<br>' + esc(m.fixZh) : '') + '</div>' : '') + '</div>').join('') +
       (chatBusy ? '<div class="cai"><div class="cb cwait">AI 老师正在想…</div></div>' : '') + '</div>' +
     (chatErr ? '<div class="note" style="color:#b94a48;margin:6px 0">' + esc(chatErr) + '</div>' : '') +
     '<div class="cin"><input id="chatIn" type="text" maxlength="200" autocomplete="off" placeholder="用英语（或中文）回答…" value="' + esc(chatDraft) + '" oninput="chatDraft=this.value" onkeydown="if(event.key===\'Enter\'){event.preventDefault();chatSend()}"' + '>' +
     '<button class="sm" onclick="chatSend()"' + (chatBusy ? ' disabled' : '') + '>发送</button></div>' +
-    '<div class="note" style="margin-top:6px;font-size:12px">由 AI 生成，偶尔会有不准确的地方。键盘上的 🎤 可以语音输入。</div></div>';
+    '<div class="note" style="margin-top:6px;font-size:12px">由 AI 生成，偶尔会有不准确的地方。键盘上的话筒键可以语音输入。</div></div>';
 }
 const GS_ROLE = { S: ['主语', 'r-s'], V: ['谓语', 'r-v'], O: ['宾语', 'r-o'], IO: ['间接宾语', 'r-io'], C: ['表语', 'r-c'], OC: ['宾补', 'r-oc'], A: ['状语', 'r-a'] };
 function gsHtml(g) {
@@ -1080,7 +1094,7 @@ function gsHtml(g) {
       '<div class="gd">' + ['S', 'V', 'IO', 'O', 'C', 'OC'].filter(k => m[k]).map(k => '<span class="' + GS_ROLE[k][1] + '">' + GS_ROLE[k][0] + '</span> ' + esc(m[k])).join('<br>') + '</div></div>';
   });
   if (g.clauses.length) h += g.clauses.map(c => '<div class="gi"><div class="gt">' + esc(c.type) + (c.lead && !/省略/.test(c.lead) ? ' · 引导词 ' + esc(c.lead) : c.lead ? ' · ' + esc(c.lead) : '') + '</div><div class="gh">“' + esc(c.text) + '”</div><div class="gd">' + esc(c.note) + '</div></div>').join('');
-  if (g.special.length) h += g.special.map(c => '<div class="gi"><div class="gt">⭐ ' + esc(c.type) + '</div><div class="gd">' + esc(c.note) + '</div></div>').join('');
+  if (g.special.length) h += g.special.map(c => '<div class="gi"><div class="gt">' + ic('spark') + '' + esc(c.type) + '</div><div class="gd">' + esc(c.note) + '</div></div>').join('');
   return h;
 }
 function getAnalysis() {
@@ -1175,7 +1189,7 @@ function cycleRate() {
   const slow = !isSlow();
   localStorage.setItem('sr_rate', String(slow ? RATE_SLOW : 1.0));
   render();
-  toast(slow ? '🐢 已改成慢速' : '🐇 已改回正常速度', 1800);
+  toast(slow ? '已改成慢速' : '已改回正常速度', 1800);
   if (azActive && azAudio) { azAudio.playbackRate = getRate(); azAudio.defaultPlaybackRate = getRate(); }      // 自然语音：播放器变速，马上生效
   else if (azReady()) speakText('This is how fast I read.');
   else previewRate();                            // 马上用新速度念一句，能听出有没有变化
@@ -1417,8 +1431,8 @@ function voiceSelectHtml() {
   const shown = [...cv.us.f, ...cv.us.m, ...cv.gb.f, ...cv.gb.m, ...cv.other];
   const saved = cur && !shown.some(v => v.voiceURI === cur) ? en.find(v => v.voiceURI === cur) : null;     // 以前选过、不在精选里的音色：继续保留，免得选项消失
   return '<select id="voiceSel" class="voicesel" onchange="onVoiceChange(this.value)" aria-label="选择朗读音色">' +
-    (state && state.natVoice ? '<option value="__nat"' + (cur === '__nat' && !state.natVk ? ' selected' : '') + '>🎧 自然语音' + (natVoiceName(state.natVoice) ? '（' + esc(natVoiceName(state.natVoice)) + '）' : natMale() ? '（女声）' : '') + '</option>' : '') +
-    (natMale() ? '<option value="__nat:am_michael"' + (cur === '__nat' && state.natVk === 'am_michael' ? ' selected' : '') + '>🎧 自然语音（男声）</option>' : '') +
+    (state && state.natVoice ? '<option value="__nat"' + (cur === '__nat' && !state.natVk ? ' selected' : '') + '>自然语音' + (natVoiceName(state.natVoice) ? '（' + esc(natVoiceName(state.natVoice)) + '）' : natMale() ? '（女声）' : '') + '</option>' : '') +
+    (natMale() ? '<option value="__nat:am_michael"' + (cur === '__nat' && state.natVk === 'am_michael' ? ' selected' : '') + '>自然语音（男声）</option>' : '') +
     '<option value=""' + (cur ? '' : ' selected') + '>' + (state && state.natVoice ? '系统默认音色' : '默认音色') + '</option>' +
     (saved ? '<optgroup label="当前使用">' + opt(saved, '') + '</optgroup>' : '') + grp('🇺🇸 美音', cv.us.f, cv.us.m) + grp('🇬🇧 英音', cv.gb.f, cv.gb.m) + (cv.other.length ? '<optgroup label="更多">' + cv.other.map(v => opt(v, '')).join('') + '</optgroup>' : '') + '</select>';
 }
@@ -1770,13 +1784,13 @@ async function devPublish(entry, file) {            // file = {name, blob, priv}
 }
 async function devCodes(id) {
   const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it) return;
-  showPop('<h3 style="margin:0 0 6px">🎟 《' + esc(it.title) + '》激活码</h3><div id="dcBody" class="note">读取中…</div><div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div><div class="row" style="margin-top:8px"><button class="ghost" onclick="openStoryCity()">返回</button></div>');
+  showPop('<h3 style="margin:0 0 6px">' + ic('key') + '《' + esc(it.title) + '》激活码</h3><div id="dcBody" class="note">读取中…</div><div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div><div class="row" style="margin-top:8px"><button class="ghost" onclick="openStoryCity()">返回</button></div>');
   const r = await devAdmin('/admin/codes?story=' + encodeURIComponent(id), {}); if (!r.ok) { setScStatus(r.msg); return; }
   const j = await r.res.json(), L = j.codes || [], un = L.filter(c => !c.uses && !c.revoked && !c.issued);
   const F = 'padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--pop);color:var(--ink);font-size:15px;width:64px';
   const tpl = devTplGet();
   document.getElementById('dcBody').innerHTML = '<div style="color:var(--ink)">共 ' + L.length + ' 个，可发货 ' + un.length + ' 个，已发出 ' + L.filter(c => c.issued && !c.uses && !c.revoked).length + ' 个</div>' +
-    '<div class="row" style="margin-top:8px"><button onclick="devIssue(\'' + esc(id) + '\')">📋 发货：复制下一个码 + 话术</button></div>' +
+    '<div class="row" style="margin-top:8px"><button onclick="devIssue(\'' + esc(id) + '\')">' + ic('clip') + '发货：复制下一个码 + 话术</button></div>' +
     '<div class="note" style="margin-top:6px">话术（{码} 会换成激活码，{标题} 换成标题；改完自动保存）</div><textarea id="dcTpl" rows="5" oninput="devTplSet(this.value)" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--pop);color:var(--ink);font-size:14px;margin:4px 0 8px">' + esc(tpl) + '</textarea>' +
     '<div class="row" style="margin-top:8px;gap:8px"><input id="dcN" value="10" inputmode="numeric" style="' + F + '"><button class="sm" onclick="devCodesMake(\'' + esc(id) + '\')">生成</button>' + (un.length ? '<button class="ghost sm" onclick="devCodesCopy(\'' + esc(id) + '\')">复制全部未使用的</button>' : '') + '</div>' +
     '<div style="max-height:40vh;overflow:auto;margin-top:8px;font-family:monospace;font-size:14px;line-height:1.9">' + L.map(c => '<div style="color:' + (c.revoked ? '#999;text-decoration:line-through' : c.uses || c.issued ? '#999' : 'var(--ink)') + '">' + esc(c.code) + ' <span class="note">' + (c.revoked ? '已作废' : c.uses ? '已用 ' + c.uses + '/' + j.max : c.issued ? '已发出' : '未发') + '</span>' + (c.revoked ? '' : ' <a href="#" style="font-size:12px" onclick="devCodeRevoke(\'' + esc(id) + '\',\'' + esc(c.code) + '\');return false">作废</a>') + '</div>').join('') + '</div>';
@@ -1959,7 +1973,7 @@ async function devNewGo() {
     if (price) entry.price = price;
     const pub = await devPublish(entry, { name: id + '.srbook', blob: pk.blob, priv: !!price });
     if (pub !== true) throw new Error('上架失败：' + pub);
-    if (price) { setScStatus('正在生成试读版（第一章）…'); const sp = await devMakeSample(entry, devNew.text, voice); if (sp !== true) throw new Error('材料已上架，但' + sp + '。可以点卡片上的“📖 生成试读”重试'); }
+    if (price) { setScStatus('正在生成试读版（第一章）…'); const sp = await devMakeSample(entry, devNew.text, voice); if (sp !== true) throw new Error('材料已上架，但' + sp + '。可以点卡片上的“生成试读”重试'); }
     await openStoryCity(true);
     setScStatus('全部完成：《' + title + '》已上架' + (price ? '，定价 ¥' + price : '，免费') + (clips ? '，自然语音也已上架（用户获取后会在后台自动下载），这台设备上点底部的“▶ 朗读”就能听到。' : '。'));
   } catch (e) { setScStatus((e && e.message ? e.message : '未知错误') + '（修好后再点“开始上架”，已合成的语音不会重复收费）'); document.getElementById('dnGo') && (document.getElementById('dnGo').disabled = false); }
@@ -2029,10 +2043,10 @@ async function devGenVoice(id) {                      // 已上架的材料补�
 function devEditInfo(id) {
   const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it) return;
   const F = 'width:100%;box-sizing:border-box;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--pop);color:var(--ink);font-size:15px;margin:4px 0 8px';
-  showPop('<h3 style="margin:0 0 6px">✏️ 修改信息</h3>' +
+  showPop('<h3 style="margin:0 0 6px">' + ic('pencil') + '修改信息</h3>' +
     '<div class="note">英文标题</div><input id="deTitle" value="' + esc(it.title) + '" style="' + F + '">' +
     '<div class="note">中文名</div><input id="deZh" value="' + esc(it.titleZh || '') + '" style="' + F + '">' +
-    '<div class="note">等级 <button class="link" onclick="devReLevel(\'' + esc(id) + '\')">🔄 重新自动评测</button></div><input id="deLevel" value="' + esc(lvLabel(it.level)) + '" style="' + F + '">' +
+    '<div class="note">等级 <button class="link" onclick="devReLevel(\'' + esc(id) + '\')">' + ic('refresh') + '重新自动评测</button></div><input id="deLevel" value="' + esc(lvLabel(it.level)) + '" style="' + F + '">' +
     ('<div class="note">购买说明（买家点“购买”时看到，比如“闲鱼搜 喵喵英语，拍下后自动发激活码”）</div><input id="deBuy" value="' + esc(it.buy || '') + '" style="' + F + '"><div class="note">购买链接（闲鱼商品页，https 开头，可空）</div><input id="deBuyUrl" value="' + esc(it.buyUrl || '') + '" style="' + F + '">') +
     '<div class="note">价格（元，填 0 就是免费）</div><input id="dePrice" inputmode="decimal" value="' + esc(String(it.price || 0)) + '" style="' + F + '">' +
     '<div class="note">限时免费到（日期，如 2026-10-31；留空=不做活动；过了这天自动恢复原价）</div><input id="deFree" placeholder="2026-10-31" value="' + (it.freeUntil && it.freeUntil > Date.now() ? esc(new Date(it.freeUntil - 86400000).toISOString().slice(0, 10)) : '') + '" style="' + F + '">' +
@@ -2081,7 +2095,7 @@ async function devEditInfoSave(id) {
 let devEd = null;
 async function devEditText(id) {
   const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it) return;
-  showPop('<h3 style="margin:0 0 6px">✏️ 修改内容</h3><div id="scStatus" class="note" style="min-height:20px">正在读取《' + esc(it.title) + '》…</div>');
+  showPop('<h3 style="margin:0 0 6px">' + ic('pencil') + '修改内容</h3><div id="scStatus" class="note" style="min-height:20px">正在读取《' + esc(it.title) + '》…</div>');
   try {
     const { man, text } = await devLoadStory(it);
     const parts = text.split(/(\n\s*\n)/), idxs = []; parts.forEach((x, i) => { if (i % 2 === 0 && x.trim()) idxs.push(i); });
@@ -2097,7 +2111,7 @@ function devEdRender() {
   const F = 'width:100%;box-sizing:border-box;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--pop);color:var(--ink);font-size:15px;margin:4px 0';
   const nEdit = Object.keys(d.edits).length;
   const keepQ = document.getElementById('edQ') === document.activeElement;
-  showPop('<h3 style="margin:0 0 6px">✏️ 修改《' + esc(d.it.title) + '》的内容</h3>' +
+  showPop('<h3 style="margin:0 0 6px">' + ic('pencil') + '修改《' + esc(d.it.title) + '》的内容</h3>' +
     '<div class="note" style="margin-bottom:6px">共 ' + d.idxs.length + ' 段（英文、中文各算一段）。搜一个词找到要改的那段，点“改”。' + (d.it.voice ? '改了英文，只重新合成改动的那几句语音。' : '') + '</div>' +
     '<input id="edQ" placeholder="搜索（英文或中文）" value="' + esc(d.q) + '" oninput="devEd.q=this.value;devEdRender()" style="' + F + '">' +
     '<div style="max-height:46vh;overflow-y:auto;margin:6px 0">' + (list.map(n => {
@@ -2176,7 +2190,7 @@ async function claimFree(id) {
   } catch (e) { setScStatus('网络不通，领取没成功，请稍后再试。'); claimBusy = false; }
 }
 function redeemPop() {
-  showPop('<h3 style="margin:0 0 6px">🔑 输入激活码</h3><div class="note">每个激活码最多可在 3 台设备上使用。</div>' +
+  showPop('<h3 style="margin:0 0 6px">' + ic('key') + '输入激活码</h3><div class="note">每个激活码最多可在 3 台设备上使用。</div>' +
     '<div class="row" style="margin-top:10px"><input id="rdCode" placeholder="XXXX-XXXX-XXXX" autocapitalize="characters" autocomplete="off" style="flex:1;min-width:0;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--pop);color:var(--ink);font-size:16px;letter-spacing:1px"><button onclick="redeemGo()">解锁</button></div>' +
     '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div><div class="row" style="margin-top:8px"><button class="ghost" onclick="openStoryCity()">返回学习材料</button></div>');
 }
@@ -2281,13 +2295,13 @@ function storyBuddy(it, have) {                    // 学习材料：简洁的�
 let scQ = '', scF = 'all', scLv = '', scN = 20, scObs = null;           // 学习材料的搜索 / 筛选 / 已显示数量
 function levelHelp() {
   const L = (e, t, d, ex) => '<div style="margin:10px 0"><div style="font-size:16px;color:var(--ink)">' + e + ' <b>' + t + '</b>：' + d + '</div>' + (ex ? '<div class="note" style="font-style:italic;margin-top:2px">例：' + ex + '</div>' : '') + '</div>';
-  showPop('<h3 style="margin:0 0 6px">❓ 怎么选等级</h3><div class="note">看例句，自己能读懂的就选那一级。</div>' +
-    L('🌱', 'A1 入门', '刚开始学英语。句子很短，都是最常用的词。', 'I have a cat. It is white.') +
-    L('🌿', 'A2 初级', '会一点英语。句子稍长一点，讲的是日常小事。', 'Tom went to the park with his dog after school.') +
-    L('🌳', 'B1 中级', '能读小故事。有长一点的句子，会出现 because、when 这样把两句连起来的词。', 'When it started to rain, the children ran back home.') +
-    L('🍎', 'B2 中高级', '能读原版小说。生词多了，句子长了，常常一句话里套着另一句话。', 'The little prince, who lived on a tiny planet, loved a rose more than anything.') +
-    L('🏔', 'C1 高级', '读起来有挑战。像大人看的书，句子复杂，用词讲究。', '') +
-    L('🚀', 'C2 精通', '最难，接近英语国家的人读的水平。', '') +
+  showPop('<h3 style="margin:0 0 6px">' + ic('help') + '怎么选等级</h3><div class="note">看例句，自己能读懂的就选那一级。</div>' +
+    L('', 'A1 入门', '刚开始学英语。句子很短，都是最常用的词。', 'I have a cat. It is white.') +
+    L('', 'A2 初级', '会一点英语。句子稍长一点，讲的是日常小事。', 'Tom went to the park with his dog after school.') +
+    L('', 'B1 中级', '能读小故事。有长一点的句子，会出现 because、when 这样把两句连起来的词。', 'When it started to rain, the children ran back home.') +
+    L('', 'B2 中高级', '能读原版小说。生词多了，句子长了，常常一句话里套着另一句话。', 'The little prince, who lived on a tiny planet, loved a rose more than anything.') +
+    L('', 'C1 高级', '读起来有挑战。像大人看的书，句子复杂，用词讲究。', '') +
+    L('', 'C2 精通', '最难，接近英语国家的人读的水平。', '') +
     '<div class="card" style="padding:10px 12px;margin-top:10px"><b>选书小窍门</b>：读一页，不认识的词不超过 5 个，这个等级就适合你；超过 10 个，就先往下降一级。</div>' +
     '<div class="note" style="margin-top:8px">等级是软件按书里的用词和句子长短自动估的，只是参考。</div>' +
     '<div class="row" style="margin-top:10px"><button class="ghost" onclick="openStoryCity()">返回学习材料</button></div>');
@@ -2296,25 +2310,25 @@ const LV_CN = { A1: 'A1 入门', A2: 'A2 初级', B1: 'B1 中级', B2: 'B2 中�
 function lvLabel(l) { const m = /\b([ABC][12])\b/i.exec(String(l || '')); return m ? LV_CN[m[1].toUpperCase()] : String(l || '').trim(); }   // 难度标签统一写成“B2 中高级”
 function scCard(it, owned) {
   const have = owned.has('story-' + it.id), free = !it.price;
-  const meta = [lvLabel(it.level), it.count ? it.count + ' 句' : '', it.voice ? '🎧 含自然语音' : ''].filter(Boolean).join(' · ');
+  const meta = [lvLabel(it.level), it.count ? it.count + ' 句' : '', it.voice ? '含自然语音' : ''].filter(Boolean).join(' · ');
   const prev = (it.preview || []).map(p => '<div style="margin:6px 0"><div>' + esc(p.en || '') + '</div><div class="note">' + esc(p.zh || '') + '</div></div>').join('');
   return '<div class="card" style="display:flex;gap:12px;margin-bottom:10px;padding:12px">' + storyBuddy(it, have) +
     '<div style="flex:1;min-width:0"><div style="font-size:16px;color:var(--ink)">' + esc(it.title) + (it.titleZh ? ' <span class="note">' + esc(it.titleZh) + '</span>' : '') + '</div>' +
-    (freeNow(it) && !(have && !isSample('story-' + it.id)) ? '<div class="freebadge">🎁 限时免费 · 到 ' + esc(fmtDay(it.freeUntil - 1)) + '</div>' : '') +
+    (freeNow(it) && !(have && !isSample('story-' + it.id)) ? '<div class="freebadge">' + ic('gift') + '限时免费 · 到 ' + esc(fmtDay(it.freeUntil - 1)) + '</div>' : '') +
     '<div class="note">' + esc(meta) + '</div>' + (it.desc ? '<div class="note" style="margin-top:4px;color:var(--ink)">' + esc(it.desc) + '</div>' : '') +
     '<div class="row" style="margin-top:8px;gap:8px">' +
-    (have && isSample('story-' + it.id) ? '<button class="sm" onclick="closePop();openBook(\'story-' + it.id + '\')">📖 继续体验</button>' +
-        (freeNow(it) ? '<button class="sm" onclick="claimFree(\'' + it.id + '\')">🎁 限时免费解锁完整内容</button>' : '<button class="sm" onclick="scBuy(\'' + it.id + '\')">🔓 解锁完整内容 ¥' + esc(String(it.price)) + '</button>')
+    (have && isSample('story-' + it.id) ? '<button class="sm" onclick="closePop();openBook(\'story-' + it.id + '\')">' + ic('book') + '继续体验</button>' +
+        (freeNow(it) ? '<button class="sm" onclick="claimFree(\'' + it.id + '\')">' + ic('gift') + '限时免费解锁完整内容</button>' : '<button class="sm" onclick="scBuy(\'' + it.id + '\')">' + ic('unlock') + '解锁完整内容 ¥' + esc(String(it.price)) + '</button>')
       : have ? '<button class="sm" onclick="closePop();openBook(\'story-' + it.id + '\')">继续学习</button>' +
-        ((it.file || tkOf(it.id)) && it.ver && ((shelfGet().find(x => x.id === 'story-' + it.id) || {}).ver || 1) < it.ver ? '<button class="sm" onclick="updateStory(\'' + it.id + '\')">🔄 有更新，点击更新</button>' : '') +
+        ((it.file || tkOf(it.id)) && it.ver && ((shelfGet().find(x => x.id === 'story-' + it.id) || {}).ver || 1) < it.ver ? '<button class="sm" onclick="updateStory(\'' + it.id + '\')">' + ic('refresh') + '有更新，点击更新</button>' : '') +
         (it.voice && (it.file || tkOf(it.id)) && !(shelfGet().find(x => x.id === 'story-' + it.id) || {}).nv ? (voiceDl[it.id] != null ? '<span class="note" id="scVoice-' + it.id + '">语音下载中 ' + voiceDl[it.id] + '%</span>' : '<button class="ghost sm" onclick="getStoryVoice(storyCat.items.find(x => x.id === \'' + it.id + '\'))">⬇ 下载全部语音（离线听）</button>') : '') +
         (it.voice && it.file && (it.voices || []).includes('am_michael') && !(shelfGet().find(x => x.id === 'story-' + it.id) || {}).nv_am_michael ? (voiceDl[it.id + '~am_michael'] != null ? '<span class="note" id="scVoice-' + it.id + '~am_michael">语音下载中 ' + voiceDl[it.id + '~am_michael'] + '%</span>' : '<button class="ghost sm" onclick="getStoryVoice(storyCat.items.find(x => x.id === \'' + it.id + '\'), \'am_michael\')">⬇ 下载男声语音</button>') : '')
       : free ? '<button class="sm" onclick="getStory(\'' + it.id + '\')">＋ 加入我的学习</button>'
-      : freeNow(it) ? '<button class="sm" onclick="claimFree(\'' + it.id + '\')">🎁 限时免费解锁</button><button class="ghost sm" onclick="scBuy(\'' + it.id + '\')">🔓 解锁 ¥' + esc(String(it.price)) + '</button>'
-      : '<button class="sm" onclick="scBuy(\'' + it.id + '\')">🔓 解锁 ¥' + esc(String(it.price)) + '</button>') +
-    (!have && !free && it.sample ? '<button class="ghost sm" onclick="getSample(\'' + it.id + '\')">📖 先学第一章（免费）' + (it.sampleCount ? '（' + it.sampleCount + ' 句）' : '') + '</button>' : !have && !free && prev ? '<button class="ghost sm" onclick="scToggle(\'' + it.id + '\')">试读</button>' : '') +
-    (azReady() && it.price ? '<button class="ghost sm" onclick="devSampleBtn(\'' + it.id + '\')">📖 ' + (it.sample ? '更新试读' : '生成试读') + '</button>' : '') +
-    (azReady() ? '<button class="ghost sm" onclick="devEditInfo(\'' + it.id + '\')">✏️ 改信息</button><button class="ghost sm" onclick="devEditText(\'' + it.id + '\')">✏️ 改内容</button>' + (it.price ? '<button class="ghost sm" onclick="devCodes(\'' + it.id + '\')">🎟 激活码</button>' : '') + '<button class="ghost sm" onclick="devGenVoice(\'' + it.id + '\')">🎙 ' + (it.voice ? '补语音' : '生成语音') + '</button>' : '') +
+      : freeNow(it) ? '<button class="sm" onclick="claimFree(\'' + it.id + '\')">' + ic('gift') + '限时免费解锁</button><button class="ghost sm" onclick="scBuy(\'' + it.id + '\')">' + ic('unlock') + '解锁 ¥' + esc(String(it.price)) + '</button>'
+      : '<button class="sm" onclick="scBuy(\'' + it.id + '\')">' + ic('unlock') + '解锁 ¥' + esc(String(it.price)) + '</button>') +
+    (!have && !free && it.sample ? '<button class="ghost sm" onclick="getSample(\'' + it.id + '\')">' + ic('book') + '先学第一章（免费）' + (it.sampleCount ? '（' + it.sampleCount + ' 句）' : '') + '</button>' : !have && !free && prev ? '<button class="ghost sm" onclick="scToggle(\'' + it.id + '\')">试读</button>' : '') +
+    (azReady() && it.price ? '<button class="ghost sm" onclick="devSampleBtn(\'' + it.id + '\')">' + ic('book') + '' + (it.sample ? '更新试读' : '生成试读') + '</button>' : '') +
+    (azReady() ? '<button class="ghost sm" onclick="devEditInfo(\'' + it.id + '\')">' + ic('pencil') + '改信息</button><button class="ghost sm" onclick="devEditText(\'' + it.id + '\')">' + ic('pencil') + '改内容</button>' + (it.price ? '<button class="ghost sm" onclick="devCodes(\'' + it.id + '\')">' + ic('key') + '激活码</button>' : '') + '<button class="ghost sm" onclick="devGenVoice(\'' + it.id + '\')">' + ic('mic') + '' + (it.voice ? '补语音' : '生成语音') + '</button>' : '') +
     (azReady() ? '<button class="ghost sm" onclick="devUnlist(\'' + it.id + '\')">下架</button>' : '') + '</div>' +
     (prev ? '<div id="scPrev-' + it.id + '" style="display:none;margin-top:8px">' + prev + '</div>' : '') + '</div></div>';
 }
@@ -2356,19 +2370,19 @@ function scSetF(f) { scF = f; scRefresh(true); }
 function scSetLv(lv) { scLv = lv; scRefresh(true); }
 function renderStoryCity(err) {
   try { renderStoryCity0(err); }
-  catch (e) { showPop('<h3 style="margin:0 0 6px">📚 学习材料</h3><div class="note" style="color:#b94a48">目录显示出错了（' + esc(e && e.message || '未知错误') + '），请关掉再点一次“学习材料”。</div>'); }
+  catch (e) { showPop('<h3 style="margin:0 0 6px">' + ic('book') + '学习材料</h3><div class="note" style="color:#b94a48">目录显示出错了（' + esc(e && e.message || '未知错误') + '），请关掉再点一次“学习材料”。</div>'); }
 }
 function renderStoryCity0(err) {
   scQ = ''; scF = 'all';                               // 搜索和商城式分类已去掉，只按难度筛
   const total = scFiltered().total, lvs = [...new Set(((storyCat && storyCat.items) || []).map(x => String(x.level || '').slice(0, 2).toUpperCase()).filter(x => /^[ABC][12]$/.test(x)))].sort();
-  let h = '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 6px"><h3 id="scList" style="margin:0">📚 学习材料</h3><button class="link" style="font-size:14px" onclick="redeemPop()">🔑 我有激活码</button></div><div class="note" style="margin-bottom:10px">' + esc((storyCat && storyCat.intro) || '中英对照学习材料，点单词发音，点句子朗读。') + '</div>';
-  if (err) h += '<div class="note" style="color:#b94a48;margin-bottom:8px">' + esc(err) + ' <button class="ghost sm" style="margin-left:4px" onclick="openStoryCity(true)">🔄 重新加载</button></div>';
+  let h = '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 6px"><h3 id="scList" style="margin:0">' + ic('book') + '学习材料</h3><button class="link" style="font-size:14px" onclick="redeemPop()">' + ic('key') + '我有激活码</button></div><div class="note" style="margin-bottom:10px">' + esc((storyCat && storyCat.intro) || '中英对照学习材料，点单词发音，点句子朗读。') + '</div>';
+  if (err) h += '<div class="note" style="color:#b94a48;margin-bottom:8px">' + esc(err) + ' <button class="ghost sm" style="margin-left:4px" onclick="openStoryCity(true)">' + ic('refresh') + '重新加载</button></div>';
   if (total > 0) {
     const chip = (attr, val, label, on, fn) => '<button class="scChip' + (on ? ' on' : '') + '" data-' + attr + '="' + val + '" onclick="' + fn + '">' + label + '</button>';
-    h += (lvs.length ? '<div class="scChips">' + chip('lv', '', '全部', scLv === '', "scSetLv('')") + lvs.map(lv => chip('lv', lv, lv, scLv === lv, "scSetLv('" + lv + "')")).join('') + '<button class="scChip" style="border-style:dashed" onclick="levelHelp()">❓ 怎么选等级</button></div>' : '');
+    h += (lvs.length ? '<div class="scChips">' + chip('lv', '', '全部', scLv === '', "scSetLv('')") + lvs.map(lv => chip('lv', lv, lv, scLv === lv, "scSetLv('" + lv + "')")).join('') + '<button class="scChip" style="border-style:dashed" onclick="levelHelp()">' + ic('help') + '怎么选等级</button></div>' : '');
   }
   h += '<div id="scItems">' + scListHtml() + '</div>';
-  h += (azReady() ? '<div class="row" style="margin-top:6px"><button class="sm" onclick="devNewStoryPop()">＋ 上架新材料（开发者）</button><button class="sm ghost" onclick="visitsPop()">📊 访问统计</button></div>' : '') +
+  h += (azReady() ? '<div class="row" style="margin-top:6px"><button class="sm" onclick="devNewStoryPop()">＋ 上架新材料（开发者）</button><button class="sm ghost" onclick="visitsPop()">' + ic('chart') + '访问统计</button></div>' : '') +
     '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>';
   showPop(h); scWatchMore();
 }
@@ -2416,7 +2430,7 @@ async function openStoryCity(fresh) {               // fresh = 刚上架/修改�
     if (cat && JSON.stringify(cat) !== JSON.stringify(storyCat)) { storyCat = cat; if (document.getElementById('scList') && !devGenBusy) renderStoryCity(''); }
     return;
   }
-  showPop('<h3 style="margin:0 0 6px">📚 学习材料</h3><div class="note">正在加载…</div>');
+  showPop('<h3 style="margin:0 0 6px">' + ic('book') + '学习材料</h3><div class="note">正在加载…</div>');
   let cat = null; try { cat = await fetchStoryCat(); } catch (e) {}
   if (cat) storyCat = cat;
   if (!document.getElementById('overlay').classList.contains('show')) return;    // 用户已经关掉了
@@ -2497,7 +2511,7 @@ const AZ_FLD = 'width:100%;box-sizing:border-box;border:1px solid var(--line);bo
 function openDevSetup() {
   const c0 = azCfg(), ropt = azRegionOptions(c0.cloud, c0.region);
   showPop(
-    '<h3 style="margin:0 0 6px">🔐 开发者验证</h3>' +
+    '<h3 style="margin:0 0 6px">' + ic('lock') + '开发者验证</h3>' +
     '<div class="note">只有验证为开发者的设备，才能使用你的 Azure 语音额度。设置一个<b>开发者口令</b>（至少 8 位）。你的 Key 会用这个口令加密后再保存在这台设备里；<b>每次重新打开网页，都要输入口令解锁</b>。口令丢了无法找回，只能删掉重设。</div>' +
     '<div class="note" style="margin-top:10px">开发者口令</div><input id="devPass1" type="password" autocomplete="new-password" style="' + AZ_FLD + '">' +
     '<div class="note">再输入一次</div><input id="devPass2" type="password" autocomplete="new-password" style="' + AZ_FLD + '">' +
@@ -2563,7 +2577,7 @@ async function azTest() {
     const a = azSetSrc(r.blob); a.onended = a.onerror = null;
     await a.play();
     azLastError = '';
-    setAzStatus('成功 ✅ ' + (r.cached ? '（来自本机缓存）' : '（已联网生成）') + ' 音色：' + c.voice);
+    setAzStatus('成功 ✓ ' + (r.cached ? '（来自本机缓存）' : '（已联网生成）') + ' 音色：' + c.voice);
   } catch (e) {
     azLastError = e.message;
     setAzStatus('失败：' + e.message + (e.code === 'network' ? '。如果你的网络是好的，多半是浏览器的跨域限制，请点“复制诊断信息”把结果告诉我。' : ''));
@@ -2586,7 +2600,7 @@ async function azListVoices() {
     const sel = document.getElementById('azVoice');
     if (sel) sel.innerHTML = en.map(v => '<option value="' + esc(v.id) + '"' + (v.id === c.voice ? ' selected' : '') + '>' + esc(v.label) + '</option>').join('');
     const has = n => en.some(v => v.id.includes(n));
-    setAzStatus('找到 ' + en.length + ' 个英语音色。Sonia ' + (has('SoniaNeural') ? '✅' : '❌') + '  Ryan ' + (has('RyanNeural') ? '✅' : '❌') + '  Jenny ' + (has('JennyNeural') ? '✅' : '❌') + '  Guy ' + (has('GuyNeural') ? '✅' : '❌'));
+    setAzStatus('找到 ' + en.length + ' 个英语音色。Sonia ' + (has('SoniaNeural') ? '✓' : '✗') + '  Ryan ' + (has('RyanNeural') ? '✓' : '✗') + '  Jenny ' + (has('JennyNeural') ? '✓' : '✗') + '  Guy ' + (has('GuyNeural') ? '✓' : '✗'));
   } catch (e) { azLastError = e.message; setAzStatus('失败：' + e.message); }
 }
 async function azRefreshStats() { try { const st = await azCacheStats(); const el = document.getElementById('azStats'); if (el) el.textContent = '本机已缓存 ' + st.count + ' 段，' + (st.bytes / 1048576).toFixed(1) + ' MB（上限 150 MB，超过自动清理最久没听的）'; } catch (e) {} }
@@ -2597,7 +2611,7 @@ function openNaturalSettings() {
   if (!c.dev || !c.hasEnc) { openDevSetup(); return; }
   if (!c.key) {                                   // 已设置但还没解锁
     showPop(
-      '<h3 style="margin:0 0 6px">🔒 自然语音已锁定</h3>' +
+      '<h3 style="margin:0 0 6px">' + ic('lock') + '自然语音已锁定</h3>' +
       '<div class="note">输入开发者口令解锁。解锁后，本次打开网页期间有效，关闭网页会自动锁定。</div>' +
       '<input id="devPassU" type="password" autocomplete="current-password" placeholder="开发者口令" style="' + AZ_FLD + ';margin-top:12px" onkeydown="if(event.key===\'Enter\')azUnlockBtn()">' +
       '<div class="row"><button onclick="azUnlockBtn()">解锁</button><button class="ghost sm" onclick="azExitDev()">忘了口令？删除重设</button></div>' +
@@ -2610,8 +2624,8 @@ function openNaturalSettings() {
   const vopt = list.map(v => '<option value="' + esc(v.id) + '"' + (v.id === c.voice ? ' selected' : '') + '>' + esc(v.label) + '</option>').join('') + (list.some(v => v.id === c.voice) ? '' : '<option value="' + esc(c.voice) + '" selected>' + esc(c.voice) + '</option>');
   const ropt = azRegionOptions(c.cloud, c.region);
   showPop(
-    '<h3 style="margin:0 0 6px">🎧 自然语音（微软 Azure）</h3>' +
-    '<div class="note">🔓 已解锁。Key 用你的口令加密后保存在这台设备，关闭网页自动锁定。当前要朗读的那一句话会发给你的 Azure 账号生成语音；失败或没网时，自动用系统朗读。</div>' +
+    '<h3 style="margin:0 0 6px">' + ic('phones') + '自然语音（微软 Azure）</h3>' +
+    '<div class="note">' + ic('unlock') + '已解锁。Key 用你的口令加密后保存在这台设备，关闭网页自动锁定。当前要朗读的那一句话会发给你的 Azure 账号生成语音；失败或没网时，自动用系统朗读。</div>' +
     '<label style="display:block;margin:10px 0"><input type="checkbox" id="azOn"' + (c.on ? ' checked' : '') + '> 启用自然语音</label>' +
     '<div class="note">你用的 Azure</div><select id="azCloud" onchange="azCloudChanged()" style="' + AZ_FLD + '">' + azCloudOptions(c.cloud) + '</select>' +
     '<div class="note">区域（要和你创建语音资源时选的区域一致）</div><select id="azRegion" style="' + AZ_FLD + '">' + ropt + '</select>' +
@@ -2621,7 +2635,7 @@ function openNaturalSettings() {
     '<div class="row"><button onclick="azTest()">保存并试听</button><button class="ghost" onclick="azSaveClose()">保存并关闭</button></div>' +
     '<div id="azStatus" class="note" style="margin-top:10px;min-height:20px"></div>' +
     '<div id="azStats" class="note" style="margin-top:6px"></div>' +
-    '<div class="row" style="margin-top:8px"><button class="ghost sm" onclick="azLock();closePop()">🔒 立即锁定</button><button class="ghost sm" onclick="azClearCacheBtn()">清空语音缓存</button><button class="ghost sm" onclick="azExitDev()">退出开发者模式</button></div>' +
+    '<div class="row" style="margin-top:8px"><button class="ghost sm" onclick="azLock();closePop()">' + ic('lock') + '立即锁定</button><button class="ghost sm" onclick="azClearCacheBtn()">清空语音缓存</button><button class="ghost sm" onclick="azExitDev()">退出开发者模式</button></div>' +
     '<div class="note" style="margin-top:10px">费用：免费档每月 50 万字符免费（约 6000 句）；每句只生成一次，之后用缓存，不再计费。用量请在 Azure 门户里查看。</div>'
   );
   azRefreshStats();
@@ -2643,7 +2657,7 @@ let recBusy = false;
 async function toggleRecord() {
   if (rec.on) { if (rec.mr && rec.mr.state === 'recording') rec.mr.stop(); return; }
   if (recBusy) return;                                   // 正在等麦克风权限时，防止连点启动出两个录音
-  const recFail = m => { recWait = false; render(); showPop('<h3 style="margin:0 0 6px">🎙 没能开始录音</h3><div class="note" style="font-size:14px;color:var(--ink)">' + m + '</div>'); };   // 不用 alert：有的浏览器会把弹框静默挡掉，看起来像“点了没反应”
+  const recFail = m => { recWait = false; render(); showPop('<h3 style="margin:0 0 6px">' + ic('mic') + '没能开始录音</h3><div class="note" style="font-size:14px;color:var(--ink)">' + m + '</div>'); };   // 不用 alert：有的浏览器会把弹框静默挡掉，看起来像“点了没反应”
   if (!window.isSecureContext) { recFail('录音只能在 https 网址下使用。请用正式网址打开软件。'); return; }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) { recFail('这个浏览器不支持录音。iPhone 请用 Safari，安卓或电脑请用最新版 Chrome / Edge。如果是在微信里打开的，请点右上角“…”选择“在浏览器打开”。'); return; }
   recBusy = true; recWait = true; render();          // 先让按钮变成“正在打开麦克风…”，用户知道点上了
@@ -2654,7 +2668,7 @@ async function toggleRecord() {
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
     catch (e) {
       const n = (e && e.name) || '';
-      recFail(n === 'NotAllowedError' || n === 'SecurityError' ? '没有拿到麦克风权限。<br>· iPhone：设置 → Safari → 麦克风 → 允许；或者点地址栏左边的“大小”图标 → 网站设置 → 麦克风 → 允许。<br>· 电脑：点地址栏左边的锁形图标，把麦克风改成“允许”。<br>改完后回到这里再点一次“🎙 跟读”。'
+      recFail(n === 'NotAllowedError' || n === 'SecurityError' ? '没有拿到麦克风权限。<br>· iPhone：设置 → Safari → 麦克风 → 允许；或者点地址栏左边的“大小”图标 → 网站设置 → 麦克风 → 允许。<br>· 电脑：点地址栏左边的锁形图标，把麦克风改成“允许”。<br>改完后回到这里再点一次“跟读”。'
         : n === 'NotFoundError' || n === 'OverconstrainedError' ? '没有找到麦克风。请检查耳机或麦克风有没有插好、有没有被别的软件占用。' : n === 'NotReadableError' ? '麦克风正被别的软件占用（比如正在通话、录屏），请关掉它再试。' : '打开麦克风失败（' + esc(n || (e && e.message) || '未知原因') + '）。');
       return;
     }
@@ -2772,9 +2786,9 @@ function pronHtml() {
   if (!state || pronView.key !== recKey()) return '';
   const v = pronView; let h = '<div class="pron">';
   if (v.res && v.t && recView.urls.length > 1) { const k = recView.urls.findIndex(u => u.t === v.t); if (k >= 0) h += '<div class="note" style="margin:-2px 0 6px">这是' + (k === 0 ? '最新一次' : '第 ' + (k + 1) + ' 条') + '录音的分数' + (v.old ? '' : '') + '</div>'; }
-  if (v.loading) h += '<div class="note">⏳ 正在给你的发音打分…</div>';
+  if (v.loading) h += '<div class="note">' + ic('wait') + '正在给你的发音打分…</div>';
   if (v.res) {
-    const r = v.res, t = r.total, face = t >= 90 ? '🌟 太棒了！' : t >= 75 ? '👍 读得不错！' : t >= 60 ? '🙂 还可以，再读一遍会更好' : '💪 多听几遍原声，再试一次';
+    const r = v.res, t = r.total, face = t >= 90 ? '太棒了！' : t >= 75 ? '读得不错！' : t >= 60 ? '还可以，再读一遍会更好' : '多听几遍原声，再试一次';
     const bar = (n, x) => x == null ? '' : '<div class="prbar"><div class="pl">' + n + '</div><div class="pt"><div class="pf" style="width:' + x + '%;background:' + (x >= 80 ? '#34a853' : x >= 60 ? '#f2b33a' : '#e5534b') + '"></div></div><div class="pv">' + x + '</div></div>';
     h += '<div class="ptop"><div class="pscore" style="color:' + (t >= 80 ? '#2e8b47' : t >= 60 ? '#c78a00' : '#d0453d') + '">' + t + '</div><div><div style="font-size:16px;color:var(--ink)">' + face + '</div><div class="note">发音总分（满分 100）</div></div></div>' +
       bar('准确度', r.acc) + bar('流利度', r.flu) + bar('完整度', r.comp) + (r.pros != null ? bar('语调节奏', r.pros) : '');
@@ -2791,7 +2805,7 @@ const IC_PLAY = '<svg class="spk" viewBox="0 0 24 24" width="20" height="20" ari
 const IC_PAUSE = '<svg class="spk" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="6.5" y="5.5" width="4" height="13" rx="1" fill="currentColor"/><rect x="13.5" y="5.5" width="4" height="13" rx="1" fill="currentColor"/></svg>';
 let cmpRun = 0;
 function recStop() {
-  cmpRun++; const cb = document.getElementById('cmpbtn'); if (cb) cb.textContent = '🔁 对比听（原声 → 我的）';
+  cmpRun++; const cb = document.getElementById('cmpbtn'); if (cb) cb.textContent = '对比听（原声 → 我的）';
   if (cmpOn) { cmpOn = false; try { speechSynthesis.cancel(); } catch (e) {} }
   if (recAudio) { try { recAudio.pause(); } catch (e) {} recAudio = null; }
   const b = document.getElementById('recp-' + recIdx); if (b) b.innerHTML = IC_PLAY; recIdx = -1;
@@ -2836,12 +2850,12 @@ function origPlayP(text) {                          // 播放这一句的原声�
   });
 }
 let cmpOn = false;
-async function recCompare(i) {                      // 🔁 对比听：原声 → 我的录音，连着放；再点一下停止
+async function recCompare(i) {                      // 对比听：原声 → 我的录音，连着放；再点一下停止
   if (cmpOn) { recStop(); return; }
   recStop(); stopSpeech();
   const text = state && state.sentences[state.idx]; if (!text) return;
   const my = cmpRun; cmpOn = true;
-  const btn = document.getElementById('cmpbtn'); if (btn) btn.textContent = '⏹ 停止对比';
+  const btn = document.getElementById('cmpbtn'); if (btn) btn.textContent = '停止对比';
   await origPlayP(text);
   if (my !== cmpRun) return;
   await new Promise(r => setTimeout(r, 500));
@@ -2917,7 +2931,8 @@ async function ieltsAttach(clean, res) {
     '<div class="row" style="gap:6px;margin-top:6px">' + (a & 1 ? '<button class="sm ghost" style="padding:3px 10px;font-size:12px" data-a="' + au('uk') + '" data-t="' + wd + '" onclick="ieltsPlay(this.dataset.a, this.dataset.t)">英 ' + esc(e.u || '') + '</button>' : '') +
     (a & 2 ? '<button class="sm ghost" style="padding:3px 10px;font-size:12px" data-a="' + au('us') + '" data-t="' + wd + '" onclick="ieltsPlay(this.dataset.a, this.dataset.t)">美</button>' : '') + '</div>' +
     '<div style="margin-top:4px;font-size:14px">' + (e.s || []).slice(0, 2).map(x => esc(x[0] + ' ' + x[1])).join('<br>') + '</div>' +
-    (e.k && e.k.length ? '<div class="ik">' + e.k.slice(0, 2).map(c => esc(c.replace('｜', ' '))).join(' · ') + '</div>' : '') + '</div></div>');
+    (e.k && e.k.length ? '<div class="ik">' + e.k.slice(0, 2).map(c => esc(c.replace('｜', ' '))).join(' · ') + '</div>' : '') +
+    (vbGet().cards[f.k] ? '<div class="ik">✓ 已在背单词里</div>' : '<button id="vbAddBtn" class="link" style="margin-top:4px;font-size:13px" data-k="' + esc(f.k) + '" onclick="vbAddWord(this.dataset.k)">＋ 加入背单词</button>') + '</div></div>');
   body.insertAdjacentHTML('beforeend', '<div class="iexs"><div class="ilv">雅思例句（点一下朗读）</div>' +
     (e.e || []).map((x, n) => '<div class="iex" data-t="' + esc(x[0]) + '" data-a="' + ((n === 0 && a & 4) ? au('ex') : (n === 1 && a & 8) ? au('ex2') : '') + '" onclick="ieltsPlay(this.dataset.a, this.dataset.t)"><div>' + esc(x[0]) + '</div><div class="note">' + esc(x[1]) + '</div></div>').join('') +
     (e.t ? '<div class="note" style="margin-top:8px">提示：' + esc(e.t) + '</div>' : '') +
@@ -3127,10 +3142,10 @@ async function autoImportDict(force) {
 function openDictSettings() {
   const has = dictInfo && dictInfo.count;
   const status = has
-    ? '✅ 已就绪：' + dictInfo.count.toLocaleString() + ' 个词条（' + esc(dictInfo.name || '') + '），离线可用。'
+    ? '✓ 已就绪：' + dictInfo.count.toLocaleString() + ' 个词条（' + esc(dictInfo.name || '') + '），离线可用。'
     : (getAutoMsg() ? esc(getAutoMsg()) : '还没有离线大词典，现在查词用的是内置基础词典（约 700 个常用词）。');
   showPop(
-    '<h3 style="margin:0 0 8px">📚 离线大词典</h3>' +
+    '<h3 style="margin:0 0 8px">' + ic('book') + '离线大词典</h3>' +
     '<div class="note" style="font-size:14px;color:var(--ink)">' + status + '</div>' +
     '<div class="row" style="margin-top:12px">' +
       (has ? '' : '<button onclick="retryAutoDict()">重试自动下载</button>') +
@@ -3164,7 +3179,7 @@ function refHtml(r, noTitle) {
 function openGrammarDict(key) {
   if (!window.EG) { toast('正在加载语法字典…', 1500); loadLibs().then(() => openGrammarDict(key)).catch(e => toast(e.message, 3000)); return; }
   if (key && EG.REF[key]) { showPop(refHtml(EG.REF[key]) + '<button class="link" onclick="openGrammarDict()">查看全部语法条目</button>'); return; }
-  let html = '<h3 style="margin:0 0 4px">📘 语法字典</h3><div class="note">离线可用，共 ' + Object.keys(EG.REF).length + ' 个条目。</div>';
+  let html = '<h3 style="margin:0 0 4px">' + ic('book') + '语法字典</h3><div class="note">离线可用，共 ' + Object.keys(EG.REF).length + ' 个条目。</div>';
   EG.GROUPS.forEach(g => {
     html += '<details class="grp"><summary>' + g[0] + '（' + g[1].length + '）</summary>' +
       g[1].filter(k => EG.REF[k]).map(k => '<details class="grp" style="margin-left:12px"><summary>' + esc(EG.REF[k].t) + '</summary>' + refHtml(EG.REF[k], true) + '</details>').join('') + '</details>';
@@ -3206,12 +3221,12 @@ function openHelp() {
   const li = t => '<li style="margin:5px 0">' + t + '</li>';
   const sec = (title, body, open) => '<details style="margin-top:10px"' + (open ? ' open' : '') + '><summary style="cursor:pointer;font-weight:600">' + title + '</summary><ul class="note" style="line-height:1.7;margin:8px 0 0;padding-left:20px">' + body + '</ul></details>';
   showPop(
-    '<h3 style="margin:0 0 4px">❓ 帮助与反馈</h3><div class="note">试用版 · 版本 <span onclick="devTap()" style="cursor:default;user-select:none">' + esc(APP_VERSION) + '</span> <button class="ghost sm" onclick="srCheckUpdate(true)" style="margin-left:6px">检查更新</button></div><div class="note" style="margin-top:4px">为了统计使用人数，会记录一个匿名的设备编号，不收集姓名、账号、手机号。</div>' +
+    '<h3 style="margin:0 0 4px">' + ic('help') + '帮助与反馈</h3><div class="note">试用版 · 版本 <span onclick="devTap()" style="cursor:default;user-select:none">' + esc(APP_VERSION) + '</span> <button class="ghost sm" onclick="srCheckUpdate(true)" style="margin-left:6px">检查更新</button></div><div class="note" style="margin-top:4px">为了统计使用人数，会记录一个匿名的设备编号，不收集姓名、账号、手机号。</div>' +
     '<div class="row" style="margin:12px 0 4px"><button onclick="copyDiag()">复制诊断信息</button>' + (FEEDBACK_URL ? '<button class="ghost" onclick="openFeedback()">打开反馈问卷</button>' : '') + '</div>' +
     '<div class="note">遇到问题（没声音、录不了音、材料导入不对等），先点“复制诊断信息”，粘贴发给发你链接的人。诊断信息只有设备和软件状态，没有材料的内容和你的录音。</div>' +
     sec('快速上手',
-      li('点句子里的<b>单词</b>查词，点哪个词就读哪个词，同时弹出解释。') + li('点底部的 <b>▶ 朗读</b>，念到哪个词哪个词会亮；旁边的下拉菜单可以换美音、英音。') + li('<b>声音只有几个？</b>iPhone、iPad 网页版只能用系统自带的声音（苹果的限制），推荐选 <b>🎧 自然语音</b>；安卓手机和电脑可以在系统设置里下载更多英语声音，电脑用 Edge 浏览器打开还能直接用几十个在线声音。') +
-      li('<b>🎙 跟读</b>：录下自己读这一句，联网时会给发音打分（每个词都有分）。最近 3 次录音保存在本机，能看进步，点“🔁 对比听”连着听原声和自己的。') + li('<b>🐇 正常 / 🐢 慢速</b>：听不清的时候点一下改成慢速，再点一下改回正常。如果点了没变化，是这个声音不支持调速，软件会提示，换一个声音试试。') +
+      li('点句子里的<b>单词</b>查词，点哪个词就读哪个词，同时弹出解释。') + li('点底部的 <b>▶ 朗读</b>，念到哪个词哪个词会亮；旁边的下拉菜单可以换美音、英音。') + li('<b>声音只有几个？</b>iPhone、iPad 网页版只能用系统自带的声音（苹果的限制），推荐选 <b>自然语音</b>；安卓手机和电脑可以在系统设置里下载更多英语声音，电脑用 Edge 浏览器打开还能直接用几十个在线声音。') +
+      li('<b>跟读</b>：录下自己读这一句，联网时会给发音打分（每个词都有分）。最近 3 次录音保存在本机，能看进步，点“对比听”连着听原声和自己的。') + li('<b>正常 / 慢速</b>：听不清的时候点一下改成慢速，再点一下改回正常。如果点了没变化，是这个声音不支持调速，软件会提示，换一个声音试试。') +
       li('顶部 <b>整页翻译</b> 把一页的句子连同中文一起列出来，点句子就读；<b>目录</b> 可以跳到任意页；右上角 <b>···</b> 里有语音包、词典、语法字典和帮助。') +
       li('装到手机桌面：iPhone 用 Safari，点分享 → 添加到主屏幕；安卓用 Chrome，点 ⋮ → 安装应用。<b>装好后请在桌面图标里导入材料（打开软件先是“我的学习”，点“＋ 导入”）</b>，浏览器和桌面图标的数据是分开的。'), true) +
     sec('隐私与数据',
@@ -3220,15 +3235,175 @@ function openHelp() {
       li('<b>自然语音（仅开发者可用）</b>：需要开发者口令解锁。启用后，当前要朗读的那一句英文会发到开发者自己的微软 Azure 账号生成语音。Key 用口令加密后只保存在开发者的设备里，软件代码里没有任何 Key。') +
       li('软件本身不收集任何使用数据。')) +
     sec('开源与致谢',
-      li('英汉词典数据：ECDICT（skywind3000，MIT 许可）') + li('雅思词库与插图：Word Atlas（词光），Word Atlas contributors，CC BY 4.0 许可（creativecommons.org/licenses/by/4.0）；本软件精简了词条字段，插图原样使用。内容由 AI 生成，不是雅思官方词表') + li('PDF 解析：pdf.js（Mozilla，Apache-2.0）') + li('epub 解压：JSZip（MIT / GPLv3 双许可）') +
+      li('英汉词典数据：ECDICT（skywind3000，MIT 许可）') + li('界面图标：Lucide（lucide.dev，ISC 许可）') + li('雅思词库与插图：Word Atlas（词光），Word Atlas contributors，CC BY 4.0 许可（creativecommons.org/licenses/by/4.0）；本软件精简了词条字段，插图原样使用。内容由 AI 生成，不是雅思官方词表') + li('PDF 解析：pdf.js（Mozilla，Apache-2.0）') + li('epub 解压：JSZip（MIT / GPLv3 双许可）') +
       li('各组件版权归原作者所有。')) +
     sec('免责声明',
       li('请只导入你有权使用的材料（如公版作品、你自己购买的读物）。') +
-      li('顶部的“已读 X 句 · 已听 X 句 · 连续 X 天”是你所有材料合起来的学习记录：<b>已读</b>是你点“🎙 跟读”自己读过的句数（同一句读几遍只算一句）；<b>已听</b>是你完整听过的句数（同一句听几遍只算一句，中途停掉的不算）。') +
+      li('顶部的“已读 X 句 · 已听 X 句 · 连续 X 天”是你所有材料合起来的学习记录：<b>已读</b>是你点“跟读”自己读过的句数（同一句读几遍只算一句）；<b>已听</b>是你完整听过的句数（同一句听几遍只算一句，中途停掉的不算）。') +
       li('语法讲解由规则自动生成，翻译来自机器翻译或材料里自带的译文，仅供学习参考，可能有误。'))
   );
 }
 
+/* ---------- 背单词：雅思词库（Word Atlas）+ FSRS 间隔复习（ts-fsrs，MIT）。四选一/拼写自动打分，进度存在本机 ---------- */
+const VB_TOPICS = { daily: '日常', society: '社会', thinking: '思维', nature: '自然', work: '工作', health: '健康', education: '教育', emotion: '情感', science: '科学', travel: '旅行', economy: '经济', arts: '艺术', technology: '科技', government: '政府', city: '城市', environment: '环境', history: '历史', sport: '运动', media: '媒体' };
+const VB_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+const VB_SLOW_MS = 8000;                             // 答对但超过 8 秒算“模糊”
+let VB = null, vbF = null, vbQ = null;
+function vbToday() { const d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+function vbGet() {
+  if (VB) return VB;
+  try { VB = JSON.parse(localStorage.getItem('sr_vb') || 'null'); } catch (e) { VB = null; }
+  if (!VB || !VB.cards) VB = { cfg: null, cards: {}, day: { d: '', n: 0 }, stat: {} };
+  return VB;
+}
+function vbSave() { try { localStorage.setItem('sr_vb', JSON.stringify(VB)); } catch (e) { toast('存储空间不足，背单词进度没保存上'); } }
+function vbDay() { const v = vbGet(); if (v.day.d !== vbToday()) v.day = { d: vbToday(), n: 0, ok: 0, all: 0 }; return v.day; }
+async function vbReady() {
+  const [d] = await Promise.all([ieltsLoad(), window.FSRS ? 0 : loadScript('./lib/ts-fsrs.min.js?v=' + APP_VERSION)]);
+  if (!d) throw new Error('雅思词库下载失败，请联网后再试');
+  if (!vbF) vbF = FSRS.fsrs(FSRS.generatorParameters({ enable_fuzz: true, request_retention: 0.9 }));
+  return d;
+}
+function vbPool(d) {                                 // 按设置挑出来的词（保持词光的学习路线顺序：由易到难、话题打散）
+  const c = vbGet().cfg || {};
+  return Object.keys(d).filter(k => (!c.lv || d[k].c === c.lv) && (!c.tp || d[k].p === c.tp));
+}
+function vbCounts() {                                // 首页显示：今天到期要复习的 + 今天还能学的新词
+  const v = vbGet(), now = Date.now(); let due = 0;
+  for (const k in v.cards) if (v.cards[k].c && new Date(v.cards[k].c.due).getTime() <= now) due++;
+  const left = v.cfg ? Math.max(0, (v.cfg.n || 20) - (v.day.d === vbToday() ? v.day.n : 0)) : 0;
+  return { due, left, total: Object.keys(v.cards).length };
+}
+function vbHomeBtn() {
+  const v = vbGet(), c = vbCounts();
+  const sub = !v.cfg ? '雅思核心词 7,298 个，带插图和真人发音' : (c.due || c.left ? '今天：复习 ' + c.due + ' 个 · 新词 ' + c.left + ' 个' : '今天的任务完成了，明天再来');
+  return '<button class="vbhome" onclick="openVocab()"><img src="./logo.svg" alt=""><span><b>背单词</b><small>' + sub + '</small></span><i>›</i></button>';
+}
+async function openVocab() {
+  showFullscreen('背单词', '<div class="note">正在准备词库…</div>');
+  try { await vbReady(); } catch (e) { setFullscreenBody('<div class="note">' + esc(e.message) + '</div>'); return; }
+  if (!vbGet().cfg) vbSetup(); else vbStart();
+}
+function vbSetup(cur) {
+  const c = cur || vbGet().cfg || { lv: 'B1', tp: '', n: 20 }, d = IELTS;
+  const cnt = (lv, tp) => Object.keys(d).filter(k => (!lv || d[k].c === lv) && (!tp || d[k].p === tp)).length;
+  const chip = (grp, val, label, on) => '<button class="scChip' + (on ? ' on' : '') + '" onclick="vbPick(\'' + grp + '\',\'' + val + '\')">' + label + '</button>';
+  setFullscreenBody('<h3 style="margin:0 0 4px">选择要背的词</h3><div class="note">词库来自 Word Atlas（雅思核心词，非官方词表）。以后随时可以在这里改。</div>' +
+    '<div class="vbsec">难度</div><div class="vbchips">' + chip('lv', '', '全部（由易到难）', !c.lv) + VB_LEVELS.map(l => chip('lv', l, l + ' · ' + cnt(l, ''), c.lv === l)).join('') + '</div>' +
+    '<div class="note" style="margin-top:6px">拿不准就选 B1。A1/A2 是基础词，C1/C2 是高分词。</div>' +
+    '<div class="vbsec">话题</div><div class="vbchips">' + chip('tp', '', '不限', !c.tp) + Object.keys(VB_TOPICS).map(t => chip('tp', t, VB_TOPICS[t], c.tp === t)).join('') + '</div>' +
+    '<div class="vbsec">每天学几个新词</div><div class="vbchips">' + [10, 20, 30, 50].map(n => chip('n', n, n + ' 个', (c.n || 20) === n)).join('') + '</div>' +
+    '<div class="note" style="margin-top:14px">已选：' + (c.lv || '全部难度') + ' · ' + (c.tp ? VB_TOPICS[c.tp] : '不限话题') + '，共 ' + cnt(c.lv, c.tp) + ' 个词</div>' +
+    '<button style="width:100%;margin-top:14px" onclick="vbSaveCfg()">开始背单词</button>');
+  vbSetup.cur = c;
+}
+function vbPick(g, v) { const c = Object.assign({}, vbSetup.cur); c[g] = g === 'n' ? +v : v; vbSetup(c); }
+function vbSaveCfg() { vbGet().cfg = vbSetup.cur; vbSave(); vbStart(); }
+function vbStart() {                                 // 今天的任务：先复习到期的，再学新词（读书时加进来的词优先）
+  const v = vbGet(), d = IELTS, now = Date.now(), day = vbDay();
+  const due = Object.keys(v.cards).filter(k => v.cards[k].c && d[k] && new Date(v.cards[k].c.due).getTime() <= now)
+    .sort((a, b) => new Date(v.cards[a].c.due) - new Date(v.cards[b].c.due));
+  const want = Math.max(0, (v.cfg.n || 20) - day.n), fresh = [];
+  for (const k in v.cards) if (!v.cards[k].c && d[k] && fresh.length < want) fresh.push(k);
+  if (fresh.length < want) for (const k of vbPool(d)) { if (fresh.length >= want) break; if (!v.cards[k]) fresh.push(k); }
+  vbQ = { list: due.concat(fresh), i: 0, fresh: new Set(fresh), done: 0, ok: 0 };
+  if (!vbQ.list.length) return vbDone();
+  vbAsk();
+}
+function vbMode(k) {                                 // 题型：新词和不熟的词四选一；连续两次很快答对、或者已经比较稳的，改成听音拼写
+  const r = vbGet().cards[k];
+  return r && r.c && (r.fs >= 2 || r.c.stability >= 15) ? 'spell' : 'choice';
+}
+function vbSense(e) { const s = (e.s || [])[0] || ['', '']; return (s[0] ? s[0] + ' ' : '') + s[1]; }
+function vbOptions(k) {                              // 干扰项：同难度、同词性的其他词的意思
+  const d = IELTS, e = d[k], pos = ((e.s || [])[0] || [''])[0], ans = vbSense(e), out = new Set([ans]);
+  const same = [], near = [];
+  for (const w in d) { if (w === k) continue; const x = d[w], p = ((x.s || [])[0] || [''])[0]; if (p !== pos) continue; (x.c === e.c ? same : near).push(w); }
+  const pick = arr => { for (let t = 0; t < 40 && out.size < 4 && arr.length; t++) { const s = vbSense(d[arr[Math.floor(Math.random() * arr.length)]]); if (s && s.split(/[；;]/)[0] !== ans.split(/[；;]/)[0]) out.add(s); } };
+  pick(same); pick(near);
+  const opts = [...out]; for (let i = opts.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [opts[i], opts[j]] = [opts[j], opts[i]]; }
+  return { opts, ans };
+}
+function vbAu(k, kind) { const e = IELTS[k], a = e.a || 0, b = { uk: 1, us: 2, ex: 4, ex2: 8 }[kind]; return a & b ? IELTS_MEDIA + 'audio/' + kind + '/' + encodeURIComponent(e.i || k) + '.mp3' : ''; }
+function vbBar() { return '<div class="vbbar"><span style="width:' + Math.round(vbQ.i / vbQ.list.length * 100) + '%"></span></div><div class="note" style="text-align:right">' + (vbQ.i + 1) + ' / ' + vbQ.list.length + '</div>'; }
+function vbAsk() {
+  const k = vbQ.list[vbQ.i], e = IELTS[k], w = e.w || k, mode = vbMode(k);
+  vbQ.k = k; vbQ.mode = mode; vbQ.t0 = Date.now(); vbQ.answered = false;
+  const tag = vbQ.fresh.has(k) ? '<span class="ib">新词</span>' : '<span class="ilv">复习</span>';
+  if (mode === 'choice') {
+    const o = vbOptions(k); vbQ.ans = o.ans;
+    setFullscreenBody(vbBar() + '<div class="vbq">' + tag + '<div class="vbw">' + esc(w) + '</div><div class="vbph">' + esc(e.u || '') +
+      ' <button class="iconbtn" onclick="ieltsPlay(vbAu(vbQ.k,\'uk\'), vbQ.k)" aria-label="朗读">' + SPK_ON + '</button></div><div class="note">选出正确的意思</div></div>' +
+      '<div class="vbopts">' + o.opts.map((s, i) => '<button class="ghost" data-i="' + i + '" onclick="vbChoose(this)">' + esc(s) + '</button>').join('') + '</div>' +
+      '<div class="row" style="justify-content:space-between;margin-top:14px"><button class="link" onclick="vbAnswer(0)">不认识</button><button class="link" onclick="vbAnswer(4)">太简单，以后少出现</button></div>');
+    vbQ.opts = o.opts;
+  } else {
+    setFullscreenBody(vbBar() + '<div class="vbq">' + tag + '<div class="note" style="margin-top:8px">听发音，拼出这个词</div><div class="vbmean">' + esc(vbSense(e)) + '</div>' +
+      '<button class="ghost sm" onclick="ieltsPlay(vbAu(vbQ.k,\'uk\'), vbQ.k)">再听一遍</button></div>' +
+      '<input id="vbIn" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="在这里拼写" style="width:100%;margin-top:16px;font-size:20px!important;text-align:center" onkeydown="if(event.key===\'Enter\')vbSpell()">' +
+      '<button style="width:100%;margin-top:10px" onclick="vbSpell()">确定</button>' +
+      '<div class="row" style="justify-content:space-between;margin-top:14px"><button class="link" onclick="vbAnswer(0)">想不起来</button><button class="link" onclick="vbAnswer(4)">太简单，以后少出现</button></div>');
+    setTimeout(() => { const i = document.getElementById('vbIn'); if (i) i.focus(); }, 50);
+  }
+  ieltsPlay(vbAu(k, 'uk'), w);
+}
+function vbChoose(btn) { if (vbQ.answered) return; const ok = vbQ.opts[+btn.dataset.i] === vbQ.ans; btn.classList.add(ok ? 'vbok' : 'vbno'); vbAnswer(ok ? 1 : 0, btn); }
+function vbSpell() { if (vbQ.answered) return; const i = document.getElementById('vbIn'); const n = s => String(s || '').toLowerCase().replace(/[‘’]/g, "'").replace(/[\s\-]+/g, ' ').trim(); vbQ.typed = i ? i.value : ''; vbAnswer(n(vbQ.typed) && n(vbQ.typed) === n(IELTS[vbQ.k].w || vbQ.k) ? 1 : 0); }
+function vbAnswer(res, btn) {                        // res：0 不会/答错，1 答对，4 太简单 → 换算成 FSRS 的打分
+  if (vbQ.answered) return; vbQ.answered = true;
+  const v = vbGet(), k = vbQ.k, ms = Date.now() - vbQ.t0, rec = v.cards[k] || (v.cards[k] = {}), now = new Date();
+  let g, label;
+  if (res === 4) { g = FSRS.Rating.Easy; label = '很熟'; rec.fs = (rec.fs || 0) + 1; }
+  else if (!res) { g = FSRS.Rating.Again; label = '忘了'; rec.fs = 0; }
+  else if (ms > VB_SLOW_MS) { g = FSRS.Rating.Hard; label = '模糊（想了 ' + Math.round(ms / 1000) + ' 秒）'; rec.fs = 0; }
+  else { rec.fs = (rec.fs || 0) + 1; g = rec.fs >= 3 ? FSRS.Rating.Easy : FSRS.Rating.Good; label = g === FSRS.Rating.Easy ? '很熟' : '记得'; }
+  const wasNew = !rec.c;
+  rec.c = vbF.next(rec.c || FSRS.createEmptyCard(now), now, g).card;
+  if (wasNew) vbDay().n++;
+  const day = vbDay(); day.all = (day.all || 0) + 1; if (res) day.ok = (day.ok || 0) + 1;
+  vbQ.done++; if (res) vbQ.ok++;
+  if (!res && new Date(rec.c.due).getTime() - now.getTime() < 20 * 60000 && vbQ.list.slice(vbQ.i + 1).indexOf(k) < 0) vbQ.list.push(k);   // 答错的词这一轮里过一会儿再考一次
+  vbSave();
+  if (vbQ.mode === 'choice') document.querySelectorAll('.vbopts button').forEach(b => { b.disabled = true; if (vbQ.opts[+b.dataset.i] === vbQ.ans) b.classList.add('vbok'); });
+  vbReveal(res, label);
+}
+function vbReveal(res, label) {
+  const k = vbQ.k, e = IELTS[k], w = e.w || k, img = IELTS_MEDIA + 'img/' + encodeURIComponent(e.i || k) + '.webp', ex = (e.e || [])[0];
+  const days = Math.round((new Date(vbGet().cards[k].c.due) - Date.now()) / 86400000);
+  const when = days >= 1 ? days + ' 天后再复习' : '稍后再考一次';
+  const head = '<div class="vbres ' + (res ? 'ok' : 'no') + '">' + (res ? '✓ ' : '✗ ') + label + ' · ' + when + '</div>' +
+    (vbQ.mode === 'spell' && !res && vbQ.typed ? '<div class="note" style="text-align:center">你拼的是：' + esc(vbQ.typed) + '</div>' : '');
+  const card = '<div class="vbcard"><img src="' + img + '" alt="" onerror="this.remove()"><div class="vbw" style="font-size:28px">' + esc(w) + '</div>' +
+    '<div class="row" style="gap:6px;justify-content:center;margin:6px 0">' +
+    (vbAu(k, 'uk') ? '<button class="sm ghost" onclick="ieltsPlay(vbAu(vbQ.k,\'uk\'), vbQ.k)">英 ' + esc(e.u || '') + '</button>' : '') +
+    (vbAu(k, 'us') ? '<button class="sm ghost" onclick="ieltsPlay(vbAu(vbQ.k,\'us\'), vbQ.k)">美</button>' : '') + '</div>' +
+    '<div class="vbsenses">' + (e.s || []).map(s => '<div>' + esc(s[0] + ' ' + s[1]) + '</div>').join('') + '</div>' +
+    (ex ? '<div class="iex" onclick="ieltsPlay(vbAu(vbQ.k,\'ex\'), this.dataset.t)" data-t="' + esc(ex[0]) + '"><div>' + esc(ex[0]) + '</div><div class="note">' + esc(ex[1]) + '</div></div>' : '') +
+    (e.k && e.k.length ? '<div class="ik">' + e.k.slice(0, 3).map(c => esc(c.replace('｜', ' '))).join(' · ') + '</div>' : '') + '</div>';
+  const box = document.getElementById('fsBody');
+  box.insertAdjacentHTML('beforeend', '<div id="vbRev">' + head + card + '<button style="width:100%;margin-top:14px" onclick="vbNext()">下一个</button></div>');
+  const r = document.getElementById('vbRev'); if (r) r.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function vbNext() { vbQ.i++; if (vbQ.i >= vbQ.list.length) vbDone(); else vbAsk(); }
+function vbDone() {
+  const c = vbCounts(), v = vbGet(), learned = Object.values(v.cards).filter(r => r.c).length, day = vbDay();
+  let next = Infinity; for (const k in v.cards) if (v.cards[k].c) next = Math.min(next, new Date(v.cards[k].c.due).getTime());
+  const nextTxt = next === Infinity ? '' : next <= Date.now() ? '还有词到期，可以继续' : '下一批复习：' + new Date(next).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  setFullscreenBody('<div class="vbq"><img src="./logo.svg" alt="" style="width:72px;height:72px"><h3 style="margin:12px 0 4px">' + (vbQ && vbQ.done ? '今天的任务完成了' : '今天没有要背的词') + '</h3>' +
+    '<div class="note">' + (vbQ && vbQ.done ? '这一轮答了 ' + vbQ.done + ' 题，答对 ' + vbQ.ok + ' 题。' : '') + '今天学了 ' + day.n + ' 个新词；累计学过 ' + learned + ' 个词。</div>' +
+    (nextTxt ? '<div class="note" style="margin-top:6px">' + nextTxt + '</div>' : '') + '</div>' +
+    (c.due ? '<button style="width:100%;margin-top:16px" onclick="vbStart()">继续复习（' + c.due + ' 个）</button>' : '') +
+    '<button class="ghost" style="width:100%;margin-top:10px" onclick="vbExtra()">再学 10 个新词</button>' +
+    '<button class="ghost" style="width:100%;margin-top:10px" onclick="vbSetup()">换难度 / 话题 / 每天数量</button>' +
+    '<div class="isrc" style="text-align:center;margin-top:16px">词库、插图与录音来自 Word Atlas contributors · CC BY 4.0；复习算法 FSRS（ts-fsrs，MIT）</div>');
+}
+function vbExtra() { const v = vbGet(); vbDay(); v.day.n = Math.max(0, v.day.n - 10); vbSave(); vbStart(); }
+async function vbAddWord(k) {                        // 读书时查到的雅思词，一键加进背单词（明天起和新词一起出现，优先于词库顺序）
+  const v = vbGet(); if (v.cards[k]) { toast('这个词已经在背单词里了'); return; }
+  v.cards[k] = { add: Date.now() }; vbSave();
+  const b = document.getElementById('vbAddBtn'); if (b) { b.textContent = '✓ 已加入背单词'; b.disabled = true; }
+  toast('已加入背单词，下次背单词时会先学它');
+}
 /* ---------- 弹窗与工具 ---------- */
 /* ---------- 全屏练习页面（听写 / 句子重组 / 跟读打分） ---------- */
 let fsSpeechRec = null;
@@ -3248,6 +3423,7 @@ function closeFullscreen() {
   const m = document.getElementById('fsModal');
   m.classList.remove('show'); m.hidden = true;
   document.body.style.overflow = '';
+  if (!state) try { render(); } catch (e) {}          // 背单词回来后刷新首页上的今日任务数
 }
 function fsOpen() { return document.getElementById('fsModal').classList.contains('show'); }
 
@@ -3523,7 +3699,7 @@ function openToc(query) {
   const toc = getToc(), items = toc.items, cur = tocIndexFor(state.idx), total = state.sentences.length;
   tocQuery = typeof query === 'string' ? query : '';
   const inputStyle = 'border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--pop);color:var(--ink);font-family:inherit';
-  let html = '<h3 style="margin:0 0 6px">📑 目录</h3>';
+  let html = '<h3 style="margin:0 0 6px">' + ic('list') + '目录</h3>';
   html += '<div class="row" style="margin-bottom:8px"><input type="text" id="jumpSearch" placeholder="搜索句子里的英文…" value="' + esc(tocQuery) + '" style="flex:1;min-width:0;' + inputStyle + '" onkeydown="if(event.key===\'Enter\')doJumpSearch()"><button class="sm" onclick="doJumpSearch()">搜索</button></div>';
   html += '<div class="row" style="margin-bottom:10px;flex-wrap:wrap">' +
     (toc.kind === 'page' ? '<input type="number" id="tocPage" min="1" placeholder="页码" style="width:84px;' + inputStyle + '" onkeydown="if(event.key===\'Enter\')tocGoPage()"><button class="ghost sm" onclick="tocGoPage()">跳到这一页</button>' : '') +
@@ -3734,12 +3910,12 @@ function openPageView(ci) {
   pgCancel(); pgPlayStop();                      // 换页时先停掉上一页还没翻完的任务和正在播放的声音
   pgCi = ci; pgS = s; pgE = e;
   const it = toc.items[ci];
-  let html = '<h3 style="margin:0 0 4px">📄 整页翻译</h3>';
+  let html = '<h3 style="margin:0 0 4px">' + ic('file') + '整页翻译</h3>';
   html += '<div class="note" style="margin-bottom:8px">' + esc(pgItemLabel(it, toc)) + (e > s ? '（共 ' + (e - s) + ' 句）' : '') + '。点句首的 ▶ 朗读整句，点单词直接发音并查词，点“精读”回到主界面读这一句。</div>';
   html += '<div class="row" style="margin-bottom:6px">' +
     '<button class="ghost sm" ' + (ci > 0 ? 'onclick="openPageView(' + (ci - 1) + ')"' : 'disabled') + '>◀ 上一页</button>' +
     '<button class="ghost sm" ' + (ci < toc.items.length - 1 ? 'onclick="openPageView(' + (ci + 1) + ')"' : 'disabled') + '>下一页 ▶</button>' +
-    (pgNeedsTranslate(s, e) ? '<button id="pgTransBtn" onclick="pgStartTranslate()">🌐 翻译整页</button>' : '') +
+    (pgNeedsTranslate(s, e) ? '<button id="pgTransBtn" onclick="pgStartTranslate()">翻译整页</button>' : '') +
     '</div>';
   html += '<div id="pgProgress" class="note" style="min-height:18px"></div>';
   if (e <= s) html += '<div class="note">这一页没有可显示的文字（可能只有图片或中文）。</div>';
@@ -3756,11 +3932,11 @@ function openPageView(ci) {
   }
 }
 async function pgStartTranslate(auto) {
-  if (pgRunning) { pgCancel(); const b = document.getElementById('pgTransBtn'); if (b) b.textContent = '🌐 翻译整页'; return; }   // 再点一下 = 停止
+  if (pgRunning) { pgCancel(); const b = document.getElementById('pgTransBtn'); if (b) b.textContent = '翻译整页'; return; }   // 再点一下 = 停止
   const s = pgS, e = pgE, count = e - s;
   if (!auto && count > 150 && !confirm('这一页有 ' + count + ' 句，翻译可能需要几分钟，确定要继续吗？')) return;
   const my = ++pgJobId; pgRunning = true;
-  const btn = document.getElementById('pgTransBtn'); if (btn) btn.textContent = '⏹ 停止翻译';
+  const btn = document.getElementById('pgTransBtn'); if (btn) btn.textContent = '停止翻译';
   let done = 0, total = 0, fails = 0, lastErr = '';
   for (let i = s; i < e; i++) if (!bookZh(i) && !(state.cache[i] && state.cache[i].translation)) total++;
   const setProg = () => { const p = document.getElementById('pgProgress'); if (p) p.textContent = total ? '已翻译 ' + done + ' / ' + total + ' 句…' : ''; };
@@ -3775,7 +3951,7 @@ async function pgStartTranslate(auto) {
     const z = document.getElementById('pgz-' + i); if (z) z.innerHTML = pgTransHtml(i);
     if (fails >= 3) {                                            // 连续失败 3 句：多半是网络或翻译服务的问题，别一句句傻等超时
       pgRunning = false;
-      const b = document.getElementById('pgTransBtn'); if (b) b.textContent = '🌐 重试翻译';
+      const b = document.getElementById('pgTransBtn'); if (b) b.textContent = '重试翻译';
       const p = document.getElementById('pgProgress'); if (p) p.textContent = '翻译服务暂时连不上（' + lastErr + '），已停止。稍后点“重试翻译”。';
       return;
     }
@@ -3794,13 +3970,13 @@ function render() {
 
   if (!state) {
     app.innerHTML = header + shelfHtml() +
-      '<div class="hometip"><b>怎么学：</b>打开一份材料，一句一句读 → 不认识的词点一下就能查 → 点“🎙 跟读”读一遍，马上给你的发音打分。<br>' +
+      '<div class="hometip"><b>怎么学：</b>打开一份材料，一句一句读 → 不认识的词点一下就能查 → 点“跟读”读一遍，马上给你的发音打分。<br>' +
       '<span class="sub" style="font-size:13px">查词、语法讲解、跟读录音不联网也能用；整句翻译和发音打分需要联网。' +
       (dictInfo && dictInfo.count ? '离线大词典已就绪（' + dictInfo.count.toLocaleString() + ' 词条）。' : '离线大词典会在联网时自动后台下载。') + '</span></div>';
     return;
   }
   if (state.idx >= state.sentences.length) {
-    app.innerHTML = header + '<div class="card finish"><div style="font-size:40px">🎉</div>' + (isSample(state.bookId) ? '<h2>体验到这里结束啦</h2><div class="sub">喜欢的话，解锁完整内容接着往下学，读到哪里都会记着。</div><button style="margin-top:16px" onclick="closeBook();openStoryCity().then(()=>scBuy(\'' + esc(state.bookId.slice(6)) + '\'))">解锁完整内容</button> <button class="ghost" style="margin-top:16px" onclick="closeBook()">回我的学习</button>' : '<h2>全部读完了！</h2><div class="sub">共 ' + state.sentences.length + ' 句。</div><button style="margin-top:16px" onclick="closeBook()">回我的学习</button>') + '</div>';
+    app.innerHTML = header + '<div class="card finish"><img src="./logo.svg" alt="" style="width:64px;height:64px">' + (isSample(state.bookId) ? '<h2>体验到这里结束啦</h2><div class="sub">喜欢的话，解锁完整内容接着往下学，读到哪里都会记着。</div><button style="margin-top:16px" onclick="closeBook();openStoryCity().then(()=>scBuy(\'' + esc(state.bookId.slice(6)) + '\'))">解锁完整内容</button> <button class="ghost" style="margin-top:16px" onclick="closeBook()">回我的学习</button>' : '<h2>全部读完了！</h2><div class="sub">共 ' + state.sentences.length + ' 句。</div><button style="margin-top:16px" onclick="closeBook()">回我的学习</button>') + '</div>';
     return;
   }
   const pct = Math.round(state.idx / state.sentences.length * 100);
@@ -3828,9 +4004,9 @@ function render() {
 
   const recs = pronHtml() + ((recView.key === recKey() && recView.urls.length)
     ? '<div class="note" style="margin-top:10px">我的录音（最近 3 次，点 ▶ 听自己的，点那一行看那次的分数）：</div>' + recRowsHtml() +
-      '<div class="recbar"><button class="ghost sm" id="cmpbtn" onclick="recCompare(0)">' + (cmpOn ? '⏹ 停止对比' : '🔁 对比听（原声 → 我的）') + '</button></div>' +
+      '<div class="recbar"><button class="ghost sm" id="cmpbtn" onclick="recCompare(0)">' + (cmpOn ? '停止对比' : '对比听（原声 → 我的）') + '</button></div>' +
       '<button class="link" onclick="deleteRecs()">删除这句的录音</button>'
-    : '<div class="note" style="margin-top:10px">点“🎙 跟读”录下自己读这一句，读完点“■ 停止”，会自动给你的发音打分，录音保存在本机，可以和原音对比。</div>');
+    : '<div class="note" style="margin-top:10px">点“跟读”录下自己读这一句，读完点“■ 停止”，会自动给你的发音打分，录音保存在本机，可以和原音对比。</div>');
 
   // “更多练习”（听写 / 句子重组 / 跟读打分）已从界面撤下；功能代码还在，想恢复时把下面这行改回按钮即可
   const practiceHtml = '';
@@ -3854,8 +4030,8 @@ function render() {
     '<div class="bctl">' +
       '<div class="row onerow">' +
           voiceSelectHtml() +
-          '<button class="' + (isSlow() ? 'sm rateslow' : 'ghost sm') + '" onclick="cycleRate()" aria-label="' + (isSlow() ? '现在是慢速，点一下改回正常' : '现在是正常速度，点一下改成慢速') + '" title="' + (rateIgnored[voiceKeyNow()] ? '这个声音不支持调速' : '点一下切换正常 / 慢速') + '">' + (isSlow() ? '🐢 慢速' : '🐇 正常') + (rateIgnored[voiceKeyNow()] ? ' ⚠' : '') + '</button>' +
-          '<button class="recbtn ' + (rec.on ? 'on' : '') + '" onclick="toggleRecord()">' + (rec.on ? '■ 停止 <span id="recTime">0.0 秒</span>' : recWait ? '⏳ 正在打开麦克风…' : '🎙 跟读') + '</button>' +
+          '<button class="' + (isSlow() ? 'sm rateslow' : 'ghost sm') + '" onclick="cycleRate()" aria-label="' + (isSlow() ? '现在是慢速，点一下改回正常' : '现在是正常速度，点一下改成慢速') + '" title="' + (rateIgnored[voiceKeyNow()] ? '这个声音不支持调速' : '点一下切换正常 / 慢速') + '">' + (isSlow() ? ic('snail') + '慢速' : ic('rabbit') + '正常') + (rateIgnored[voiceKeyNow()] ? ' ⚠' : '') + '</button>' +
+          '<button class="recbtn ' + (rec.on ? 'on' : '') + '" onclick="toggleRecord()">' + (rec.on ? '■ 停止 <span id="recTime">0.0 秒</span>' : recWait ? ic('wait') + '正在打开麦克风…' : ic('mic') + '跟读') + '</button>' +
         '</div>' + '</div>' +
     '<div class="bbin">' +
       '<button class="ghost" onclick="prevSentence()" ' + (state.idx > 0 && !rec.on ? '' : 'disabled') + '>上一句</button>' +
@@ -3879,18 +4055,18 @@ siteHit(); document.addEventListener('visibilitychange', () => { if (document.vi
 const hm = ts => { const d = new Date(ts); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
 async function visitsPop() {
   if (!azReady()) { setScStatus('请先在“帮助”里解锁开发者模式'); return; }
-  showPop('<h3 style="margin:0 0 6px">📊 访问统计</h3><div class="note">正在读取…</div>');
-  const r = await devAdmin('/admin/visits?days=30'); if (!r.ok) { showPop('<h3 style="margin:0 0 6px">📊 访问统计</h3><div class="note" style="color:#b94a48">' + esc(r.msg) + '</div>'); return; }
+  showPop('<h3 style="margin:0 0 6px">' + ic('chart') + '访问统计</h3><div class="note">正在读取…</div>');
+  const r = await devAdmin('/admin/visits?days=30'); if (!r.ok) { showPop('<h3 style="margin:0 0 6px">' + ic('chart') + '访问统计</h3><div class="note" style="color:#b94a48">' + esc(r.msg) + '</div>'); return; }
   const j = await r.res.json(), tot = (j.days.find(x => x.total != null) || {}).total || 0, ds = j.days.filter(x => x.date);
-  showPop('<h3 style="margin:0 0 6px">📊 访问统计</h3><div class="note">一台设备算一个人（App 没有登录，只能看到匿名设备）。累计 <b>' + tot + '</b> 台设备。点某一天看明细。</div>' +
+  showPop('<h3 style="margin:0 0 6px">' + ic('chart') + '访问统计</h3><div class="note">一台设备算一个人（App 没有登录，只能看到匿名设备）。累计 <b>' + tot + '</b> 台设备。点某一天看明细。</div>' +
     '<table style="width:100%;margin-top:10px;border-collapse:collapse;font-size:14px"><tr class="note"><td>日期</td><td>人数</td><td>新增</td><td>打开次数</td></tr>' +
     (ds.length ? ds.map(x => '<tr onclick="visitsDay(\'' + x.date + '\')" style="cursor:pointer;border-top:1px solid var(--line,#ddd)"><td style="padding:8px 0">' + x.date.slice(5) + '</td><td><b>' + x.devices + '</b></td><td>' + x.newDevices + '</td><td>' + x.hits + '</td></tr>').join('') : '<tr><td colspan="4" class="note" style="padding:12px 0">还没有记录。</td></tr>') + '</table>');
 }
 async function visitsDay(date) {
-  showPop('<h3 style="margin:0 0 6px">📊 ' + esc(date) + '</h3><div class="note">正在读取…</div>');
+  showPop('<h3 style="margin:0 0 6px">' + ic('chart') + '' + esc(date) + '</h3><div class="note">正在读取…</div>');
   const r = await devAdmin('/admin/visits?date=' + date); if (!r.ok) { showPop('<div class="note" style="color:#b94a48">' + esc(r.msg) + '</div>'); return; }
   const j = await r.res.json();
-  showPop('<h3 style="margin:0 0 6px">📊 ' + esc(date) + '　' + j.list.length + ' 台设备</h3><div class="row" style="margin:6px 0"><button class="ghost sm" onclick="visitsPop()">‹ 返回</button></div>' +
+  showPop('<h3 style="margin:0 0 6px">' + ic('chart') + '' + esc(date) + '　' + j.list.length + ' 台设备</h3><div class="row" style="margin:6px 0"><button class="ghost sm" onclick="visitsPop()">‹ 返回</button></div>' +
     j.list.map(x => '<div style="padding:8px 0;border-top:1px solid var(--line,#ddd);font-size:14px"><b>' + esc(x.dv) + ' · ' + esc(x.br) + '</b>' + (x.isNew ? ' <span style="color:#d9822b">新用户</span>' : ' <span class="note">第 ' + x.days + ' 天来</span>') + (x.pwa ? ' <span class="note">已装到桌面</span>' : '') +
       '<div class="note">编号 ' + esc(x.id) + ' · 网段 ' + esc(x.ip) + ' · 最近 ' + hm(x.l) + ' · 打开 ' + x.n + ' 次 · ' + esc(x.v) + '</div></div>').join(''));
 }
