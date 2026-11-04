@@ -70,6 +70,7 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .sentence{font-family:var(--serif);font-size:30px;line-height:1.6;margin:20px 0 14px;font-weight:400;letter-spacing:.1px}
 .sentence .w{cursor:pointer;border-bottom:1.5px dotted var(--accent);padding:0 1px;border-radius:3px}
 .sentence .w:hover{background:var(--pop)}
+.sentence .w.iw,.pgsent .w.iw{border-bottom:2.5px solid var(--accent)}.sentence .w.iw.mine,.pgsent .w.iw.mine{background:var(--soft)}
 .pgsent .w{cursor:pointer;border-bottom:1.5px dotted var(--accent);padding:0 1px;border-radius:3px}
 .pgsent .w:hover{background:var(--pop)}
 .shelfbar{display:flex;align-items:center;justify-content:space-between;margin:6px 2px 16px}
@@ -283,7 +284,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.11.04-164';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.11.04-165';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -532,7 +533,7 @@ function shelfHtml() {
       '<div class="cover" style="background:' + coverColor(b.id) + '"><span>' + esc(b.title || '') + '</span>' +
       (b.sample ? '<i class="done" style="background:#6f9fd8">试读</i>' : done ? '<i class="done">读完</i>' : '') +
       (sel ? '<i class="chk">' + (on ? '✓' : '') + '</i>' : '') + '</div>' +
-      '<div class="bs">' + (done ? '100%' : status || '&nbsp;') + '</div></div>';
+      '<div class="bs">' + (done ? '100%' : status || '&nbsp;') + (b.iw ? ' · ' + b.iw + ' 雅思词' : '') + '</div></div>';
   }).join('') + '</div>';
   if (sel) html += '<div class="selbar"><span class="note">已选 ' + sel.size + ' 个</span><button ' + (sel.size ? '' : 'disabled ') + 'style="background:#b94a48" onclick="deleteSelectedBooks()">删除</button></div>';
   return html;
@@ -2918,6 +2919,34 @@ function ieltsFind(raw, res) {
   for (const k of keys) if (k && IELTS[k]) return { k, e: IELTS[k] };
   return null;
 }
+/* 读书时标出雅思词（B1 及以上）：实线下划线 = 雅思词；浅色底 = 已经加进背单词的词。可以在右上角“···”里关掉 */
+const IW_CACHE = new Map();
+function iwOn() { try { return localStorage.getItem('sr_ielts_hl') !== '0'; } catch (e) { return true; } }
+function iwKey(w) {                                 // 单词（含变形）对应的雅思词头；不是雅思词返回 ''
+  if (!IELTS) return '';
+  const lw = String(w).toLowerCase().replace(/[’‘]/g, "'");
+  if (IW_CACHE.has(lw)) return IW_CACHE.get(lw);
+  let k = IELTS[lw] ? lw : '';
+  if (!k && window.EG) try { for (const c of EG.lemmaCandidates(lw)) if (IELTS[c.w]) { k = c.w; break; } } catch (e) {}
+  IW_CACHE.set(lw, k); return k;
+}
+function iwCls(w) {
+  if (!iwOn()) return '';
+  if (!IELTS) { if (!ieltsP && navigator.onLine !== false) ieltsLoad().then(d => { if (d && state) { render(); iwCount(); } }); return ''; }
+  const k = iwKey(w); if (!k) return '';
+  const mine = !!vbGet().cards[k];
+  if (!mine && !iwBig(k)) return '';             // A1/A2 基础词（in、small 之类）不标，免得满屏都是线
+  return ' iw' + (mine ? ' mine' : '');
+}
+function iwBig(k) { const c = IELTS[k] && IELTS[k].c; return c && c !== 'A1' && c !== 'A2'; }
+function iwCount() {                                // 统计这本书一共有多少个不同的雅思词，记在书架上（只算一次）
+  if (!state || !IELTS) return;
+  const l = shelfGet(), b = l.find(x => x.id === state.bookId); if (!b || b.iwv === 2) return;
+  const seen = new Set(), sents = state.sentences || [];
+  for (const sn of sents) for (const t of String(sn).split(/[^A-Za-z'’\-]+/)) { if (!t) continue; const k = iwKey(t); if (k && iwBig(k)) seen.add(k); }
+  b.iw = seen.size; b.iwv = 2; shelfSet(l);
+}
+function toggleIw() { const on = !iwOn(); try { localStorage.setItem('sr_ielts_hl', on ? '1' : '0'); } catch (e) {} toast(on ? '已打开雅思词标记' : '已关闭雅思词标记'); render(); }
 let ieltsAu = null;
 function ieltsPlay(url, fallback) {                 // 词光的真人风格录音；没有或播放失败时改用系统朗读
   try { stopSpeech(); } catch (e) {}
@@ -3483,6 +3512,7 @@ function openMoreMenu() {
   showPop('<div class="menulist">' +
     it('openDictSettings()', '词典', '') +
     it('openGrammarDict()', '语法字典', '') +
+    it('toggleIw()', '雅思词标记', iwOn() ? '已打开' : '已关闭') +
     it('openHelp()', '帮助与反馈', '') + '</div>');
 }
 function showPop(html) {
@@ -3508,7 +3538,7 @@ function renderSentenceHTML(sentence) {
     const core = m[2], s0 = start + m[1].length;
     const i = curTokens.push(core) - 1;
     curTokenPos.push({ start: s0, end: s0 + core.length });
-    return esc(m[1]) + '<span class="w" data-i="' + i + '" tabindex="0" role="button" onclick="wordClick(' + i + ',this)" onkeydown="if(event.key===\'Enter\')wordClick(' + i + ',this)">' + esc(core) + '</span>' + esc(m[3]);
+    return esc(m[1]) + '<span class="w' + iwCls(core) + '" data-i="' + i + '" tabindex="0" role="button" onclick="wordClick(' + i + ',this)" onkeydown="if(event.key===\'Enter\')wordClick(' + i + ',this)">' + esc(core) + '</span>' + esc(m[3]);
   }).join('');
 }
 
@@ -3821,7 +3851,7 @@ function pgWordsHtml(idx) {
     if (!tok || /^\s+$/.test(tok)) return tok;
     if (!/[A-Za-z]/.test(tok)) return esc(tok);
     const m = /^([^A-Za-z0-9]*)(.*[A-Za-z0-9])([^A-Za-z0-9]*)$/.exec(tok) || ['', '', tok, ''];   // 标点放在单词按钮外面
-    return esc(m[1]) + '<span class="w" data-k="' + (k++) + '" data-t="' + esc(m[2]) + '" data-s="' + idx + '" tabindex="0" role="button" onclick="wordClick(0,this)" onkeydown="if(event.key===\'Enter\')wordClick(0,this)">' + esc(m[2]) + '</span>' + esc(m[3]);
+    return esc(m[1]) + '<span class="w' + iwCls(m[2]) + '" data-k="' + (k++) + '" data-t="' + esc(m[2]) + '" data-s="' + idx + '" tabindex="0" role="button" onclick="wordClick(0,this)" onkeydown="if(event.key===\'Enter\')wordClick(0,this)">' + esc(m[2]) + '</span>' + esc(m[3]);
   }).join('');
 }
 function pgRowHtml(idx) {
@@ -4014,6 +4044,7 @@ async function pgStartTranslate(auto) {
 /* ---------- 界面 ---------- */
 function render() {
   closeWordPop();
+  if (state && IELTS && iwOn()) setTimeout(iwCount, 300);
   const app = document.getElementById('app');
   const header = '<div class="topbar"><div class="tbin"><div>' + (state ? '<button class="iconbtn" aria-label="回我的学习" onclick="closeBook()" style="font-size:15px;margin-left:-8px">‹ 我的学习</button>' : '<h1>' + logoHtml('logo') + '一句一读</h1>') + '</div>' +
     '<div class="tools">' + (state ? '<button class="iconbtn" aria-label="整页翻译" onclick="openPageView()">整页翻译</button><button class="iconbtn" aria-label="目录" onclick="openToc()">目录</button>' : '') + '<button class="iconbtn" aria-label="更多" onclick="openMoreMenu()" style="font-size:22px;letter-spacing:1px;padding-bottom:6px">···</button></div></div></div>';

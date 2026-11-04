@@ -163,6 +163,42 @@ function unzipBuf(buf) {
   }
   return out;
 }
+// ---- 每本书含多少个雅思词（B1 及以上）：书单里显示“含 XX 个雅思词”。和手机书架上的算法一样（同一份 grammar.js 还原词形、同一份 ielts/words.json），
+//      按书文件的修改时间缓存，书更新了会重算。网站目录里没有词库时不显示，不影响书单 ----
+const SITE_DIR = process.env.SITE_DIR || '/var/www/sentence-reader';
+const IW = { ok: null, failAt: 0, cache: new Map(), lem: new Map() };
+function iwInit() {
+  if (IW.ok) return true;
+  if (IW.ok === false && Date.now() - IW.failAt < 600000) return false;   // 失败了 10 分钟后再试（比如词库还没传上来）
+  try {
+    const vm = require('vm'), ctx = { window: {} }; ctx.self = ctx.window; vm.createContext(ctx);
+    vm.runInContext(fs.readFileSync(path.join(SITE_DIR, 'grammar.js'), 'utf8'), ctx);
+    const words = JSON.parse(fs.readFileSync(path.join(SITE_DIR, 'ielts', 'words.json'), 'utf8'));
+    IW.EG = ctx.window.EG; IW.words = words; IW.ok = !!(IW.EG && IW.EG.lemmaCandidates);
+  } catch (e) { IW.ok = false; IW.failAt = Date.now(); console.error('雅思词统计暂不可用：' + e.message); }
+  return IW.ok;
+}
+function iwKey(w) {
+  if (IW.lem.has(w)) return IW.lem.get(w);
+  let k = IW.words[w] ? w : '';
+  if (!k) try { for (const c of IW.EG.lemmaCandidates(w)) if (IW.words[c.w]) { k = c.w; break; } } catch (e) {}
+  if (IW.lem.size > 200000) IW.lem.clear();
+  IW.lem.set(w, k); return k;
+}
+function iwOf(it) {
+  try {
+    if (!iwInit()) return 0;
+    const f = it.file && it.file.startsWith('api:files/') ? path.join(SHOP_FILES, it.file.slice(10)) : it.file && it.file.startsWith('stories/') ? path.join(SITE_DIR, it.file) : path.join(SHOP_PRIV, it.id + '.srbook');
+    const st = fs.statSync(f), ck = f + ':' + st.mtimeMs, hit = IW.cache.get(it.id);
+    if (hit && hit.ck === ck) return hit.n;
+    const ent = unzipBuf(fs.readFileSync(f)).find(e => e.name === 'book.txt'), seen = new Set();
+    if (ent) for (const t of ent.data.toString('utf8').toLowerCase().replace(/[’‘]/g, "'").split(/[^a-z'\-]+/)) {
+      if (!t) continue; const k = iwKey(t), c = k && IW.words[k].c; if (c && c !== 'A1' && c !== 'A2') seen.add(k);
+    }
+    IW.cache.set(it.id, { ck, n: seen.size }); return seen.size;
+  } catch (e) { return 0; }
+}
+function catalogOut() { const j = shopRead(); return { ...j, items: (j.items || []).map(it => { const n = iwOf(it); return n ? { ...it, iw: n } : it; }) }; }
 const crcT = (() => { const t = []; for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
 const crc32 = b => { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = crcT[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
 function zipStore(files) {
@@ -420,7 +456,7 @@ function readBodyBuf(req, limit) {
 async function shopRoutes(req, res) {
   const url = req.url.split('?')[0];
   const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
-  if (req.method === 'GET' && url === '/catalog') { res.writeHead(200, { ...pubHead, 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(shopRead())); return true; }
+  if (req.method === 'GET' && url === '/catalog') { res.writeHead(200, { ...pubHead, 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(catalogOut())); return true; }
   if (req.method === 'GET' && url === '/zl/catalog') {  // 声音和句数实时算（点播录音后会变），15 秒内复用上一次结果
     if (!zlLive.at || Date.now() - zlLive.at > 15000) { const j = zlRead(); zlLive.v = JSON.stringify({ items: j.items.map(it => { const vs = zlVoices(it.id, it); return { ...it, voices: vs, clips: vs[0].clips }; }) }); zlLive.at = Date.now(); }
     res.writeHead(200, { ...pubHead, 'Content-Type': 'application/json; charset=utf-8' }); res.end(zlLive.v); return true;
