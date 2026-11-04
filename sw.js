@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sentence-reader-v165';
+const CACHE_NAME = 'sentence-reader-v167';
 const PRECACHE = [
   './', './index.html', './split.js', './dict-basic.js', './grammar.js', './manifest.json', './icon-192.png', './icon-512.png', './logo.svg', './logo-day.svg',
   './lib/jszip.min.js', './lib/ts-fsrs.min.js', './lib/pdf.min.js', './lib/pdf.worker.min.js'

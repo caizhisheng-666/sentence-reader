@@ -794,6 +794,11 @@ async function shopRoutes(req, res) {
       const j = codesRead(), c = normCode(m[1]); if (!j.codes[c]) return out(404, { error: 'not-found' });
       j.codes[c].revoked = true; codesWrite(j); return out(200, { ok: true });
     }
+    if (url === '/admin/devdoc') {                       // 开发者使用说明：存在服务器私有目录（不在公开的 GitHub 仓库里），只有带后台口令才能看、能改
+      const f = path.join(SHOP_DIR, 'devdoc.md');
+      if (req.method === 'GET') { if (!fs.existsSync(f)) return out(404, { error: 'no-doc' }); res.writeHead(200, { ...hd, 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(fs.readFileSync(f)); return true; }
+      if (req.method === 'PUT') { const b = await readBody(req, 2 * 1048576); fs.mkdirSync(SHOP_DIR, { recursive: true }); fs.writeFileSync(f + '.tmp', b); fs.renameSync(f + '.tmp', f); return out(200, { ok: true, bytes: b.length }); }
+    }
     if (req.method === 'POST' && url === '/admin/item') {
       const it = cleanItem(JSON.parse(await readBody(req, 20000))); if (!it) return out(400, { error: 'bad-item' });
       const j = shopRead(); const k = j.items.findIndex(x => x.id === it.id); if (k >= 0 && !it.voices && j.items[k].voices) it.voices = j.items[k].voices;   // 在开发者页改书名、价格时，别把录好的男声弄丢

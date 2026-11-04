@@ -219,6 +219,9 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .iex{margin-top:8px;font-size:14px;line-height:1.5;cursor:pointer}
 .iexs{margin-top:10px;padding-top:6px;border-top:1px solid var(--line)}
 .isrc{margin-top:8px;font-size:11px;color:var(--sub)}
+.mddoc{font-size:15px;line-height:1.75}.mdh{margin:22px 0 8px}h3.mdh{font-size:20px}h4.mdh{font-size:17px}h5.mdh{font-size:15px}.mdp{margin:8px 0}.mdl{margin:6px 0;padding-left:22px}.mdl li{margin:3px 0}
+.mddoc code{font-size:.9em;background:var(--soft);padding:1px 5px;border-radius:5px;word-break:break-all}.mdpre{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;overflow-x:auto;font-size:12.5px;line-height:1.5;white-space:pre}
+.mdtbl{overflow-x:auto;margin:8px 0}.mdtbl table{border-collapse:collapse;font-size:13.5px;min-width:100%}.mdtbl th,.mdtbl td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}.mdtbl th{background:var(--soft)}.mdhr{border:none;border-top:1px solid var(--line);margin:18px 0}.mdq{border-left:3px solid var(--accent);padding-left:10px;border-radius:0}
 .lg-night{display:none!important}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .lg-day{display:none!important}:root:not([data-theme="light"]) .lg-night{display:inline-block!important}}
 :root[data-theme="dark"] .lg-day{display:none!important}:root[data-theme="dark"] .lg-night{display:inline-block!important}
@@ -284,7 +287,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.11.04-165';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.11.05-167';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2318,7 +2321,7 @@ const LV_CN = { A1: 'A1 入门', A2: 'A2 初级', B1: 'B1 中级', B2: 'B2 中�
 function lvLabel(l) { const m = /\b([ABC][12])\b/i.exec(String(l || '')); return m ? LV_CN[m[1].toUpperCase()] : String(l || '').trim(); }   // 难度标签统一写成“B2 中高级”
 function scCard(it, owned) {
   const have = owned.has('story-' + it.id), free = !it.price;
-  const meta = [lvLabel(it.level), it.count ? it.count + ' 句' : '', it.voice ? '含自然语音' : ''].filter(Boolean).join(' · ');
+  const meta = [lvLabel(it.level), it.count ? it.count + ' 句' : '', it.voice ? '含自然语音' : '', it.iw ? '含 ' + it.iw + ' 个雅思词' : ''].filter(Boolean).join(' · ');
   const prev = (it.preview || []).map(p => '<div style="margin:6px 0"><div>' + esc(p.en || '') + '</div><div class="note">' + esc(p.zh || '') + '</div></div>').join('');
   return '<div class="card" style="display:flex;gap:12px;margin-bottom:10px;padding:12px">' + storyBuddy(it, have) +
     '<div style="flex:1;min-width:0"><div style="font-size:16px;color:var(--ink)">' + esc(it.title) + (it.titleZh ? ' <span class="note">' + esc(it.titleZh) + '</span>' : '') + '</div>' +
@@ -2643,12 +2646,48 @@ function openNaturalSettings() {
     '<div class="row"><button onclick="azTest()">保存并试听</button><button class="ghost" onclick="azSaveClose()">保存并关闭</button></div>' +
     '<div id="azStatus" class="note" style="margin-top:10px;min-height:20px"></div>' +
     '<div id="azStats" class="note" style="margin-top:6px"></div>' +
-    '<div class="row" style="margin-top:8px"><button class="ghost sm" onclick="azLock();closePop()">' + ic('lock') + '立即锁定</button><button class="ghost sm" onclick="azClearCacheBtn()">清空语音缓存</button><button class="ghost sm" onclick="azExitDev()">退出开发者模式</button></div>' +
+    '<div class="row" style="margin-top:8px"><button class="ghost sm" onclick="azLock();closePop()">' + ic('lock') + '立即锁定</button><button class="ghost sm" onclick="azClearCacheBtn()">清空语音缓存</button><button class="ghost sm" onclick="azExitDev()">退出开发者模式</button><button class="sm" onclick="closePop();openDevDoc()">' + ic('book') + '开发者使用说明</button></div>' +
     '<div class="note" style="margin-top:10px">费用：免费档每月 50 万字符免费（约 6000 句）；每句只生成一次，之后用缓存，不再计费。用量请在 Azure 门户里查看。</div>'
   );
   azRefreshStats();
 }
 
+/* ---------- 开发者使用说明：存在服务器私有目录，带后台口令才能取；只在开发者模式解锁后可见 ---------- */
+function mdHtml(md) {                                // 够用的 Markdown：标题、列表、表格、代码块、粗体、行内代码、链接
+  const inl = t => esc(t).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/(https?:\/\/[^\s<)，。]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  const L = String(md || '').replace(/\r/g, '').split('\n'), out = []; let i = 0;
+  while (i < L.length) {
+    const l = L[i];
+    if (/^```/.test(l)) { const b = []; i++; while (i < L.length && !/^```/.test(L[i])) b.push(L[i++]); i++; out.push('<pre class="mdpre">' + esc(b.join('\n')) + '</pre>'); continue; }
+    if (/^\|/.test(l)) { const rows = []; while (i < L.length && /^\|/.test(L[i])) rows.push(L[i++]); const cells = r => r.replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+      out.push('<div class="mdtbl"><table>' + rows.filter(r => !/^\|[\s\-:|]+\|$/.test(r)).map((r, k) => '<tr>' + cells(r).map(c => (k ? '<td>' : '<th>') + inl(c) + (k ? '</td>' : '</th>')).join('') + '</tr>').join('') + '</table></div>'); continue; }
+    let m;
+    if ((m = /^(#{1,3})\s+(.*)$/.exec(l))) { out.push('<h' + (m[1].length + 2) + ' class="mdh">' + inl(m[2]) + '</h' + (m[1].length + 2) + '>'); i++; continue; }
+    if (/^---+$/.test(l)) { out.push('<hr class="mdhr">'); i++; continue; }
+    if (/^>\s?/.test(l)) { const b = []; while (i < L.length && /^>\s?/.test(L[i])) b.push(L[i++].replace(/^>\s?/, '')); out.push('<div class="note mdq">' + b.map(inl).join('<br>') + '</div>'); continue; }
+    if (/^\s*([-*]|\d+\.)\s+/.test(l)) { const ol = /^\s*\d+\./.test(l), b = []; while (i < L.length && /^\s*([-*]|\d+\.)\s+/.test(L[i])) { if (b.length && /^\s{2,}[-*]\s+/.test(L[i])) { b[b.length - 1] += '\n· ' + L[i++].replace(/^\s*[-*]\s+/, ''); continue; } let t = L[i++].replace(/^\s*([-*]|\d+\.)\s+/, ''); while (i < L.length && /^\s{2,}\S/.test(L[i]) && !/^\s*([-*]|\d+\.)\s+/.test(L[i])) t += ' ' + L[i++].trim(); b.push(t); }
+      out.push('<' + (ol ? 'ol' : 'ul') + ' class="mdl">' + b.map(t => '<li>' + t.split('\n').map(inl).join('<br>') + '</li>').join('') + '</' + (ol ? 'ol' : 'ul') + '>'); continue; }
+    if (!l.trim()) { i++; continue; }
+    const b = []; while (i < L.length && L[i].trim() && !/^(#|```|\||>|---|\s*([-*]|\d+\.)\s)/.test(L[i])) b.push(L[i++]); out.push('<p class="mdp">' + inl(b.join(' ')) + '</p>');
+  }
+  return out.join('');
+}
+async function openDevDoc() {
+  if (!azReady()) { toast('请先解锁开发者模式'); return; }
+  showFullscreen('开发者使用说明', '<div class="note">正在从服务器读取…</div>');
+  const r = await devAdmin('/admin/devdoc');
+  const up = '<div class="vbsec">更新说明</div><div class="note">选一个 .md 文件上传，会替换服务器上的这份说明。原件在你电脑 D:\\19.喵喵录书\\开发者使用说明.md。</div>' +
+    '<div class="filebtn" style="display:block;margin-top:8px"><button type="button" tabindex="-1" class="ghost" style="width:100%">上传新版说明（.md 文件）</button><input type="file" accept=".md,.txt,text/markdown,text/plain" onchange="devDocUpload(event)"></div>';
+  if (!r.ok) { setFullscreenBody('<div class="note">' + (/404/.test(r.msg) ? '服务器上还没有开发者使用说明，请上传。' : '读取失败：' + esc(r.msg)) + '</div>' + up); return; }
+  setFullscreenBody('<div class="mddoc">' + mdHtml(await r.res.text()) + '</div>' + up);
+}
+async function devDocUpload(ev) {
+  const f = ev.target.files && ev.target.files[0]; ev.target.value = ''; if (!f) return;
+  if (f.size > 2 * 1048576) { toast('文件太大（最多 2MB）'); return; }
+  const r = await devAdmin('/admin/devdoc', { method: 'PUT', headers: { 'Content-Type': 'text/markdown; charset=utf-8' }, body: await f.text() });
+  toast(r.ok ? '已上传，正在重新读取' : '上传失败：' + r.msg, 3000);
+  if (r.ok) openDevDoc();
+}
 function recKey() { return state.bookId + ':' + state.idx; }
 async function loadRecs() {
   if (!state) return;
@@ -3260,11 +3299,54 @@ function openHelp() {
     '<h3 style="margin:0 0 4px">' + ic('help') + '帮助与反馈</h3><div class="note">试用版 · 版本 <span onclick="devTap()" style="cursor:default;user-select:none">' + esc(APP_VERSION) + '</span> <button class="ghost sm" onclick="srCheckUpdate(true)" style="margin-left:6px">检查更新</button></div><div class="note" style="margin-top:4px">为了统计使用人数，会记录一个匿名的设备编号，不收集姓名、账号、手机号。</div>' +
     '<div class="row" style="margin:12px 0 4px"><button onclick="copyDiag()">复制诊断信息</button>' + (FEEDBACK_URL ? '<button class="ghost" onclick="openFeedback()">打开反馈问卷</button>' : '') + '</div>' +
     '<div class="note">遇到问题（没声音、录不了音、资料导入不对等），先点“复制诊断信息”，粘贴发给发你链接的人。诊断信息只有设备和软件状态，没有资料的内容和你的录音。</div>' +
-    sec('快速上手',
-      li('点句子里的<b>单词</b>查词，点哪个词就读哪个词，同时弹出解释。') + li('点底部的 <b>▶ 朗读</b>，念到哪个词哪个词会亮；旁边的下拉菜单可以换美音、英音。') + li('<b>声音只有几个？</b>iPhone、iPad 网页版只能用系统自带的声音（苹果的限制），推荐选 <b>自然语音</b>；安卓手机和电脑可以在系统设置里下载更多英语声音，电脑用 Edge 浏览器打开还能直接用几十个在线声音。') +
-      li('<b>跟读</b>：录下自己读这一句，联网时会给发音打分（每个词都有分）。最近 3 次录音保存在本机，能看进步，点“对比听”连着听原声和自己的。') + li('<b>正常 / 慢速</b>：听不清的时候点一下改成慢速，再点一下改回正常。如果点了没变化，是这个声音不支持调速，软件会提示，换一个声音试试。') +
-      li('顶部 <b>整页翻译</b> 把一页的句子连同中文一起列出来，点句子就读；<b>目录</b> 可以跳到任意页；右上角 <b>···</b> 里有语音包、词典、语法字典和帮助。') +
-      li('装到手机桌面：iPhone 用 Safari，点分享 → 添加到主屏幕；安卓用 Chrome，点 ⋮ → 安装应用。<b>装好后请在桌面图标里导入资料（打开软件先是“我的学习”，点“＋ 导入”）</b>，浏览器和桌面图标的数据是分开的。'), true) +
+    '<div class="vbsec" style="margin-top:16px">用户使用说明</div>' +
+    sec('1. 开始使用',
+      li('“一句一读”是一句一句精读英文的软件：读一句、点词查意思、听原声、自己跟读打分，配合背单词，把一本书真正读懂。') +
+      li('<b>装到手机桌面</b>（推荐）：iPhone 用 Safari 打开，点“分享”→“添加到主屏幕”；安卓用 Chrome 打开，点右上角 ⋮ →“安装应用”或“添加到主屏幕”。') +
+      li('<b>注意</b>：浏览器里和桌面图标里的数据是分开的。装好后请<b>在桌面图标里</b>打开、导入资料和背单词。') +
+      li('首页是“我的学习”：上面是“学习资料”和“导入资料”两个按钮，中间是“背单词”，下面是你的书架。'), true) +
+    sec('2. 挑一本书：学习资料',
+      li('点“学习资料”，可以按难度 A1～C2 筛选，拿不准就点“怎么选等级”看例句。一页里不认识的词不超过 5 个，这个等级就合适。') +
+      li('每本书显示等级、句数、是否带自然语音，以及“含多少个雅思词”，备考雅思可以优先挑雅思词多的书。') +
+      li('免费的书点“＋ 加入我的学习”；收费的书可以先点“先学第一章（免费）”试读，喜欢再“解锁”。') +
+      li('买了激活码：在“学习资料”右上角点“我有激活码”，输入后整本书就解锁了。')) +
+    sec('3. 读一句',
+      li('点书架上的书打开。每次只显示一句，底部“上一句 / 下一句”翻页，顶部数字是读到第几句。') +
+      li('<b>点单词</b>：读出这个词并弹出解释。软件会根据这一句的中文，告诉你这个词在这里是哪个意思。离线大词典下载好以后，不联网也能查。') +
+      li('<b>雅思词</b>：查到雅思词时会多出插图、等级、英音 / 美音真人发音和雅思例句（点例句就朗读）。点“＋ 加入背单词”可以把它放进背单词。') +
+      li('读句子时，<b>实线下划线</b>的是 B1 以上的雅思词，<b>带浅色底</b>的是你已经在背的词。不想看这些标记，在右上角 ··· 里关掉“雅思词标记”。') +
+      li('<b>朗读</b>：点底部的朗读，读到哪个词哪个词会亮；声音菜单可以换美音、英音、自然语音。<b>正常 / 慢速</b>可以切换语速。') +
+      li('中文翻译：资料自带译文的直接显示，没有的联网后机器翻译；点“隐藏中文”可以先自己理解再看。') +
+      li('<b>语法讲解</b>：每句下面会讲这句的句子结构和语法点，点“在语法字典中查看”看详细讲解。') +
+      li('<b>AI 老师</b>：点“请 AI 老师讲讲这一句”或“和 AI 老师聊聊这一句”，可以追问不懂的地方（需要联网，偶尔会有不准确的地方）。')) +
+    sec('4. 跟读打分',
+      li('点“跟读”，读完点“停止”，联网时会给你的发音打分，每个词都有分，读得不好的词会标出来。') +
+      li('最近 3 次录音保存在本机，点“对比听”连着听原声和自己的。') +
+      li('录不了音：浏览器要允许使用麦克风。手机在系统设置里给浏览器开麦克风权限；电脑点地址栏左边的锁形图标，把麦克风改成“允许”。')) +
+    sec('5. 整页翻译和目录',
+      li('顶部“整页翻译”把这一页的句子连同中文一起列出来，点句首的 ▶ 朗读，点“精读”回到一句一句的界面。') +
+      li('顶部“目录”可以跳到任意章节。')) +
+    sec('6. 导入自己的资料',
+      li('首页点“导入资料”，支持 .epub、.pdf、.txt、.docx、.md、.mobi，也可以直接粘贴一段英文。') +
+      li('绘本、漫画会保留每页插图；扫描版 PDF（文字是图片）读不出文字。') +
+      li('请只导入你有权使用的资料，比如公版作品、你自己买的书。')) +
+    sec('7. 背单词',
+      li('首页点“背单词”，第一次先选难度、话题和每天学几个新词。词库是 7,298 个雅思核心词，带插图和真人发音。') +
+      li('<b>新词</b>考四选一：只看单词和发音，选出意思。答完会显示插图、全部释义、例句和搭配。') +
+      li('<b>软件自动打分</b>：答错或点“不认识”算忘了，过一会儿再考一次；答对但想了 8 秒以上算模糊；很快答对算记得；连续几次都很快答对，或点“太简单”，算很熟。') +
+      li('记得越牢，下次复习隔得越久。记得比较牢的词会改成听发音拼写，难度跟着提高。') +
+      li('每天打开首页的“背单词”卡片，会显示今天要复习几个、新学几个。做完还可以“再学 10 个新词”。') +
+      li('读书时查到的雅思词点“＋ 加入背单词”，下次背单词时会优先学。')) +
+    sec('8. 备份背单词进度',
+      li('背单词的进度只存在这台设备里，<b>换手机、清浏览器数据都会丢</b>。') +
+      li('在背单词完成页点“备份与恢复进度”：可以下载备份文件，或者复制成一段文字发到微信“文件传输助手”保存。') +
+      li('换了手机：进背单词，点“从备份恢复进度”，选文件或粘贴文字。恢复时会和新手机上的进度合并，不会把新进度盖掉。')) +
+    sec('9. 常见问题',
+      li('<b>声音只有几个？</b>iPhone、iPad 只能用系统自带的声音（苹果的限制）；带自然语音的书会用录好的真人风格声音。安卓和电脑可以在系统设置里下载更多英文声音。') +
+      li('<b>软件好像没更新？</b>点上面的“检查更新”。桌面图标版关掉再打开一两次就会换成新版。') +
+      li('<b>查词显示“内置基础词典”？</b>离线大词典会在联网时自动后台下载，下载好后查词更全。可以在 ··· → 词典里看状态。') +
+      li('<b>白天 / 夜间模式</b>：软件跟着手机的深色模式自动切换。') +
+      li('其他问题：点上面的“复制诊断信息”发给我们。')) +
     sec('隐私与数据',
       li('你导入的资料（“我的学习”里所有的资料）、阅读进度、录音、下载的词典，都<b>只存在这台设备的浏览器里</b>，不会上传。换设备或清除浏览器数据会丢失，请注意。') +
       li('<b>整句翻译</b>：当前这一句英文会发到开发者的翻译中转服务，再转给火山引擎机器翻译，中转服务不保存内容；中转不可用时改发 Google 或 MyMemory 的免费接口。查词时本地词典没有的词会发给第三方词典服务。资料里自带中文译文的句子不会发送。') +
