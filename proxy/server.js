@@ -344,16 +344,37 @@ function explainDailyFull() { const d = new Date().toISOString().slice(0, 10); i
 const EXPLAIN_SYS = '你是耐心的英语老师，学生是中国的小学生和他们的家长，英语基础比较弱。用户给你一句英文，你只输出一个 JSON 对象，不要任何别的文字，格式：' +
   '{"zh":"这句话自然流畅的中文意思","words":[{"w":"难词或短语原文","m":"在这句话里的意思，一句话"}],"grammar":"这句话最值得学的一个语法点，用简单的大白话讲，不超过 60 字","tip":"一个帮助记忆或朗读的小提示，可以为空字符串"}。' +
   'words 最多 4 个，只选真正会让学生卡住的词、短语、固定搭配，太简单的词不要选；如果整句都很简单，words 可以为空数组。语法点不要堆术语，要让小学生也能看懂。';
-function arkRequest(payload) {
-  const body = JSON.stringify(payload);
-  const u = new URL(ARK_HOST), isHttp = u.protocol === 'http:';
+/* 可以接多家模型：先用智谱的免费 GLM-Flash，出错/太忙再用豆包顶上。哪家没配 Key 就跳过 */
+const GLM_KEY = process.env.GLM_API_KEY || '', GLM_MODEL = process.env.GLM_MODEL || 'glm-4.7-flash', GLM_HOST = process.env.GLM_HOST || 'https://open.bigmodel.cn';
+const AI_PROVIDERS = [
+  GLM_KEY && { name: 'glm', key: GLM_KEY, model: GLM_MODEL, host: GLM_HOST, path: '/api/paas/v4/chat/completions' },
+  ARK_KEY && { name: 'ark', key: ARK_KEY, model: ARK_MODEL, host: ARK_HOST, path: '/api/v3/chat/completions' },
+].filter(Boolean);
+const AI_ON = AI_PROVIDERS.length > 0;
+const aiStat = {};                                    // 每家调用了几次、失败几次，开发者排查用
+function aiRaw(p, payload) {
+  const body = JSON.stringify(Object.assign({}, payload, { model: p.model }));
+  const u = new URL(p.host), isHttp = u.protocol === 'http:';
   return new Promise(ok => {
-    const q = (isHttp ? http : https).request({ hostname: u.hostname, port: u.port || (isHttp ? 80 : 443), path: '/api/v3/chat/completions', method: 'POST', timeout: 25000,
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + ARK_KEY, 'Content-Length': Buffer.byteLength(body) } }, r => {
+    const q = (isHttp ? http : https).request({ hostname: u.hostname, port: u.port || (isHttp ? 80 : 443), path: p.path, method: 'POST', timeout: 25000,
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + p.key, 'Content-Length': Buffer.byteLength(body) } }, r => {
       const ch = []; r.on('data', c => ch.push(c)); r.on('end', () => ok({ s: r.statusCode, b: Buffer.concat(ch).toString('utf8') }));
     });
     q.on('timeout', () => q.destroy(new Error('timeout'))); q.on('error', e => ok({ s: 0, b: String(e && e.message) })); q.end(body);
   });
+}
+async function arkRequest(payload) {
+  let last = { s: 503, b: 'no-provider' };
+  for (const p of AI_PROVIDERS) {
+    const st = aiStat[p.name] || (aiStat[p.name] = { ok: 0, fail: 0, last: '' });
+    const r = await aiRaw(p, payload);
+    let good = r.s === 200; if (good) { try { good = !!JSON.parse(r.b).choices[0].message.content; } catch (e) { good = false; } }
+    if (good) { st.ok++; return r; }
+    st.fail++; st.last = new Date().toISOString() + ' ' + r.s + ' ' + String(r.b).slice(0, 160);
+    console.error('AI ' + p.name + ' failed:', r.s, String(r.b).slice(0, 200));
+    last = r;
+  }
+  return last;
 }
 function arkChat(sentence) {
   return arkRequest({ model: ARK_MODEL, messages: [{ role: 'system', content: EXPLAIN_SYS }, { role: 'user', content: sentence }], temperature: 0.3, max_tokens: 700, thinking: { type: 'disabled' } });
@@ -582,7 +603,7 @@ async function shopRoutes(req, res) {
     const hd0 = { 'Content-Type': 'application/json; charset=utf-8' }; if (okO0) { hd0['Access-Control-Allow-Origin'] = okO0; hd0.Vary = 'Origin'; }
     const out0 = (c, o) => { res.writeHead(c, hd0); res.end(JSON.stringify(o)); return true; };
     if (!okO0) return out0(403, { error: 'origin-not-allowed' });
-    if (!ARK_KEY) return out0(503, { error: 'not-configured' });
+    if (!AI_ON) return out0(503, { error: 'not-configured' });
     let s0; try { s0 = String((JSON.parse(await readBody(req, 4000)) || {}).s || '').replace(/\s+/g, ' ').trim().slice(0, 600); } catch (e) { return out0(400, { error: 'bad-request' }); }
     if (!s0 || !/[A-Za-z]/.test(s0)) return out0(400, { error: 'empty' });
     const hit = explainCache.get(s0); if (hit) return out0(200, { ok: true, r: hit, cached: true });     // 讲过的句子：不花钱、不占次数
@@ -603,7 +624,7 @@ async function shopRoutes(req, res) {
     const hd0 = { 'Content-Type': 'application/json; charset=utf-8' }; if (okO0) { hd0['Access-Control-Allow-Origin'] = okO0; hd0.Vary = 'Origin'; }
     const out0 = (c, o) => { res.writeHead(c, hd0); res.end(JSON.stringify(o)); return true; };
     if (!okO0) return out0(403, { error: 'origin-not-allowed' });
-    if (!ARK_KEY) return out0(503, { error: 'not-configured' });
+    if (!AI_ON) return out0(503, { error: 'not-configured' });
     let b0; try { b0 = JSON.parse(await readBody(req, 8000)) || {}; } catch (e) { return out0(400, { error: 'bad-request' }); }
     const s0 = String(b0.s || '').replace(/\s+/g, ' ').trim().slice(0, 600), m0 = String(b0.m || '').replace(/\s+/g, ' ').trim().slice(0, 300);
     const h0 = (Array.isArray(b0.h) ? b0.h : []).slice(-8).map(x => ({ r: x && x.r === 'me' ? 'me' : 'ai', t: String((x && x.t) || '').slice(0, 400) })).filter(x => x.t);
