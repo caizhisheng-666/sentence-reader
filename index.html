@@ -218,6 +218,9 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .iex{margin-top:8px;font-size:14px;line-height:1.5;cursor:pointer}
 .iexs{margin-top:10px;padding-top:6px;border-top:1px solid var(--line)}
 .isrc{margin-top:8px;font-size:11px;color:var(--sub)}
+.lg-night{display:none!important}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .lg-day{display:none!important}:root:not([data-theme="light"]) .lg-night{display:inline-block!important}}
+:root[data-theme="dark"] .lg-day{display:none!important}:root[data-theme="dark"] .lg-night{display:inline-block!important}
 .ico{width:1.1em;height:1.1em;vertical-align:-.18em;margin-right:.3em;flex:none}h3 .ico{width:1em;height:1em;vertical-align:-.12em}
 .vbhome{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--card);color:var(--ink);border-radius:16px;padding:12px 16px;margin:0 2px 18px;font-weight:400;width:calc(100% - 4px)}
 .vbhome img{width:40px;height:40px;flex:none}.vbhome span{flex:1;display:flex;flex-direction:column}.vbhome b{font-size:16px}.vbhome small{color:var(--sub);font-size:13px;margin-top:2px}.vbhome i{font-style:normal;font-size:22px;color:var(--sub)}
@@ -280,7 +283,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.11.04-162';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.11.04-164';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -290,6 +293,10 @@ let recView = { key: '', urls: [] };
 function loadScript(src) { return new Promise((res, rej) => { const el = document.createElement('script'); el.src = src; el.onload = res; el.onerror = () => { el.remove(); rej(new Error('组件加载失败')); }; document.head.appendChild(el); }); }
 /* 线条图标：Lucide（ISC 许可，lucide.dev），颜色跟随文字，替代彩色 emoji，和黄黑主题统一 */
 const ICONS = {book: '<path d="M12 5v16"/> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z"/>', mic: '<path d="M12 19v3"/> <path d="M19 10v2a7 7 0 0 1-14 0v-2"/> <rect x="9" y="2" width="6" height="13" rx="3"/>', phones: '<path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/>', unlock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/> <path d="M7 11V7a5 5 0 0 1 9.9-1"/>', lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/> <path d="M7 11V7a5 5 0 0 1 10 0v4"/>', gift: '<path d="M12 7v14"/> <path d="M20 11v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8"/> <path d="M7.5 7a1 1 0 0 1 0-5A4.8 8 0 0 1 12 7a4.8 8 0 0 1 4.5-5 1 1 0 0 1 0 5"/> <rect x="3" y="7" width="18" height="4" rx="1"/>', refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/> <path d="M21 3v5h-5"/> <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/> <path d="M8 16H3v5"/>', repeat: '<path d="m17 2 4 4-4 4"/> <path d="M3 11v-1a4 4 0 0 1 4-4h14"/> <path d="m7 22-4-4 4-4"/> <path d="M21 13v1a4 4 0 0 1-4 4H3"/>', help: '<circle cx="12" cy="12" r="10"/> <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/> <path d="M12 17h.01"/>', key: '<path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/> <circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/>', bot: '<path d="M12 8V4H8"/> <rect width="16" height="12" x="4" y="8" rx="2"/> <path d="M2 14h2"/> <path d="M20 14h2"/> <path d="M15 13v2"/> <path d="M9 13v2"/>', chat: '<path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719"/>', pencil: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/> <path d="m15 5 4 4"/>', spark: '<path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/> <path d="M20 2v4"/> <path d="M22 4h-4"/> <circle cx="4" cy="20" r="2"/>', volume: '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/> <path d="M16 9a5 5 0 0 1 0 6"/> <path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>', target: '<circle cx="12" cy="12" r="10"/> <circle cx="12" cy="12" r="6"/> <circle cx="12" cy="12" r="2"/>', lang: '<path d="m5 8 6 6"/> <path d="m4 14 6-6 2-3"/> <path d="M2 5h12"/> <path d="M7 2h1"/> <path d="m22 22-5-10-5 10"/> <path d="M14 18h6"/>', list: '<path d="M3 5h.01"/> <path d="M3 12h.01"/> <path d="M3 19h.01"/> <path d="M8 5h13"/> <path d="M8 12h13"/> <path d="M8 19h13"/>', file: '<path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/> <path d="M14 2v5a1 1 0 0 0 1 1h5"/> <path d="M10 9H8"/> <path d="M16 13H8"/> <path d="M16 17H8"/>', wait: '<path d="M5 22h14"/> <path d="M5 2h14"/> <path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/> <path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>', stop: '<rect width="18" height="18" x="3" y="3" rx="2"/>', snail: '<path d="M2 13a6 6 0 1 0 12 0 4 4 0 1 0-8 0 2 2 0 0 0 4 0"/> <circle cx="10" cy="13" r="8"/> <path d="M2 21h12c4.4 0 8-3.6 8-8V7a2 2 0 1 0-4 0v6"/> <path d="M18 3 19.1 5.2"/> <path d="M22 3 20.9 5.2"/>', rabbit: '<path d="M13 16a3 3 0 0 1 2.24 5"/> <path d="M18 12h.01"/> <path d="M18 21h-8a4 4 0 0 1-4-4 7 7 0 0 1 7-7h.2L9.6 6.4a1 1 0 1 1 2.8-2.8L15.8 7h.2c3.3 0 6 2.7 6 6v1a2 2 0 0 1-2 2h-1a3 3 0 0 0-3 3"/> <path d="M20 8.54V4a2 2 0 1 0-4 0v3"/> <path d="M7.612 12.524a3 3 0 1 0-1.6 4.3"/>', clip: '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/> <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/> <path d="M12 11h4"/> <path d="M12 16h4"/> <path d="M8 11h.01"/> <path d="M8 16h.01"/>', chart: '<path d="M3 3v16a2 2 0 0 0 2 2h16"/> <path d="M18 17V9"/> <path d="M13 17V5"/> <path d="M8 17v-3"/>', party: '<path d="M5.8 11.3 2 22l10.7-3.79"/> <path d="M4 3h.01"/> <path d="M22 8h.01"/> <path d="M15 2h.01"/> <path d="M22 20h.01"/> <path d="m22 2-2.24.75a2.9 2.9 0 0 0-1.96 3.12c.1.86-.57 1.63-1.45 1.63h-.38c-.86 0-1.6.6-1.76 1.44L14 10"/> <path d="m22 13-.82-.33c-.86-.34-1.82.2-1.98 1.11c-.11.7-.72 1.22-1.43 1.22H17"/> <path d="m11 2 .33.82c.34.86-.2 1.82-1.11 1.98C9.52 4.9 9 5.52 9 6.23V7"/> <path d="M11 13c1.93 1.93 2.83 4.17 2 5-.83.83-3.07-.07-5-2-1.93-1.93-2.83-4.17-2-5 .83-.83 3.07.07 5 2Z"/>'};
+function logoHtml(cls, style) {                    // 猫咪 logo 分白天、夜间两版：白天黄底上用黑圆黄猫，夜间黑底上用黄圆黑猫
+  const a = (cls ? ' ' + cls : '') + '"' + (style ? ' style="' + style + '"' : '') + ' alt="">';
+  return '<img src="./logo-day.svg" class="lg-day' + a + '<img src="./logo.svg" class="lg-night' + a;
+}
 function ic(n) { return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[n] || '') + '</svg>'; }
 let LIBS = null;
 function loadLibs() {                                // 后台加载常用组件；带版本号，服务器可以让浏览器长期缓存
@@ -384,7 +391,7 @@ function idbDelPrefix(store, prefix) { return idbRun(store, 'readwrite', (t, res
 function idbDel(store, key) { return idbRun(store, 'readwrite', (t, res, rej) => { t.objectStore(store).delete(key); t.oncomplete = res; t.onerror = () => rej(t.error); }); }
 
 /* ---------- 启动与保存 ---------- */
-function bookShortTitle(sentences) { const t = String((sentences && sentences[0]) || '').replace(/\s+/g, ' ').trim(); return t.length > 26 ? t.slice(0, 26) + '…' : (t || '未命名的材料'); }
+function bookShortTitle(sentences) { const t = String((sentences && sentences[0]) || '').replace(/\s+/g, ' ').trim(); return t.length > 26 ? t.slice(0, 26) + '…' : (t || '未命名的资料'); }
 async function boot() {
   // 旧版本只存一本书（localStorage 里的 sr_state）：第一次打开新版本时，自动搬进书架
   try {
@@ -445,16 +452,16 @@ async function flushState() {
 }
 async function openBook(id) {
   let b = null, err = null;
-  for (let k = 0; k < 3 && !b; k++) {                // 读取失败多试几次；绝不因为一次读失败就把材料从“我的学习”里删掉
+  for (let k = 0; k < 3 && !b; k++) {                // 读取失败多试几次；绝不因为一次读失败就把资料从“我的学习”里删掉
     try { b = await idbGet('books', id); err = null; } catch (e) { err = e; }
     if (!b && k < 2) await new Promise(r => setTimeout(r, 250));
   }
   if (!b || !Array.isArray(b.sentences)) {
-    if (err) { toast('打开失败（手机存储暂时读不出来），请稍等再点一次。你的材料和进度都还在。', 5000); render(); return; }
+    if (err) { toast('打开失败（手机存储暂时读不出来），请稍等再点一次。你的资料和进度都还在。', 5000); render(); return; }
     const sid = /^story-/.test(id) ? id.slice(6) : '';
-    showPop('<h3 style="margin:0 0 6px">这份材料的内容找不到了</h3><div class="note">可能是手机清理了浏览器存储。' + (sid ? '学习材料里的内容可以重新下载，读到哪里会接着读。' : '自己导入的材料需要重新导入一次。') + '</div>' +
+    showPop('<h3 style="margin:0 0 6px">这份资料的内容找不到了</h3><div class="note">可能是手机清理了浏览器存储。' + (sid ? '学习资料里的内容可以重新下载，读到哪里会接着读。' : '自己导入的资料需要重新导入一次。') + '</div>' +
       '<div class="row" style="margin-top:12px;gap:8px">' + (sid ? '<button onclick="redownload(\'' + esc(sid) + '\')">重新下载</button>' : '<button onclick="closePop();openImportPop()">重新导入</button>') +
-      '<button class="ghost" onclick="if(confirm(\'从“我的学习”里移除这份材料吗？\')){shelfSet(shelfGet().filter(x=>x.id!==\'' + esc(id) + '\'));closePop();render();}">移除</button></div>');
+      '<button class="ghost" onclick="if(confirm(\'从“我的学习”里移除这份资料吗？\')){shelfSet(shelfGet().filter(x=>x.id!==\'' + esc(id) + '\'));closePop();render();}">移除</button></div>');
     return;
   }
   if (!b.bookId) b.bookId = id;
@@ -464,7 +471,7 @@ async function openBook(id) {
   state = b; clearCurImages(); stopSpeech();
   saveState();
   loadCurrent();
-  if (!b.natVoice && vpCount > 0) {                              // 以前获取的材料没记“带自然语音”：看看前几句有没有语音
+  if (!b.natVoice && vpCount > 0) {                              // 以前获取的资料没记“带自然语音”：看看前几句有没有语音
     (async () => { for (const t of b.sentences.slice(0, 3)) { if (await vpGet(t)) { if (state === b) { b.natVoice = 'natural'; saveState(); refreshVoiceSelect(); } return; } } })();
   }
 }
@@ -486,7 +493,7 @@ async function deleteSelectedBooks() {
   if (!shelfSel || !shelfSel.size) return;
   const ids = [...shelfSel], l = shelfGet();
   const names = ids.map(id => (l.find(x => x.id === id) || {}).title || '').filter(Boolean).slice(0, 3).join('、');
-  if (!confirm('要删除 ' + ids.length + ' 份材料吗？\n' + names + (ids.length > 3 ? ' 等' : '') + '\n\n阅读进度、翻译缓存和跟读录音会一起删除，不能恢复。')) return;
+  if (!confirm('要删除 ' + ids.length + ' 份资料吗？\n' + names + (ids.length > 3 ? ' 等' : '') + '\n\n阅读进度、翻译缓存和跟读录音会一起删除，不能恢复。')) return;
   let gone = new Set();                                         // 这些书的语音（按句子内容存的），稍后清掉没有被其他书用到的
   for (const id of ids) { try { const bk = await idbGet('books', id); if (bk && bk.sentences) for (const v of ['', ...(bk.natVoices || [])]) for (const t of bk.sentences) gone.add(await vpKeyAs(t, v)); } catch (e) {} }
   for (const id of ids) {
@@ -497,7 +504,7 @@ async function deleteSelectedBooks() {
   const left = l.filter(x => !shelfSel.has(x.id));
   shelfSet(left);
   shelfSel = null; render();
-  toast('已删除 ' + ids.length + ' 份材料', 2500);
+  toast('已删除 ' + ids.length + ' 份资料', 2500);
   vpPurge(gone, left.map(x => x.id));
 }
 function coverColor(id) {
@@ -509,11 +516,11 @@ function shelfHtml() {
   const sel = shelfSel;
   const sh = statsHtml();
   let html = '<div class="shelfbar"><h2>我的学习</h2>' + (l.length ? '<button class="link shsel" onclick="toggleShelfSel()">' + (sel ? '取消' : '选择') + '</button>' : '') + '</div>' +
-    '<div class="shacts"><button onclick="openStoryCity()">' + ic('book') + '学习材料</button><button class="ghost" onclick="openImportPop()">＋ 导入材料</button></div>' + vbHomeBtn() +
+    '<div class="shacts"><button onclick="openStoryCity()">' + ic('book') + '学习资料</button><button class="ghost" onclick="openImportPop()">＋ 导入资料</button></div>' + vbHomeBtn() +
     '';
   if (sh) html += '<div class="levelbar" style="margin:-6px 0 14px"><div id="statsLine">' + sh + '</div></div>';
   if (!l.length) {
-    html += '<div class="card" style="text-align:center;padding:36px 20px"><div style="font-size:38px;line-height:1">' + ic('book') + '</div><div style="margin:10px 0 4px;font-size:17px;color:var(--ink)">还没有学习材料</div><div class="note">点上面的“学习材料”挑一本材料，<br>或“导入材料”添加你自己的英文内容（epub、PDF、文本），也可以粘贴一段英文。</div></div>';
+    html += '<div class="card" style="text-align:center;padding:36px 20px"><div style="font-size:38px;line-height:1">' + ic('book') + '</div><div style="margin:10px 0 4px;font-size:17px;color:var(--ink)">还没有学习资料</div><div class="note">点上面的“学习资料”挑一本资料，<br>或“导入资料”添加你自己的英文内容（epub、PDF、文本），也可以粘贴一段英文。</div></div>';
     return html;
   }
   html += '<div class="shelf">' + l.map(b => {
@@ -531,8 +538,8 @@ function shelfHtml() {
   return html;
 }
 function openImportPop() {
-  showPop('<h3 style="margin:0 0 8px">导入材料</h3>' +
-    '<div class="filebtn" style="margin-bottom:10px"><button type="button" tabindex="-1">选择材料文件</button><input type="file" accept=".txt,.md,.markdown,.epub,.pdf,.docx,.doc,.mobi,.azw3,.azw" onchange="importFromFile(event)"></div>' +
+  showPop('<h3 style="margin:0 0 8px">导入资料</h3>' +
+    '<div class="filebtn" style="margin-bottom:10px"><button type="button" tabindex="-1">选择资料文件</button><input type="file" accept=".txt,.md,.markdown,.epub,.pdf,.docx,.doc,.mobi,.azw3,.azw" onchange="importFromFile(event)"></div>' +
     '<div class="note" style="margin-bottom:6px">支持 .epub、.pdf、.txt、.docx、.md、.mobi。或者粘贴一段英文：</div>' +
     '<textarea id="pasteBox" placeholder="在这里粘贴英文文本…" style="min-height:100px"></textarea>' +
     '<div class="row" style="margin-top:10px"><button class="ghost" onclick="importFromBox()">用粘贴的文本导入</button></div>' +
@@ -637,11 +644,11 @@ function toggleBookZh() {
 
 let importTitle = '', importBookId = '', importNatVoice = '', importNatSrc = '';
 async function finalizeImport(sentences, imageRanges, bookId, extraToast, toc, bil) {
-  if (!sentences.length) { alert('没有识别到英文句子，请检查导入的内容。扫描版或英文画在图里的材料，软件暂不支持识别图片里的文字。'); return; }
+  if (!sentences.length) { alert('没有识别到英文句子，请检查导入的内容。扫描版或英文画在图里的资料，软件暂不支持识别图片里的文字。'); return; }
   let startIdx = detectStart(sentences);
   const prevState = state, newId = bookId || importBookId || ('b' + Date.now());
   const e0 = shelfGet().find(x => x.id === newId); let oldB = null;
-  if (e0) { try { oldB = await idbGet('books', newId); } catch (e) {} if (typeof e0.idx === 'number') startIdx = Math.max(0, Math.min(e0.idx, sentences.length)); }   // 同一份材料重新下载/更新：读到哪里、学习进度都保留
+  if (e0) { try { oldB = await idbGet('books', newId); } catch (e) {} if (typeof e0.idx === 'number') startIdx = Math.max(0, Math.min(e0.idx, sentences.length)); }   // 同一份资料重新下载/更新：读到哪里、学习进度都保留
   state = { natVoice: importNatVoice || '', natSrc: importNatSrc || '', bookId: newId, sentences, idx: startIdx, prog: {}, cache: {}, startDate: Date.now(), totalCompleted: 0, imageRanges: imageRanges || [], toc: toc || buildTextToc(sentences, startIdx), zh: (bil && bil.zh) || {}, zhp: (bil && bil.para) || {}, zhOff: {} };
   state.title = (importTitle || '').trim() || bookShortTitle(sentences);
   if (oldB && oldB.prog) state.prog = oldB.prog;
@@ -650,7 +657,7 @@ async function finalizeImport(sentences, imageRanges, bookId, extraToast, toc, b
   const entry = Object.assign({}, e0 || {}, { id: state.bookId, title: state.title, addedAt: (e0 && e0.addedAt) || Date.now(), lastAt: Date.now(), total: sentences.length, idx: startIdx, nv: state.natVoice ? 1 : (e0 && e0.nv) || 0 });
   await flushState();
   const l = shelfGet().filter(x => x.id !== entry.id); l.unshift(entry); shelfSet(l);
-  if (prevState && prevState.bookId !== entry.id) state = prevState;      // 正在读别的材料时（比如后台下载完成），不要把正在读的那份关掉
+  if (prevState && prevState.bookId !== entry.id) state = prevState;      // 正在读别的资料时（比如后台下载完成），不要把正在读的那份关掉
   else { state = null; closePop(); render(); }                           // 导入后回到“我的学习”，点封面开始读
   const msgs = [];
   if (startIdx > 0) msgs.push('已跳过开头 ' + startIdx + ' 句目录/版权信息，从正文开始，打开后可点顶部“目录”调整');
@@ -668,7 +675,7 @@ function importBook(text) {
   const al = hadCjk ? alignSegs(allSegs, pb.sentences) : { zh: {}, para: {}, exact: 0, paraN: 0 };
   const parts = [];
   if (gutenberg) parts.push('已按 Project Gutenberg 的标记裁掉开头的版权声明');
-  if (al.exact + al.paraN > 0) parts.push('材料里自带的中文译文已对上 ' + (al.exact + al.paraN) + ' 句' + (al.paraN ? '（其中 ' + al.paraN + ' 句是整段译文）' : '') + '，这些句子不再机器翻译');
+  if (al.exact + al.paraN > 0) parts.push('资料里自带的中文译文已对上 ' + (al.exact + al.paraN) + ' 句' + (al.paraN ? '（其中 ' + al.paraN + ' 句是整段译文）' : '') + '，这些句子不再机器翻译');
   else if (hadCjk) parts.push('中文已自动去掉，没能和英文一一对上，仍用机器翻译');
   return finalizeImport(sentences, [], null, parts.join('；') || null, null, al);
 }
@@ -710,7 +717,7 @@ async function importBookBlocks(blocks) {
   const al = hadCjk ? alignSegs(allSegs, sentences) : { zh: {}, para: {}, exact: 0, paraN: 0 };
   const unit = hasPage ? '页' : '节';
   const parts = ['读到 ' + sentences.length + ' 句英文（' + pagesWithText + '/' + blocks.length + ' ' + unit + '有英文）'];
-  if (al.exact + al.paraN > 0) parts.push('材料里自带的中文译文已对上 ' + (al.exact + al.paraN) + ' 句' + (al.paraN ? '（其中 ' + al.paraN + ' 句是整段译文）' : '') + '，这些句子不再机器翻译');
+  if (al.exact + al.paraN > 0) parts.push('资料里自带的中文译文已对上 ' + (al.exact + al.paraN) + ' 句' + (al.paraN ? '（其中 ' + al.paraN + ' 句是整段译文）' : '') + '，这些句子不再机器翻译');
   else if (hadCjk) parts.push('中文已自动去掉，没能和英文一一对上，仍用机器翻译');
   parts.push(saveFailed ? '插图保存失败（可能是存储空间不足），只导入了文字'
     : totalImages ? '已提取 ' + totalImages + ' 张插图'
@@ -1113,7 +1120,7 @@ async function loadCurrent() {
   render();
   loadRecs();
   loadCurrentImage();
-  if (bookZh(idx)) return;                       // 材料里自带中文译文，不需要机器翻译
+  if (bookZh(idx)) return;                       // 资料里自带中文译文，不需要机器翻译
   const c = state.cache[key];
   if (c && !c.failed) return;
   if (!navigator.onLine) return;
@@ -1416,12 +1423,12 @@ function curatedVoices(en) {
   return res;
 }
 function natVoiceName(v) { const m = /^[a-z]{2}-[A-Z]{2}-(.+?)(?:Multilingual)?Neural$/.exec(v || ''); return m ? m[1] : ''; }
-function natPossible() {                           // 这个材料可能用到自然语音吗？不可能的话，系统朗读要在点击的这一下里直接发起（iPhone 的要求）
+function natPossible() {                           // 这个资料可能用到自然语音吗？不可能的话，系统朗读要在点击的这一下里直接发起（iPhone 的要求）
   if (!state) return false;
   if (state.natVoice) return !state.useSys;
   return azReady();
 }
-function natOn() { return !!(state && state.natVoice && !state.useSys); }   // 这个材料带自然语音，并且没有改用系统声音
+function natOn() { return !!(state && state.natVoice && !state.useSys); }   // 这个资料带自然语音，并且没有改用系统声音
 function voiceSelectHtml() {
   natVoicesCheck();
   const en = (voiceListCache || []).filter(v => /^en/i.test(v.lang)), cur = natOn() ? '__nat' : getSavedVoiceURI();
@@ -1439,7 +1446,7 @@ function voiceSelectHtml() {
 function refreshVoiceSelect() { const el = document.getElementById('voiceSel'); if (el) el.outerHTML = voiceSelectHtml(); }
 function natMale() { return !!(state && state.natVoice && (state.natVoices || []).includes('am_michael')); }
 let natVoicesAsked = {};
-function natVoicesCheck() {                     // 从学习材料加的书：看看服务器上有没有录男声（以前加的书没记这个，问一次服务器）
+function natVoicesCheck() {                     // 从学习资料加的书：看看服务器上有没有录男声（以前加的书没记这个，问一次服务器）
   const st = state; if (!st || !st.natSrc || st.natVoices || natVoicesAsked[st.bookId] || !/^story-/.test(st.bookId)) return;
   natVoicesAsked[st.bookId] = 1;
   fetchJsonT(SHOP_BASE + '/catalog?t=' + Date.now(), 8000).then(j => {
@@ -1449,7 +1456,7 @@ function natVoicesCheck() {                     // 从学习材料加的书：�
 }
 function onVoiceChange(uri) {
   if (uri === '__nat' || uri === '__nat:am_michael') { if (state) { state.useSys = false; state.natVk = uri === '__nat' ? '' : 'am_michael'; saveState(); } toast('已改用自然语音' + (uri === '__nat' ? '' : '（男声）') + '，点底部的“▶ 朗读”试试', 2200); return; }
-  if (state && state.natVoice) { state.useSys = true; saveState(); }      // 这个材料改用系统声音
+  if (state && state.natVoice) { state.useSys = true; saveState(); }      // 这个资料改用系统声音
   localStorage.setItem('sr_voice_uri', uri || '');
   previewVoice(uri);                            // 换了音色马上试听一句
 }
@@ -1640,16 +1647,16 @@ function azSpeakShort(text) {                     // 单词等短内容
     try { const u = new SpeechSynthesisUtterance(text); applyVoiceSync(u); u.rate = getRate(); speakNow(u); } catch (e) {}
   });
 }
-/* ---------- 学习材料：书架里的“商店”。材料包 = zip（manifest.json + book.txt 中英对照文本 + 可选 clips/ 语音） ---------- */
+/* ---------- 学习资料：书架里的“商店”。资料包 = zip（manifest.json + book.txt 中英对照文本 + 可选 clips/ 语音） ---------- */
 let storyCat = null, adminTok = '';
-const SHOP_BASE = PROXY_URL.replace(/\/translate$/, '');          // 学习材料后台和你的翻译中转在同一台服务器上
+const SHOP_BASE = PROXY_URL.replace(/\/translate$/, '');          // 学习资料后台和你的翻译中转在同一台服务器上
 const shopUrl = f => /^api:/.test(f) ? SHOP_BASE + '/' + f.slice(4) : f;
 function setScStatus(m) { const el = document.getElementById('scStatus'); if (el) el.textContent = m; }
 async function installStory(zip, fallbackName, opts) {
-  const mf = zip.file('manifest.json'); if (!mf) throw new Error('这不是材料包文件');
+  const mf = zip.file('manifest.json'); if (!mf) throw new Error('这不是资料包文件');
   const man = JSON.parse(await mf.async('string'));
-  if (!man || man.format !== 'sr-story' || !man.id) throw new Error('这不是材料包文件');
-  const bf = zip.file('book.txt'); if (!bf) throw new Error('材料包里没有正文');
+  if (!man || man.format !== 'sr-story' || !man.id) throw new Error('这不是资料包文件');
+  const bf = zip.file('book.txt'); if (!bf) throw new Error('资料包里没有正文');
   const text = fixStoryHeadings(await bf.async('string'));
   const names = Object.keys(zip.files).filter(n => /^clips\/[0-9a-f]{16,64}\.mp3$/.test(n));
   if (names.length) await vpImportClips(zip, names, { id: 'story-' + man.id, title: man.title, buyer: man.buyer }, fallbackName, setScStatus);
@@ -1669,9 +1676,9 @@ async function fetchProgress(url, onPct) {          // 下载并报告进度（�
   return out.buffer;
 }
 const tkOf = id => (shelfGet().find(x => x.id === 'story-' + id) || {}).tk || '';        // 买家解锁后拿到的凭证
-const voiceUrlOf = it => tkOf(it.id) ? shopUrl('api:pfiles/' + tkOf(it.id) + '/voice.zip') : shopUrl(String(it.file).replace(/\.srbook$/, '.voice.zip'));      // 语音单独放在“材料名.voice.zip”
-const voiceDl = {};                                  // 正在后台下载语音的材料：id → 百分比
-async function updateStory(id) {                   // 买家书架里的材料有新版：下载新文字，读到哪句、学习进度都保留
+const voiceUrlOf = it => tkOf(it.id) ? shopUrl('api:pfiles/' + tkOf(it.id) + '/voice.zip') : shopUrl(String(it.file).replace(/\.srbook$/, '.voice.zip'));      // 语音单独放在“资料名.voice.zip”
+const voiceDl = {};                                  // 正在后台下载语音的资料：id → 百分比
+async function updateStory(id) {                   // 买家书架里的资料有新版：下载新文字，读到哪句、学习进度都保留
   const bid = 'story-' + id; let old = null; try { old = await idbGet('books', bid); } catch (e) {}
   const e0 = shelfGet().find(x => x.id === bid), oldIdx = e0 && typeof e0.idx === 'number' ? e0.idx : (old && old.idx) || 0;
   await getStory(id);
@@ -1699,10 +1706,10 @@ async function getStory(id, tk0) {
     if (it.voice) { const bid = 'story-' + it.id, nvs = it.voices || []; try { const bk = await idbGet('books', bid); if (bk) { bk.natVoices = nvs; await idbPut('books', bk, bid); } } catch (e) {} if (state && state.bookId === bid) { state.natVoices = nvs; refreshVoiceSelect(); } }
     { const l = shelfGet(), e = l.find(x => x.id === 'story-' + it.id); if (e) { e.ver = it.ver || r.ver || 1; if (tk) e.tk = tk; delete e.sample; if (fromSample && e0) e.idx = e0.idx || 0; shelfSet(l); } }
     if (fromSample && oldB) { try { const b = await idbGet('books', bid); if (b) { b.idx = Math.min(oldB.idx || 0, b.sentences.length - 1); if (oldB.prog) b.prog = oldB.prog; await idbPut('books', b, bid); } } catch (e) {} }
-    if (it.voice && !r.clips) toast('《' + it.title + '》已加入“我的学习”。自然语音读到哪句取哪句，不用等整本下载；想离线听，可以在学习材料里点“下载全部语音”。', 5000);
+    if (it.voice && !r.clips) toast('《' + it.title + '》已加入“我的学习”。自然语音读到哪句取哪句，不用等整本下载；想离线听，可以在学习资料里点“下载全部语音”。', 5000);
   } catch (e) { setScStatus('获取失败：' + (e && e.message ? e.message : '未知错误') + '。请检查网络后重试。'); }
 }
-async function getSample(id) {                     // 收费材料的试读版：免费下载到“我的学习”，读完再决定买不买
+async function getSample(id) {                     // 收费资料的试读版：免费下载到“我的学习”，读完再决定买不买
   const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it || !it.sample) return;
   try {
     setScStatus('正在下载《' + it.title + '》试读版…');
@@ -1710,7 +1717,7 @@ async function getSample(id) {                     // 收费材料的试读版�
     await loadLibs();
     const r = await installStory(await JSZip.loadAsync(buf), it.title, it.voice ? { natSrc: 'api:files/' + it.id + '-sample/' } : null);
     { const l = shelfGet(), e = l.find(x => x.id === 'story-' + it.id); if (e) { e.sample = 1; e.ver = 0; shelfSet(l); } }
-    toast('《' + it.title + '》试读版已放进“我的学习”（' + (it.sampleCount || '') + ' 句）。读完喜欢的话，再到学习材料里解锁完整内容，读到哪里会接着往下学。', 5000);
+    toast('《' + it.title + '》试读版已放进“我的学习”（' + (it.sampleCount || '') + ' 句）。读完喜欢的话，再到学习资料里解锁完整内容，读到哪里会接着往下学。', 5000);
     if (document.getElementById('scList')) renderStoryCity('');
   } catch (e) { setScStatus('试读版下载失败：' + (e && e.message ? e.message : '未知错误') + '。请检查网络后重试。'); }
 }
@@ -1742,11 +1749,11 @@ async function getStoryVoice(it, vk) {               // vk：第二个声音（�
     if (document.getElementById('scList')) renderStoryCity('');
   } catch (e) {
     delete voiceDl[it.id];
-    toast('《' + it.title + '》的自然语音没下载成功（' + (e && e.message ? e.message : '网络问题') + '），可以在学习材料里再点“下载语音”', 5000);
+    toast('《' + it.title + '》的自然语音没下载成功（' + (e && e.message ? e.message : '网络问题') + '），可以在学习资料里再点“下载语音”', 5000);
     if (document.getElementById('scList')) renderStoryCity('');
   }
 }
-/* 隐藏功能（只有已解锁开发者模式、能用你自己的 Azure Key 的设备才会看到）：点材料卡片上的“生成语音”，自动给这个材料合成自然语音，打成带语音的材料包下载 */
+/* 隐藏功能（只有已解锁开发者模式、能用你自己的 Azure Key 的设备才会看到）：点资料卡片上的“生成语音”，自动给这个资料合成自然语音，打成带语音的资料包下载 */
 let devGenBusy = false;
 const AZ_FREE = 500000;                            // 微软每月免费额度（约数，以你的 Azure 账号为准）
 function azUsed() { try { const o = JSON.parse(localStorage.getItem('sr_az_used') || '{}'); const m = new Date().toISOString().slice(0, 7); return o.m === m ? o.n || 0 : 0; } catch (e) { return 0; } }
@@ -1763,7 +1770,7 @@ async function admTokSave(t) {
 }
 async function devAdmin(path, opt) {
   opt = opt || {};                                     // 调用时可以不传选项（比如访问统计），不能因此报错
-  if (!(await admTokLoad())) { const t = (prompt('第一次上架：输入学习材料后台口令（服务器上设置的 ADMIN_TOKEN）。输入一次后，会用你的开发者口令加密保存在这台设备里，以后不用再输。') || '').trim(); if (t) await admTokSave(t); }
+  if (!(await admTokLoad())) { const t = (prompt('第一次上架：输入学习资料后台口令（服务器上设置的 ADMIN_TOKEN）。输入一次后，会用你的开发者口令加密保存在这台设备里，以后不用再输。') || '').trim(); if (t) await admTokSave(t); }
   if (!adminTok) return { ok: false, msg: '没有输入后台口令' };
   try {
     const r = await fetch(SHOP_BASE + path, Object.assign({}, opt, { headers: Object.assign({ Authorization: 'Bearer ' + adminTok }, opt.headers || {}) }));
@@ -1796,14 +1803,14 @@ async function devCodes(id) {
     '<div style="max-height:40vh;overflow:auto;margin-top:8px;font-family:monospace;font-size:14px;line-height:1.9">' + L.map(c => '<div style="color:' + (c.revoked ? '#999;text-decoration:line-through' : c.uses || c.issued ? '#999' : 'var(--ink)') + '">' + esc(c.code) + ' <span class="note">' + (c.revoked ? '已作废' : c.uses ? '已用 ' + c.uses + '/' + j.max : c.issued ? '已发出' : '未发') + '</span>' + (c.revoked ? '' : ' <a href="#" style="font-size:12px" onclick="devCodeRevoke(\'' + esc(id) + '\',\'' + esc(c.code) + '\');return false">作废</a>') + '</div>').join('') + '</div>';
   window._dcUn = un.map(c => c.code);
 }
-const DEV_TPL = '感谢购买《{标题}》！你的激活码：{码}\n使用方法：打开「一句一读」→ 学习材料 → 点“我有激活码”→ 输入即可。\n每个码最多可在 3 台设备上使用。';
+const DEV_TPL = '感谢购买《{标题}》！你的激活码：{码}\n使用方法：打开「一句一读」→ 学习资料 → 点“我有激活码”→ 输入即可。\n每个码最多可在 3 台设备上使用。';
 function devTplGet() { try { return localStorage.getItem('sr_dev_tpl') || DEV_TPL; } catch (e) { return DEV_TPL; } }
 function devTplSet(v) { try { localStorage.setItem('sr_dev_tpl', v); } catch (e) {} }
 async function devIssue(id) {                         // 闲鱼聊天里发货：取出下一个没发过的码，连话术一起复制
   const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it) return;
   const r = await devAdmin('/admin/codes/issue', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ story: id }) });
   if (!r.ok) { setScStatus(/404/.test(r.msg) ? '没有可发的码了，请先生成一批。' : '失败：' + r.msg); return; }
-  const j = await r.res.json(), tx = (document.getElementById('dcTpl') ? document.getElementById('dcTpl').value : devTplGet()).replace(/\{码\}/g, j.code).replace(/\{(?:标题|材料名|书名)\}/g, it.title);
+  const j = await r.res.json(), tx = (document.getElementById('dcTpl') ? document.getElementById('dcTpl').value : devTplGet()).replace(/\{码\}/g, j.code).replace(/\{(?:标题|资料名|书名)\}/g, it.title);
   let ok = false; try { await navigator.clipboard.writeText(tx); ok = true; } catch (e) {}
   await devCodes(id);
   setScStatus(ok ? '已复制（' + j.code + '），去闲鱼聊天里粘贴发给买家。还剩 ' + j.left + ' 个可发。' : '复制没成功，请手动复制：' + j.code);
@@ -1817,11 +1824,11 @@ async function devCodesMake(id) {
 }
 async function devCodesCopy(id) { try { await navigator.clipboard.writeText((window._dcUn || []).join('\n')); setScStatus('已复制 ' + (window._dcUn || []).length + ' 个'); } catch (e) { setScStatus('复制失败，请手动选中'); } }
 async function devCodeRevoke(id, code) {
-  if (!confirm('作废 ' + code + '？用过它的买家也会失去这个材料的语音/更新权限（已下载的文字还在）。')) return;
+  if (!confirm('作废 ' + code + '？用过它的买家也会失去这个资料的语音/更新权限（已下载的文字还在）。')) return;
   const r = await devAdmin('/admin/codes/' + code, { method: 'DELETE' }); if (!r.ok) { setScStatus('失败：' + r.msg); return; } await devCodes(id); setScStatus('已作废');
 }
 async function devUnlist(id) {
-  if (!confirm('把这个商品从学习材料下架吗？（不会删除买家手里已有的）')) return;
+  if (!confirm('把这个商品从学习资料下架吗？（不会删除买家手里已有的）')) return;
   const r = await devAdmin('/admin/item/' + id, { method: 'DELETE' });
   if (r.ok) { storyCat.items = storyCat.items.filter(x => x.id !== id); catCacheSet(storyCat); renderStoryCity(''); setScStatus('已下架'); } else setScStatus('下架失败：' + r.msg);
 }
@@ -1846,7 +1853,7 @@ async function devSynth(sents) {                     // 用开发者的 Azure Ke
   if (clips.size < todo.length) throw new Error((lastErr ? lastErr + '。' : '') + '只合成了 ' + clips.size + ' / ' + todo.length + ' 句（Key、网络或额度有问题）。再点一次会接着做，已经合成的不会重复收费');
   return { clips, voice };
 }
-async function devPackStory(man, text, clips) {          // 材料包只放文字（很小，用户马上能读）；语音单独打包（见 devPackVoice）
+async function devPackStory(man, text, clips) {          // 资料包只放文字（很小，用户马上能读）；语音单独打包（见 devPackVoice）
   const z = new JSZip();
   z.file('manifest.json', JSON.stringify(man)); z.file('book.txt', text);
   if (clips) for (const [k, b] of clips) z.file('clips/' + k + '.mp3', b);
@@ -1874,7 +1881,7 @@ async function devPutVoice(id, title, voice, clips, priv) {
     if (last) { let j = {}; try { j = await up.res.json(); } catch (e) {} if (j.tooBig) throw new Error('这本书的语音共约 ' + (j.total / 1048576).toFixed(0) + ' MB，超过了“下载全部语音”总包的上限（服务器内存有限）。建议把书拆成几部分分别上架，或只给前面几章配语音'); }
   }
 }
-/* ---------- 收费材料的试读版：自动截取第一章（没有章节就取开头一部分），免费公开下载 ---------- */
+/* ---------- 收费资料的试读版：自动截取第一章（没有章节就取开头一部分），免费公开下载 ---------- */
 function sampleText(text) {
   text = String(text); const cnt = t => devParse(t).sents.length, total = cnt(text), maxN = Math.max(20, Math.round(total * 0.3));
   const HEAD = /^\s*(?:chapter\s+[\w-]+|part\s+[\w-]+|第[一二三四五六七八九十百零〇0-9]+[章节回幕篇卷]|[IVXLC]{1,6}\.?)\s*[:.：]?\s*\S{0,40}$/i;
@@ -1889,7 +1896,7 @@ function sampleText(text) {
   let n = 0; for (let i = 0; i < paras.length; i++) { n += cnt(paras[i]); if (n >= want) return paras.slice(0, i + 1).join('\n\n'); }
   return text;
 }
-async function devMakeSample(it, text, voice) {     // 生成并上传试读版；收费材料才需要
+async function devMakeSample(it, text, voice) {     // 生成并上传试读版；收费资料才需要
   if (!it.price) return true;
   const st = sampleText(text), sents = devParse(st).sents;
   if (!sents.length) return '试读部分没有句子';
@@ -1921,13 +1928,13 @@ async function devSampleBtn(id) {
 async function devNewStoryPop() {
   if (!azReady()) { setScStatus('请先在“帮助”里解锁开发者模式'); return; }
   const F = 'width:100%;box-sizing:border-box;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--pop);color:var(--ink);font-size:15px;margin:4px 0 8px';
-  showPop('<h3 style="margin:0 0 6px">＋ 上架新材料</h3>' +
+  showPop('<h3 style="margin:0 0 6px">＋ 上架新资料</h3>' +
     '<div class="filebtn" style="margin-bottom:8px"><button type="button" tabindex="-1">选择中英对照文本（.txt / .md）</button><input type="file" accept=".txt,.md,.markdown" onchange="devNewFile(event)"></div>' +
     '<div id="dnInfo" class="note" style="margin-bottom:6px">选好文件后，标题、等级、句数会自动识别。</div>' +
     '<div class="note">英文标题</div><input id="dnTitle" style="' + F + '"><div class="note">中文名</div><input id="dnZh" style="' + F + '">' +
     '<div class="note">等级</div><input id="dnLevel" value="A1 入门" style="' + F + '">' +
-    '<div class="note">材料价格（元，0 或留空 = 免费）</div><input id="dnPrice" inputmode="decimal" value="0" style="' + F + '">' +
-    '<label style="display:flex;gap:8px;align-items:center;margin:4px 0 8px;color:var(--ink)"><input type="checkbox" id="dnVoice" checked> 同时生成自然语音（买材料就自带语音）</label>' +
+    '<div class="note">资料价格（元，0 或留空 = 免费）</div><input id="dnPrice" inputmode="decimal" value="0" style="' + F + '">' +
+    '<label style="display:flex;gap:8px;align-items:center;margin:4px 0 8px;color:var(--ink)"><input type="checkbox" id="dnVoice" checked> 同时生成自然语音（买资料就自带语音）</label>' +
     '<div class="row" style="margin-top:6px"><button id="dnGo" onclick="devNewGo()" disabled>开始上架</button><button class="ghost" onclick="openStoryCity()">返回</button></div>' +
     '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>');
 }
@@ -1973,22 +1980,22 @@ async function devNewGo() {
     if (price) entry.price = price;
     const pub = await devPublish(entry, { name: id + '.srbook', blob: pk.blob, priv: !!price });
     if (pub !== true) throw new Error('上架失败：' + pub);
-    if (price) { setScStatus('正在生成试读版（第一章）…'); const sp = await devMakeSample(entry, devNew.text, voice); if (sp !== true) throw new Error('材料已上架，但' + sp + '。可以点卡片上的“生成试读”重试'); }
+    if (price) { setScStatus('正在生成试读版（第一章）…'); const sp = await devMakeSample(entry, devNew.text, voice); if (sp !== true) throw new Error('资料已上架，但' + sp + '。可以点卡片上的“生成试读”重试'); }
     await openStoryCity(true);
     setScStatus('全部完成：《' + title + '》已上架' + (price ? '，定价 ¥' + price : '，免费') + (clips ? '，自然语音也已上架（用户获取后会在后台自动下载），这台设备上点底部的“▶ 朗读”就能听到。' : '。'));
   } catch (e) { setScStatus((e && e.message ? e.message : '未知错误') + '（修好后再点“开始上架”，已合成的语音不会重复收费）'); document.getElementById('dnGo') && (document.getElementById('dnGo').disabled = false); }
   devGenBusy = false;
 }
 /* ---------- 修改已上架的书：改信息 / 改内容（只补缺的语音） / 补语音 ---------- */
-async function devLoadStory(it) {                    // 读出已上架材料的 manifest + 正文（免费的走公开地址，收费的走后台私有地址）
+async function devLoadStory(it) {                    // 读出已上架资料的 manifest + 正文（免费的走公开地址，收费的走后台私有地址）
   let zbuf;
   if (it.file) { const r = await fetch(shopUrl(it.file) + '?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) throw new Error('读取失败（HTTP ' + r.status + '）'); zbuf = await r.arrayBuffer(); }
-  else { const r = await devAdmin('/admin/private/' + it.id + '.srbook', { method: 'GET' }); if (!r.ok) throw new Error('读取收费材料失败：' + r.msg); zbuf = await r.res.arrayBuffer(); }
+  else { const r = await devAdmin('/admin/private/' + it.id + '.srbook', { method: 'GET' }); if (!r.ok) throw new Error('读取收费资料失败：' + r.msg); zbuf = await r.res.arrayBuffer(); }
   await loadLibs();
   const z = await JSZip.loadAsync(zbuf);
   return { man: JSON.parse(await z.file('manifest.json').async('string')), text: await z.file('book.txt').async('string') };
 }
-async function devHaveClips(id) {                    // 服务器上这个材料已经有哪些句子的语音
+async function devHaveClips(id) {                    // 服务器上这个资料已经有哪些句子的语音
   const r = await devAdmin('/admin/clips/' + id, { method: 'GET' });
   if (!r.ok) throw new Error('查询服务器语音失败：' + r.msg);
   return new Set((await r.res.json()).have || []);
@@ -2006,7 +2013,7 @@ async function devNeedSynth(sents, have) {           // 这些句子里，服务
 function devAzConfirm(chars) {
   return !(azUsed() + chars > AZ_FREE) || confirm('要合成约 ' + chars + ' 字符，加上本月已记录的 ' + azUsed() + '，会超出 ' + AZ_FREE + ' 免费额度。\n\n· 定价层是 F0：超出的会失败，不收费\n· 定价层是 S0、还在免费试用：从试用额度里扣，不收费\n· 已升级即用即付且是 S0：会向微软付费\n\n继续吗？');
 }
-async function devGenVoice(id) {                      // 已上架的材料补语音：服务器上已有的句子不动，只合成、只上传缺的
+async function devGenVoice(id) {                      // 已上架的资料补语音：服务器上已有的句子不动，只合成、只上传缺的
   if (!azReady()) { setScStatus('请先在“帮助”里解锁开发者模式'); return; }
   const it = ((storyCat && storyCat.items) || []).find(x => x.id === id); if (!it) return;
   if (devGenBusy) { setScStatus('正在生成中，请等它做完'); return; }
@@ -2029,7 +2036,7 @@ async function devGenVoice(id) {                      // 已上架的材料补�
       man.voice = voice;
     }
     if (!it.voice) {
-      setScStatus('正在更新材料信息…');
+      setScStatus('正在更新资料信息…');
       const pk = await devPackStory(Object.assign({}, man, { voice: man.voice || azCfg().voice }), text, null);
       const entry = Object.assign({}, it, { voice: true, kind: 'story' });
       const pub = await devPublish(entry, { name: it.id + '.srbook', blob: pk.blob, priv: !!it.price });
@@ -2050,7 +2057,7 @@ function devEditInfo(id) {
     ('<div class="note">购买说明（买家点“购买”时看到，比如“闲鱼搜 喵喵英语，拍下后自动发激活码”）</div><input id="deBuy" value="' + esc(it.buy || '') + '" style="' + F + '"><div class="note">购买链接（闲鱼商品页，https 开头，可空）</div><input id="deBuyUrl" value="' + esc(it.buyUrl || '') + '" style="' + F + '">') +
     '<div class="note">价格（元，填 0 就是免费）</div><input id="dePrice" inputmode="decimal" value="' + esc(String(it.price || 0)) + '" style="' + F + '">' +
     '<div class="note">限时免费到（日期，如 2026-10-31；留空=不做活动；过了这天自动恢复原价）</div><input id="deFree" placeholder="2026-10-31" value="' + (it.freeUntil && it.freeUntil > Date.now() ? esc(new Date(it.freeUntil - 86400000).toISOString().slice(0, 10)) : '') + '" style="' + F + '">' +
-    '<div class="note" style="margin:0 0 8px">免费 ⇄ 收费会自动把这个材料的文字和语音在服务器上搬一下，不用重新上架。已经免费拿走的人，之后在线听语音可能取不到，需要重新解锁。</div>' +
+    '<div class="note" style="margin:0 0 8px">免费 ⇄ 收费会自动把这个资料的文字和语音在服务器上搬一下，不用重新上架。已经免费拿走的人，之后在线听语音可能取不到，需要重新解锁。</div>' +
     '<div class="row" style="margin-top:6px"><button onclick="devEditInfoSave(\'' + esc(id) + '\')">保存</button><button class="ghost" onclick="openStoryCity()">返回</button></div>' +
     '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>');
 }
@@ -2074,8 +2081,8 @@ async function devEditInfoSave(id) {
   if (!it.titleZh && !it.desc || it.desc === (it.titleZh ? it.titleZh + '。' : '')) { if (zh) entry.desc = zh + '。'; else delete entry.desc; }
   {
     const pr = Math.max(0, Math.round((parseFloat(document.getElementById('dePrice').value) || 0) * 100) / 100), sw = (pr > 0) !== !!it.price;
-    if (sw && !it.price && !it.file) { setScStatus('这个材料的文件不在服务器上，不能直接改价格'); return; }
-    if (sw && !confirm(pr > 0 ? '改成收费（¥' + pr + '）吗？这个材料会从公开目录搬到私有目录，只有激活码买家能下载。' : '改成免费吗？这个材料会放到公开目录，任何人都能下载。')) return;
+    if (sw && !it.price && !it.file) { setScStatus('这个资料的文件不在服务器上，不能直接改价格'); return; }
+    if (sw && !confirm(pr > 0 ? '改成收费（¥' + pr + '）吗？这个资料会从公开目录搬到私有目录，只有激活码买家能下载。' : '改成免费吗？这个资料会放到公开目录，任何人都能下载。')) return;
     if (pr !== (it.price || 0)) {
       setScStatus('正在改价格…');
       const pj = await devAdmin('/admin/price/' + it.id, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ price: pr }) });
@@ -2153,14 +2160,14 @@ async function devEditSave() {
         await devUploadClips(it, voice, r.clips);
       }
     }
-    setScStatus('正在更新材料…');
+    setScStatus('正在更新资料…');
     const ver = (it.ver || 1) + 1;
     const pk = await devPackStory(Object.assign({}, d.man, { count: newS.length, ver, voice }), newText, null);
     const entry = Object.assign({}, it, { kind: 'story', count: newS.length, ver, preview: nw.preview });
     const pub = await devPublish(entry, { name: it.id + '.srbook', blob: pk.blob, priv: !!it.price });
     if (pub !== true) throw new Error('更新失败：' + pub);
     devEd = null; await openStoryCity(true);
-    setScStatus('已更新《' + it.title + '》（第 ' + ver + ' 版）。改了 ' + Object.keys(d.edits).length + ' 段' + (it.voice ? '，重新合成语音 ' + changed.length + ' 句' : '') + '。买家下次打开学习材料会看到“有更新”。');
+    setScStatus('已更新《' + it.title + '》（第 ' + ver + ' 版）。改了 ' + Object.keys(d.edits).length + ' 段' + (it.voice ? '，重新合成语音 ' + changed.length + ' 句' : '') + '。买家下次打开学习资料会看到“有更新”。');
   } catch (e) { setScStatus('保存失败：' + (e && e.message ? e.message : '未知错误') + '（改的内容还在，修好后再点保存）'); }
   devGenBusy = false;
 }
@@ -2173,7 +2180,7 @@ function scBuy(id) {
     '<div class="note" style="margin-top:12px">已经有激活码？在这里输入：</div>' +
     '<div class="row" style="margin-top:6px"><input id="rdCode" placeholder="XXXX-XXXX-XXXX" autocapitalize="characters" autocomplete="off" style="flex:1;min-width:0;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--pop);color:var(--ink);font-size:16px;letter-spacing:1px"><button onclick="redeemGo()">解锁</button></div>' +
     '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>' +
-    '<div class="row" style="margin-top:8px"><button class="ghost" onclick="openStoryCity()">返回学习材料</button></div>');
+    '<div class="row" style="margin-top:8px"><button class="ghost" onclick="openStoryCity()">返回学习资料</button></div>');
 }
 const fmtDay = ms => { const d = new Date(ms); return (d.getMonth() + 1) + '月' + d.getDate() + '日'; };
 const freeNow = it => !!(it && it.price && it.freeUntil && it.freeUntil > Date.now());
@@ -2192,7 +2199,7 @@ async function claimFree(id) {
 function redeemPop() {
   showPop('<h3 style="margin:0 0 6px">' + ic('key') + '输入激活码</h3><div class="note">每个激活码最多可在 3 台设备上使用。</div>' +
     '<div class="row" style="margin-top:10px"><input id="rdCode" placeholder="XXXX-XXXX-XXXX" autocapitalize="characters" autocomplete="off" style="flex:1;min-width:0;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--pop);color:var(--ink);font-size:16px;letter-spacing:1px"><button onclick="redeemGo()">解锁</button></div>' +
-    '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div><div class="row" style="margin-top:8px"><button class="ghost" onclick="openStoryCity()">返回学习材料</button></div>');
+    '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div><div class="row" style="margin-top:8px"><button class="ghost" onclick="openStoryCity()">返回学习资料</button></div>');
 }
 let redeemBusy = false;
 async function redeemGo() {
@@ -2201,7 +2208,7 @@ async function redeemGo() {
   try {
     const r = await fetchT(SHOP_BASE + '/redeem', 12000, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) { setScStatus(j.error === 'bad-code' ? '激活码不对或已作废，请核对后再试。' : j.error === 'used-up' ? '这个激活码已经在 3 台设备上用过了。' : j.error === 'too-many-failures' ? '试错次数太多，请 10 分钟后再试。' : j.error === 'story-gone' ? '这份材料已下架，请联系我们。' : '解锁失败（' + (j.error || 'HTTP ' + r.status) + '）'); redeemBusy = false; return; }
+    if (!r.ok) { setScStatus(j.error === 'bad-code' ? '激活码不对或已作废，请核对后再试。' : j.error === 'used-up' ? '这个激活码已经在 3 台设备上用过了。' : j.error === 'too-many-failures' ? '试错次数太多，请 10 分钟后再试。' : j.error === 'story-gone' ? '这份资料已下架，请联系我们。' : '解锁失败（' + (j.error || 'HTTP ' + r.status) + '）'); redeemBusy = false; return; }
     storyCat = storyCat || { items: [] }; storyCat.items = storyCat.items || [];
     const k = storyCat.items.findIndex(x => x.id === j.item.id); if (k >= 0) storyCat.items[k] = j.item; else storyCat.items.push(j.item);
     redeemBusy = false;
@@ -2209,7 +2216,7 @@ async function redeemGo() {
     if (document.getElementById('scList') || document.getElementById('scStatus')) { toast('解锁成功，《' + j.item.title + '》已加入“我的学习”', 3500); renderStoryCity(''); }
   } catch (e) { setScStatus('网络不通，解锁没成功，请稍后再试。'); redeemBusy = false; }
 }
-/* 学习材料的小伙伴：35 种原创 Q 版小动物 / 小人儿（猫咪 5 种，十二生肖都有）。每个材料按 id 固定分到一种 */
+/* 学习资料的小伙伴：35 种原创 Q 版小动物 / 小人儿（猫咪 5 种，十二生肖都有）。每个资料按 id 固定分到一种 */
 const BD_D = 'rgba(70,45,30,.88)', BD_PINK = '#f9c9d2';
 const bdCatEars = c => '<path d="M18 23 L20 4 L34 14 Z M58 23 L56 4 L42 14 Z" fill="' + c + '"/><path d="M21.5 17 L22.5 9 L29 13.5 Z M54.5 17 L53.5 9 L47 13.5 Z" fill="' + BD_PINK + '"/>';
 const bdRound = (c, r, inner, y) => { y = y || 14; return '<circle cx="19" cy="' + y + '" r="' + r + '" fill="' + c + '"/><circle cx="57" cy="' + y + '" r="' + r + '" fill="' + c + '"/>' + (inner ? '<circle cx="19" cy="' + y + '" r="' + (r / 2) + '" fill="' + inner + '"/><circle cx="57" cy="' + y + '" r="' + (r / 2) + '" fill="' + inner + '"/>' : ''); };
@@ -2258,9 +2265,9 @@ const BUDDIES = [
   { n: '小鳄鱼', c: '#78b85a', b: c => '<circle cx="28" cy="15" r="7.5" fill="' + c + '"/><circle cx="48" cy="15" r="7.5" fill="' + c + '"/>', eye: 'frog', f: () => '<ellipse cx="38" cy="42" rx="14" ry="7" fill="#8fcb6f"/><circle cx="34" cy="38" r="1" fill="#3f6b2e"/><circle cx="42" cy="38" r="1" fill="#3f6b2e"/><circle cx="30" cy="26" r="1.8" fill="#5f9c45"/><circle cx="46" cy="24" r="1.6" fill="#5f9c45"/>', m: '<path d="M27 44 q11 5 22 0" stroke="' + BD_D + '" stroke-width="1.4" fill="none" stroke-linecap="round"/><path d="M30 45 l1.5 2.5 1.5 -2 M44 45 l1.5 2.5 1.5 -2" fill="#fff" stroke="#fff" stroke-width=".8"/>' },
   { n: '小猫头鹰', c: '#b98b61', b: () => '<path d="M19 18 L18 4 L29 12 Z M57 18 L58 4 L47 12 Z" fill="#8a5f3c"/>', eye: 'owl', m: BD_BEAK }
 ];
-function buddySvg(k, have, W, H) {                 // 按 key 固定画一只小伙伴（学习材料和“我的学习”里同一个材料是同一只）；have=眯眼笑+小星星
+function buddySvg(k, have, W, H) {                 // 按 key 固定画一只小伙伴（学习资料和“我的学习”里同一个资料是同一只）；have=眯眼笑+小星星
   let h = 0; for (let i = 0; i < k.length; i++) h = (h * 33 + k.charCodeAt(i)) >>> 0;
-  h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d) >>> 0; h ^= h >>> 12; h = Math.imul(h, 0x297a2d39) >>> 0; h = (h ^ (h >>> 15)) >>> 0;     // 打散：名字只差一个字的材料也分到不同的小伙伴
+  h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d) >>> 0; h ^= h >>> 12; h = Math.imul(h, 0x297a2d39) >>> 0; h = (h ^ (h >>> 15)) >>> 0;     // 打散：名字只差一个字的资料也分到不同的小伙伴
   const B = BUDDIES[h % BUDDIES.length], C = B.c, D = BD_D, body = B.body || C;
   const ln = c => c === '#ffffff' || c === '#fbf4ea' || c === '#fffaf2' || c === '#ffe0c7' ? ' stroke="rgba(0,0,0,.12)"' : '';
   const L1 = ln(C), L2 = ln(body);
@@ -2288,11 +2295,11 @@ function coverColor(k) {                           // 每本书按 id 固定一�
   let h = 0; for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) >>> 0;
   return COVER_COLORS[h % COVER_COLORS.length];
 }
-function storyBuddy(it, have) {                    // 学习材料：简洁的纯色书封面，写英文书名
+function storyBuddy(it, have) {                    // 学习资料：简洁的纯色书封面，写英文书名
   return '<div class="minicover" style="background:' + coverColor('story-' + it.id) + '" title="' + esc(it.title) + '"><span>' + esc(it.title) + '</span>' +
     (have ? '<i>✓</i>' : '') + '</div>';
 }
-let scQ = '', scF = 'all', scLv = '', scN = 20, scObs = null;           // 学习材料的搜索 / 筛选 / 已显示数量
+let scQ = '', scF = 'all', scLv = '', scN = 20, scObs = null;           // 学习资料的搜索 / 筛选 / 已显示数量
 function levelHelp() {
   const L = (e, t, d, ex) => '<div style="margin:10px 0"><div style="font-size:16px;color:var(--ink)">' + e + ' <b>' + t + '</b>：' + d + '</div>' + (ex ? '<div class="note" style="font-style:italic;margin-top:2px">例：' + ex + '</div>' : '') + '</div>';
   showPop('<h3 style="margin:0 0 6px">' + ic('help') + '怎么选等级</h3><div class="note">看例句，自己能读懂的就选那一级。</div>' +
@@ -2304,7 +2311,7 @@ function levelHelp() {
     L('', 'C2 精通', '最难，接近英语国家的人读的水平。', '') +
     '<div class="card" style="padding:10px 12px;margin-top:10px"><b>选书小窍门</b>：读一页，不认识的词不超过 5 个，这个等级就适合你；超过 10 个，就先往下降一级。</div>' +
     '<div class="note" style="margin-top:8px">等级是软件按书里的用词和句子长短自动估的，只是参考。</div>' +
-    '<div class="row" style="margin-top:10px"><button class="ghost" onclick="openStoryCity()">返回学习材料</button></div>');
+    '<div class="row" style="margin-top:10px"><button class="ghost" onclick="openStoryCity()">返回学习资料</button></div>');
 }
 const LV_CN = { A1: 'A1 入门', A2: 'A2 初级', B1: 'B1 中级', B2: 'B2 中高级', C1: 'C1 高级', C2: 'C2 精通' };
 function lvLabel(l) { const m = /\b([ABC][12])\b/i.exec(String(l || '')); return m ? LV_CN[m[1].toUpperCase()] : String(l || '').trim(); }   // 难度标签统一写成“B2 中高级”
@@ -2333,7 +2340,7 @@ function scCard(it, owned) {
     (prev ? '<div id="scPrev-' + it.id + '" style="display:none;margin-top:8px">' + prev + '</div>' : '') + '</div></div>';
 }
 function scFiltered() {
-  const items = ((storyCat && storyCat.items) || []).filter(x => x.kind !== 'voice');     // 语音不单独卖，买材料自带语音
+  const items = ((storyCat && storyCat.items) || []).filter(x => x.kind !== 'voice');     // 语音不单独卖，买资料自带语音
   const owned = new Set(shelfGet().map(x => x.id)), q = scQ.trim().toLowerCase();
   let l = items.filter(it => {
     const have = owned.has('story-' + it.id);
@@ -2350,8 +2357,8 @@ function scFiltered() {
 }
 function scListHtml() {
   const { l, owned } = scFiltered();
-  if (!l.length) return '<div class="note" style="text-align:center;padding:20px 0">' + (scQ || scF !== 'all' || scLv ? '这个难度暂时还没有材料。' : '暂时还没有学习材料。') + '</div>';
-  return l.slice(0, scN).map(it => scCard(it, owned)).join('') + (l.length > scN ? '<div id="scMore" class="note" style="text-align:center;padding:14px 0">往下滑加载更多（还有 ' + (l.length - scN) + ' 本）</div>' : '<div class="note" style="text-align:center;padding:8px 0 4px">共 ' + l.length + ' 本材料</div>');
+  if (!l.length) return '<div class="note" style="text-align:center;padding:20px 0">' + (scQ || scF !== 'all' || scLv ? '这个难度暂时还没有资料。' : '暂时还没有学习资料。') + '</div>';
+  return l.slice(0, scN).map(it => scCard(it, owned)).join('') + (l.length > scN ? '<div id="scMore" class="note" style="text-align:center;padding:14px 0">往下滑加载更多（还有 ' + (l.length - scN) + ' 本）</div>' : '<div class="note" style="text-align:center;padding:8px 0 4px">共 ' + l.length + ' 本资料</div>');
 }
 function scRefresh(reset) {                        // 只刷新列表，搜索框不丢焦点
   if (reset) scN = 20;
@@ -2370,19 +2377,19 @@ function scSetF(f) { scF = f; scRefresh(true); }
 function scSetLv(lv) { scLv = lv; scRefresh(true); }
 function renderStoryCity(err) {
   try { renderStoryCity0(err); }
-  catch (e) { showPop('<h3 style="margin:0 0 6px">' + ic('book') + '学习材料</h3><div class="note" style="color:#b94a48">目录显示出错了（' + esc(e && e.message || '未知错误') + '），请关掉再点一次“学习材料”。</div>'); }
+  catch (e) { showPop('<h3 style="margin:0 0 6px">' + ic('book') + '学习资料</h3><div class="note" style="color:#b94a48">目录显示出错了（' + esc(e && e.message || '未知错误') + '），请关掉再点一次“学习资料”。</div>'); }
 }
 function renderStoryCity0(err) {
   scQ = ''; scF = 'all';                               // 搜索和商城式分类已去掉，只按难度筛
   const total = scFiltered().total, lvs = [...new Set(((storyCat && storyCat.items) || []).map(x => String(x.level || '').slice(0, 2).toUpperCase()).filter(x => /^[ABC][12]$/.test(x)))].sort();
-  let h = '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 6px"><h3 id="scList" style="margin:0">' + ic('book') + '学习材料</h3><button class="link" style="font-size:14px" onclick="redeemPop()">' + ic('key') + '我有激活码</button></div><div class="note" style="margin-bottom:10px">' + esc((storyCat && storyCat.intro) || '中英对照学习材料，点单词发音，点句子朗读。') + '</div>';
+  let h = '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 6px"><h3 id="scList" style="margin:0">' + ic('book') + '学习资料</h3><button class="link" style="font-size:14px" onclick="redeemPop()">' + ic('key') + '我有激活码</button></div><div class="note" style="margin-bottom:10px">' + esc((storyCat && storyCat.intro) || '中英对照学习资料，点单词发音，点句子朗读。') + '</div>';
   if (err) h += '<div class="note" style="color:#b94a48;margin-bottom:8px">' + esc(err) + ' <button class="ghost sm" style="margin-left:4px" onclick="openStoryCity(true)">' + ic('refresh') + '重新加载</button></div>';
   if (total > 0) {
     const chip = (attr, val, label, on, fn) => '<button class="scChip' + (on ? ' on' : '') + '" data-' + attr + '="' + val + '" onclick="' + fn + '">' + label + '</button>';
     h += (lvs.length ? '<div class="scChips">' + chip('lv', '', '全部', scLv === '', "scSetLv('')") + lvs.map(lv => chip('lv', lv, lv, scLv === lv, "scSetLv('" + lv + "')")).join('') + '<button class="scChip" style="border-style:dashed" onclick="levelHelp()">' + ic('help') + '怎么选等级</button></div>' : '');
   }
   h += '<div id="scItems">' + scListHtml() + '</div>';
-  h += (azReady() ? '<div class="row" style="margin-top:6px"><button class="sm" onclick="devNewStoryPop()">＋ 上架新材料（开发者）</button><button class="sm ghost" onclick="visitsPop()">' + ic('chart') + '访问统计</button></div>' : '') +
+  h += (azReady() ? '<div class="row" style="margin-top:6px"><button class="sm" onclick="devNewStoryPop()">＋ 上架新资料（开发者）</button><button class="sm ghost" onclick="visitsPop()">' + ic('chart') + '访问统计</button></div>' : '') +
     '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>';
   showPop(h); scWatchMore();
 }
@@ -2412,12 +2419,12 @@ async function fetchStoryCat() {
   catCacheSet(cat);
   return cat;
 }
-async function redownload(sid) {                    // “我的学习”里的学习材料内容丢了：重新下载，进度保留
+async function redownload(sid) {                    // “我的学习”里的学习资料内容丢了：重新下载，进度保留
   closePop(); toast('正在重新下载…', 2500);
   if (!storyCat) storyCat = catCacheGet();
   { const cat = await fetchStoryCat(); if (cat) storyCat = cat; }
   const it = ((storyCat && storyCat.items) || []).find(x => x.id === sid);
-  if (!it) { toast('学习材料里已经没有这份材料了，可以移除它', 4000); return; }
+  if (!it) { toast('学习资料里已经没有这份资料了，可以移除它', 4000); return; }
   const e = shelfGet().find(x => x.id === 'story-' + sid);
   if (e && e.sample) await getSample(sid); else await getStory(sid);
   render();
@@ -2430,11 +2437,11 @@ async function openStoryCity(fresh) {               // fresh = 刚上架/修改�
     if (cat && JSON.stringify(cat) !== JSON.stringify(storyCat)) { storyCat = cat; if (document.getElementById('scList') && !devGenBusy) renderStoryCity(''); }
     return;
   }
-  showPop('<h3 style="margin:0 0 6px">' + ic('book') + '学习材料</h3><div class="note">正在加载…</div>');
+  showPop('<h3 style="margin:0 0 6px">' + ic('book') + '学习资料</h3><div class="note">正在加载…</div>');
   let cat = null; try { cat = await fetchStoryCat(); } catch (e) {}
   if (cat) storyCat = cat;
   if (!document.getElementById('overlay').classList.contains('show')) return;    // 用户已经关掉了
-  renderStoryCity(cat ? '' : (storyCat ? '没连上网，显示的是上次的目录。' : '材料目录加载失败，请检查网络后再点一次“学习材料”。'));
+  renderStoryCity(cat ? '' : (storyCat ? '没连上网，显示的是上次的目录。' : '资料目录加载失败，请检查网络后再点一次“学习资料”。'));
 }
 /* ---------- 语音包：买来的“一句一个音频”文件包，导入后每句优先播放包里的声音 ---------- */
 // 包是 zip：manifest.json + clips/<哈希>.mp3，哈希 = SHA-256('vp1\n' + 英文句子)。按句子内容找，不靠序号，切句规则以后改了也不会错位。
@@ -3210,10 +3217,10 @@ async function copyDiag() {
     '录音: ' + !!(nav.mediaDevices && window.MediaRecorder) + ' | 语音识别打分: ' + speechRecoSupported(),
     '存储: ' + est,
     '词典: ' + (dictInfo && dictInfo.count ? dictInfo.count + ' 词条' : '未导入') + ' | 自动下载提示: ' + (getAutoMsg() || '无'),
-    state ? '材料: ' + state.sentences.length + ' 句，当前第 ' + (state.idx + 1) + ' 句，目录类型 ' + (state.toc && state.toc.kind) + '，自带译文 ' + Object.keys(state.zh || {}).length + ' 句，插图段 ' + (state.imageRanges || []).length : '书: 未导入'
+    state ? '资料: ' + state.sentences.length + ' 句，当前第 ' + (state.idx + 1) + ' 句，目录类型 ' + (state.toc && state.toc.kind) + '，自带译文 ' + Object.keys(state.zh || {}).length + ' 句，插图段 ' + (state.imageRanges || []).length : '书: 未导入'
   ];
   const text = lines.join('\n');
-  try { await nav.clipboard.writeText(text); toast('诊断信息已复制，请粘贴发给我们（里面没有材料的内容）', 3500); }
+  try { await nav.clipboard.writeText(text); toast('诊断信息已复制，请粘贴发给我们（里面没有资料的内容）', 3500); }
   catch (e) { showPop('<h3 style="margin:0 0 8px">诊断信息</h3><div class="note">自动复制失败，请长按下面的文字，手动复制后发给我们：</div><textarea readonly style="min-height:220px;margin-top:8px">' + esc(text) + '</textarea>'); }
 }
 function openFeedback() { if (FEEDBACK_URL) window.open(FEEDBACK_URL, '_blank', 'noopener'); }
@@ -3223,24 +3230,24 @@ function openHelp() {
   showPop(
     '<h3 style="margin:0 0 4px">' + ic('help') + '帮助与反馈</h3><div class="note">试用版 · 版本 <span onclick="devTap()" style="cursor:default;user-select:none">' + esc(APP_VERSION) + '</span> <button class="ghost sm" onclick="srCheckUpdate(true)" style="margin-left:6px">检查更新</button></div><div class="note" style="margin-top:4px">为了统计使用人数，会记录一个匿名的设备编号，不收集姓名、账号、手机号。</div>' +
     '<div class="row" style="margin:12px 0 4px"><button onclick="copyDiag()">复制诊断信息</button>' + (FEEDBACK_URL ? '<button class="ghost" onclick="openFeedback()">打开反馈问卷</button>' : '') + '</div>' +
-    '<div class="note">遇到问题（没声音、录不了音、材料导入不对等），先点“复制诊断信息”，粘贴发给发你链接的人。诊断信息只有设备和软件状态，没有材料的内容和你的录音。</div>' +
+    '<div class="note">遇到问题（没声音、录不了音、资料导入不对等），先点“复制诊断信息”，粘贴发给发你链接的人。诊断信息只有设备和软件状态，没有资料的内容和你的录音。</div>' +
     sec('快速上手',
       li('点句子里的<b>单词</b>查词，点哪个词就读哪个词，同时弹出解释。') + li('点底部的 <b>▶ 朗读</b>，念到哪个词哪个词会亮；旁边的下拉菜单可以换美音、英音。') + li('<b>声音只有几个？</b>iPhone、iPad 网页版只能用系统自带的声音（苹果的限制），推荐选 <b>自然语音</b>；安卓手机和电脑可以在系统设置里下载更多英语声音，电脑用 Edge 浏览器打开还能直接用几十个在线声音。') +
       li('<b>跟读</b>：录下自己读这一句，联网时会给发音打分（每个词都有分）。最近 3 次录音保存在本机，能看进步，点“对比听”连着听原声和自己的。') + li('<b>正常 / 慢速</b>：听不清的时候点一下改成慢速，再点一下改回正常。如果点了没变化，是这个声音不支持调速，软件会提示，换一个声音试试。') +
       li('顶部 <b>整页翻译</b> 把一页的句子连同中文一起列出来，点句子就读；<b>目录</b> 可以跳到任意页；右上角 <b>···</b> 里有语音包、词典、语法字典和帮助。') +
-      li('装到手机桌面：iPhone 用 Safari，点分享 → 添加到主屏幕；安卓用 Chrome，点 ⋮ → 安装应用。<b>装好后请在桌面图标里导入材料（打开软件先是“我的学习”，点“＋ 导入”）</b>，浏览器和桌面图标的数据是分开的。'), true) +
+      li('装到手机桌面：iPhone 用 Safari，点分享 → 添加到主屏幕；安卓用 Chrome，点 ⋮ → 安装应用。<b>装好后请在桌面图标里导入资料（打开软件先是“我的学习”，点“＋ 导入”）</b>，浏览器和桌面图标的数据是分开的。'), true) +
     sec('隐私与数据',
-      li('你导入的材料（“我的学习”里所有的材料）、阅读进度、录音、下载的词典，都<b>只存在这台设备的浏览器里</b>，不会上传。换设备或清除浏览器数据会丢失，请注意。') +
-      li('<b>整句翻译</b>：当前这一句英文会发到开发者的翻译中转服务，再转给火山引擎机器翻译，中转服务不保存内容；中转不可用时改发 Google 或 MyMemory 的免费接口。查词时本地词典没有的词会发给第三方词典服务。材料里自带中文译文的句子不会发送。') +
+      li('你导入的资料（“我的学习”里所有的资料）、阅读进度、录音、下载的词典，都<b>只存在这台设备的浏览器里</b>，不会上传。换设备或清除浏览器数据会丢失，请注意。') +
+      li('<b>整句翻译</b>：当前这一句英文会发到开发者的翻译中转服务，再转给火山引擎机器翻译，中转服务不保存内容；中转不可用时改发 Google 或 MyMemory 的免费接口。查词时本地词典没有的词会发给第三方词典服务。资料里自带中文译文的句子不会发送。') +
       li('<b>自然语音（仅开发者可用）</b>：需要开发者口令解锁。启用后，当前要朗读的那一句英文会发到开发者自己的微软 Azure 账号生成语音。Key 用口令加密后只保存在开发者的设备里，软件代码里没有任何 Key。') +
       li('软件本身不收集任何使用数据。')) +
     sec('开源与致谢',
       li('英汉词典数据：ECDICT（skywind3000，MIT 许可）') + li('界面图标：Lucide（lucide.dev，ISC 许可）') + li('雅思词库与插图：Word Atlas（词光），Word Atlas contributors，CC BY 4.0 许可（creativecommons.org/licenses/by/4.0）；本软件精简了词条字段，插图原样使用。内容由 AI 生成，不是雅思官方词表') + li('PDF 解析：pdf.js（Mozilla，Apache-2.0）') + li('epub 解压：JSZip（MIT / GPLv3 双许可）') +
       li('各组件版权归原作者所有。')) +
     sec('免责声明',
-      li('请只导入你有权使用的材料（如公版作品、你自己购买的读物）。') +
-      li('顶部的“已读 X 句 · 已听 X 句 · 连续 X 天”是你所有材料合起来的学习记录：<b>已读</b>是你点“跟读”自己读过的句数（同一句读几遍只算一句）；<b>已听</b>是你完整听过的句数（同一句听几遍只算一句，中途停掉的不算）。') +
-      li('语法讲解由规则自动生成，翻译来自机器翻译或材料里自带的译文，仅供学习参考，可能有误。'))
+      li('请只导入你有权使用的资料（如公版作品、你自己购买的读物）。') +
+      li('顶部的“已读 X 句 · 已听 X 句 · 连续 X 天”是你所有资料合起来的学习记录：<b>已读</b>是你点“跟读”自己读过的句数（同一句读几遍只算一句）；<b>已听</b>是你完整听过的句数（同一句听几遍只算一句，中途停掉的不算）。') +
+      li('语法讲解由规则自动生成，翻译来自机器翻译或资料里自带的译文，仅供学习参考，可能有误。'))
   );
 }
 
@@ -3277,7 +3284,7 @@ function vbCounts() {                                // 首页显示：今天到
 function vbHomeBtn() {
   const v = vbGet(), c = vbCounts();
   const sub = !v.cfg ? '雅思核心词 7,298 个，带插图和真人发音' : (c.due || c.left ? '今天：复习 ' + c.due + ' 个 · 新词 ' + c.left + ' 个' : '今天的任务完成了，明天再来');
-  return '<button class="vbhome" onclick="openVocab()"><img src="./logo.svg" alt=""><span><b>背单词</b><small>' + sub + '</small></span><i>›</i></button>';
+  return '<button class="vbhome" onclick="openVocab()">' + logoHtml('') + '<span><b>背单词</b><small>' + sub + '</small></span><i>›</i></button>';
 }
 async function openVocab() {
   showFullscreen('背单词', '<div class="note">正在准备词库…</div>');
@@ -3294,7 +3301,8 @@ function vbSetup(cur) {
     '<div class="vbsec">话题</div><div class="vbchips">' + chip('tp', '', '不限', !c.tp) + Object.keys(VB_TOPICS).map(t => chip('tp', t, VB_TOPICS[t], c.tp === t)).join('') + '</div>' +
     '<div class="vbsec">每天学几个新词</div><div class="vbchips">' + [10, 20, 30, 50].map(n => chip('n', n, n + ' 个', (c.n || 20) === n)).join('') + '</div>' +
     '<div class="note" style="margin-top:14px">已选：' + (c.lv || '全部难度') + ' · ' + (c.tp ? VB_TOPICS[c.tp] : '不限话题') + '，共 ' + cnt(c.lv, c.tp) + ' 个词</div>' +
-    '<button style="width:100%;margin-top:14px" onclick="vbSaveCfg()">开始背单词</button>');
+    '<button style="width:100%;margin-top:14px" onclick="vbSaveCfg()">开始背单词</button>' +
+    '<button class="link" style="margin-top:14px" onclick="vbBackupPage()">换了手机？从备份恢复进度</button>');
   vbSetup.cur = c;
 }
 function vbPick(g, v) { const c = Object.assign({}, vbSetup.cur); c[g] = g === 'n' ? +v : v; vbSetup(c); }
@@ -3389,15 +3397,57 @@ function vbDone() {
   const c = vbCounts(), v = vbGet(), learned = Object.values(v.cards).filter(r => r.c).length, day = vbDay();
   let next = Infinity; for (const k in v.cards) if (v.cards[k].c) next = Math.min(next, new Date(v.cards[k].c.due).getTime());
   const nextTxt = next === Infinity ? '' : next <= Date.now() ? '还有词到期，可以继续' : '下一批复习：' + new Date(next).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  setFullscreenBody('<div class="vbq"><img src="./logo.svg" alt="" style="width:72px;height:72px"><h3 style="margin:12px 0 4px">' + (vbQ && vbQ.done ? '今天的任务完成了' : '今天没有要背的词') + '</h3>' +
+  setFullscreenBody('<div class="vbq">' + logoHtml('', 'width:72px;height:72px') + '<h3 style="margin:12px 0 4px">' + (vbQ && vbQ.done ? '今天的任务完成了' : '今天没有要背的词') + '</h3>' +
     '<div class="note">' + (vbQ && vbQ.done ? '这一轮答了 ' + vbQ.done + ' 题，答对 ' + vbQ.ok + ' 题。' : '') + '今天学了 ' + day.n + ' 个新词；累计学过 ' + learned + ' 个词。</div>' +
     (nextTxt ? '<div class="note" style="margin-top:6px">' + nextTxt + '</div>' : '') + '</div>' +
     (c.due ? '<button style="width:100%;margin-top:16px" onclick="vbStart()">继续复习（' + c.due + ' 个）</button>' : '') +
     '<button class="ghost" style="width:100%;margin-top:10px" onclick="vbExtra()">再学 10 个新词</button>' +
     '<button class="ghost" style="width:100%;margin-top:10px" onclick="vbSetup()">换难度 / 话题 / 每天数量</button>' +
+    '<button class="ghost" style="width:100%;margin-top:10px" onclick="vbBackupPage()">' + ic('clip') + '备份与恢复进度</button>' +
     '<div class="isrc" style="text-align:center;margin-top:16px">词库、插图与录音来自 Word Atlas contributors · CC BY 4.0；复习算法 FSRS（ts-fsrs，MIT）</div>');
 }
 function vbExtra() { const v = vbGet(); vbDay(); v.day.n = Math.max(0, v.day.n - 10); vbSave(); vbStart(); }
+/* 背单词进度备份：导出成文件（或复制成一段文字），换手机、清浏览器数据前存一份；导入时按每个词最近一次复习的时间合并，不会把新进度盖掉 */
+function vbBackupPage() {
+  const v = vbGet(), n = Object.values(v.cards).filter(r => r.c).length;
+  setFullscreenBody('<h3 style="margin:0 0 4px">' + ic('clip') + '备份与恢复</h3>' +
+    '<div class="note">背单词的进度只存在这台设备的浏览器里，换手机、清浏览器数据都会丢。建议隔一段时间备份一次。</div>' +
+    '<div class="vbsec">备份（现在学过 ' + n + ' 个词）</div>' +
+    '<button style="width:100%" onclick="vbExport()">下载备份文件</button>' +
+    '<button class="ghost" style="width:100%;margin-top:10px" onclick="vbCopyBackup()">复制成文字（发给自己的微信保存）</button>' +
+    '<div class="vbsec">恢复</div>' +
+    '<div class="filebtn" style="display:block"><button type="button" tabindex="-1" class="ghost" style="width:100%">选择备份文件</button><input type="file" accept=".json,application/json,text/plain" onchange="vbImportFile(event)"></div>' +
+    '<textarea id="vbPaste" placeholder="或者把复制的备份文字粘贴到这里" style="margin-top:10px;min-height:80px;width:100%"></textarea>' +
+    '<button class="ghost" style="width:100%;margin-top:8px" onclick="vbImportText(document.getElementById(\'vbPaste\').value)">从文字恢复</button>' +
+    '<div class="note" style="margin-top:10px">恢复时会和这台设备上的进度合并：同一个词保留最近复习过的那一份。</div>' +
+    '<button class="link" style="margin-top:16px" onclick="vbDone()">‹ 返回</button>');
+}
+function vbBackupText() { return JSON.stringify({ app: 'sentence-reader', type: 'vb-backup', v: 1, at: new Date().toISOString(), vb: vbGet() }); }
+function vbExport() {
+  const d = new Date(), name = '一句一读-背单词备份-' + d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate() + '.json';
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([vbBackupText()], { type: 'application/json' })); a.download = name;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  toast('备份文件已下载：' + name, 3500);
+}
+async function vbCopyBackup() {
+  try { await navigator.clipboard.writeText(vbBackupText()); toast('已复制，粘贴到微信“文件传输助手”里保存', 3500); }
+  catch (e) { const t = document.getElementById('vbPaste'); if (t) { t.value = vbBackupText(); t.select(); } toast('没能自动复制，已放进下面的框里，请手动全选复制', 4000); }
+}
+function vbImportFile(ev) { const f = ev.target.files && ev.target.files[0]; if (!f) return; f.text().then(vbImportText).catch(() => toast('读取文件失败')); ev.target.value = ''; }
+function vbImportText(txt) {
+  let o; try { o = JSON.parse(String(txt || '').trim()); } catch (e) { toast('这不是背单词的备份内容'); return; }
+  if (!o || o.type !== 'vb-backup' || !o.vb || !o.vb.cards) { toast('这不是背单词的备份内容'); return; }
+  const v = vbGet(), t = r => r && r.c && r.c.last_review ? new Date(r.c.last_review).getTime() : r && r.add ? 0 : -1;
+  let add = 0, upd = 0;
+  for (const k in o.vb.cards) {
+    const a = v.cards[k], b = o.vb.cards[k];
+    if (!a) { v.cards[k] = b; add++; } else if (t(b) > t(a)) { v.cards[k] = b; upd++; }
+  }
+  if (!v.cfg && o.vb.cfg) v.cfg = o.vb.cfg;
+  vbSave();
+  toast('恢复完成：新增 ' + add + ' 个词，更新 ' + upd + ' 个词', 4000);
+  vbDone();
+}
 async function vbAddWord(k) {                        // 读书时查到的雅思词，一键加进背单词（明天起和新词一起出现，优先于词库顺序）
   const v = vbGet(); if (v.cards[k]) { toast('这个词已经在背单词里了'); return; }
   v.cards[k] = { add: Date.now() }; vbSave();
@@ -3573,8 +3623,8 @@ function parseMobi(buf) {
   const rec = i => u8.subarray(off(i), i + 1 < nRec ? off(i + 1) : u8.length);
   const r0 = rec(0), d0 = new DataView(r0.buffer, r0.byteOffset, r0.byteLength);
   const comp = d0.getUint16(0), count = d0.getUint16(8), crypt = d0.getUint16(12);
-  if (crypt !== 0) throw new Error('这个材料有 DRM 加密，无法读取。请使用没有 DRM 的版本。');
-  if (comp !== 1 && comp !== 2) throw new Error('这个材料使用了暂不支持的压缩方式，请用 Calibre 转成 epub 后再导入。');
+  if (crypt !== 0) throw new Error('这个资料有 DRM 加密，无法读取。请使用没有 DRM 的版本。');
+  if (comp !== 1 && comp !== 2) throw new Error('这个资料使用了暂不支持的压缩方式，请用 Calibre 转成 epub 后再导入。');
   const enc = r0.length > 32 ? d0.getUint32(28) : 1252;
   const extra = (r0.length > 0xf4 && d0.getUint32(20) >= 228) ? d0.getUint16(0xf2) : 0;
   const parts = [];
@@ -3712,7 +3762,7 @@ function openToc(query) {
     showPop(html);
     return;
   }
-  html += '<div class="note" style="margin-bottom:8px">点任意一项，直接跳到那里开始学习。开头自动跳过得不准确时，可以搜索材料开头的几个词（比如 Chapter 1）。' + (toc.kind === 'page' ? '灰色的页是没读到英文的（可能只有图片或中文）。' : toc.kind === 'segment' ? '这个材料没有识别到章节标题，按每 50 句分段。' : '') + '</div>';
+  html += '<div class="note" style="margin-bottom:8px">点任意一项，直接跳到那里开始学习。开头自动跳过得不准确时，可以搜索资料开头的几个词（比如 Chapter 1）。' + (toc.kind === 'page' ? '灰色的页是没读到英文的（可能只有图片或中文）。' : toc.kind === 'segment' ? '这个资料没有识别到章节标题，按每 50 句分段。' : '') + '</div>';
   items.forEach((it, i) => {
     const empty = !it.e, sent = it.e ? state.sentences[it.s] : '';
     const label = toc.kind === 'page' ? '第 ' + it.n + ' 页' : (it.t || '第 ' + it.n + ' 节');
@@ -3965,18 +4015,18 @@ async function pgStartTranslate(auto) {
 function render() {
   closeWordPop();
   const app = document.getElementById('app');
-  const header = '<div class="topbar"><div class="tbin"><div>' + (state ? '<button class="iconbtn" aria-label="回我的学习" onclick="closeBook()" style="font-size:15px;margin-left:-8px">‹ 我的学习</button>' : '<h1><img class="logo" src="./logo.svg" alt="">一句一读</h1>') + '</div>' +
+  const header = '<div class="topbar"><div class="tbin"><div>' + (state ? '<button class="iconbtn" aria-label="回我的学习" onclick="closeBook()" style="font-size:15px;margin-left:-8px">‹ 我的学习</button>' : '<h1>' + logoHtml('logo') + '一句一读</h1>') + '</div>' +
     '<div class="tools">' + (state ? '<button class="iconbtn" aria-label="整页翻译" onclick="openPageView()">整页翻译</button><button class="iconbtn" aria-label="目录" onclick="openToc()">目录</button>' : '') + '<button class="iconbtn" aria-label="更多" onclick="openMoreMenu()" style="font-size:22px;letter-spacing:1px;padding-bottom:6px">···</button></div></div></div>';
 
   if (!state) {
     app.innerHTML = header + shelfHtml() +
-      '<div class="hometip"><b>怎么学：</b>打开一份材料，一句一句读 → 不认识的词点一下就能查 → 点“跟读”读一遍，马上给你的发音打分。<br>' +
+      '<div class="hometip"><b>怎么学：</b>打开一份资料，一句一句读 → 不认识的词点一下就能查 → 点“跟读”读一遍，马上给你的发音打分。<br>' +
       '<span class="sub" style="font-size:13px">查词、语法讲解、跟读录音不联网也能用；整句翻译和发音打分需要联网。' +
       (dictInfo && dictInfo.count ? '离线大词典已就绪（' + dictInfo.count.toLocaleString() + ' 词条）。' : '离线大词典会在联网时自动后台下载。') + '</span></div>';
     return;
   }
   if (state.idx >= state.sentences.length) {
-    app.innerHTML = header + '<div class="card finish"><img src="./logo.svg" alt="" style="width:64px;height:64px">' + (isSample(state.bookId) ? '<h2>体验到这里结束啦</h2><div class="sub">喜欢的话，解锁完整内容接着往下学，读到哪里都会记着。</div><button style="margin-top:16px" onclick="closeBook();openStoryCity().then(()=>scBuy(\'' + esc(state.bookId.slice(6)) + '\'))">解锁完整内容</button> <button class="ghost" style="margin-top:16px" onclick="closeBook()">回我的学习</button>' : '<h2>全部读完了！</h2><div class="sub">共 ' + state.sentences.length + ' 句。</div><button style="margin-top:16px" onclick="closeBook()">回我的学习</button>') + '</div>';
+    app.innerHTML = header + '<div class="card finish">' + logoHtml('', 'width:64px;height:64px') + (isSample(state.bookId) ? '<h2>体验到这里结束啦</h2><div class="sub">喜欢的话，解锁完整内容接着往下学，读到哪里都会记着。</div><button style="margin-top:16px" onclick="closeBook();openStoryCity().then(()=>scBuy(\'' + esc(state.bookId.slice(6)) + '\'))">解锁完整内容</button> <button class="ghost" style="margin-top:16px" onclick="closeBook()">回我的学习</button>' : '<h2>全部读完了！</h2><div class="sub">共 ' + state.sentences.length + ' 句。</div><button style="margin-top:16px" onclick="closeBook()">回我的学习</button>') + '</div>';
     return;
   }
   const pct = Math.round(state.idx / state.sentences.length * 100);
@@ -4041,7 +4091,7 @@ function render() {
   applySpeakHighlight();
 }
 
-/* ---------- 访问统计：每台设备一个匿名随机编号（不含姓名、账号），打开 App 时报一次（30 分钟内不重复）；开发者在“学习材料”里查看 ---------- */
+/* ---------- 访问统计：每台设备一个匿名随机编号（不含姓名、账号），打开 App 时报一次（30 分钟内不重复）；开发者在“学习资料”里查看 ---------- */
 function siteHit() {
   try {
     let d = localStorage.getItem('sr_did');
