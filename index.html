@@ -288,7 +288,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.11.05-175';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.11.05-176';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2766,8 +2766,8 @@ async function loadRecs() {
 }
 let recBusy = false;
 async function toggleRecord() {
-  if (rec.on) { if (rec.mr && rec.mr.state === 'recording') rec.mr.stop(); return; }
-  if (recBusy) return;                                   // 正在等麦克风权限时，防止连点启动出两个录音
+  if (rec.on) { micStop(''); return; }
+  if (recBusy || recSaving) return;                   // 上一段还在保存、打分：先别开新的                                   // 正在等麦克风权限时，防止连点启动出两个录音
   const recFail = m => { recWait = false; render(); showPop('<h3 style="margin:0 0 6px">' + ic('mic') + '没能开始录音</h3><div class="note" style="font-size:14px;color:var(--ink)">' + m + '</div>'); };   // 不用 alert：有的浏览器会把弹框静默挡掉，看起来像“点了没反应”
   if (!window.isSecureContext) { recFail('录音只能在 https 网址下使用。请用正式网址打开软件。'); return; }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) { recFail('这个浏览器不支持录音。iPhone 请用 Safari，安卓或电脑请用最新版 Chrome / Edge。如果是在微信里打开的，请点右上角“…”选择“在浏览器打开”。'); return; }
@@ -2791,10 +2791,17 @@ async function toggleRecord() {
     catch (e) { stream.getTracks().forEach(t => t.stop()); recFail('这个浏览器无法开始录音：' + esc(e.message)); return; }
     const idxAtStart = state.idx, keyAtStart = recKey(), start = Date.now();
     mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
-    mr.onerror = () => { try { if (mr.state !== 'inactive') mr.stop(); } catch (e) {} };
-    mr.onstop = async () => {
+    mr.onerror = () => { micStop(''); };
+    let finished = false;
+    const finish = async () => {                       // 正常结束（onstop）和“停止后 3 秒还没结束”的保底都走这里，只执行一次
+      if (finished) return; finished = true;
       stream.getTracks().forEach(t => t.stop());
-      clearInterval(rec.timer); rec.on = false;
+      clearInterval(rec.timer); clearTimeout(rec.cap); clearTimeout(rec.guard); rec.on = false; recSaving = true; render();
+      try { await finishRec(); } finally { recSaving = false; render(); }
+    };
+    mr.onstop = finish;
+    stream.getTracks().forEach(t => { t.onended = () => micStop('麦克风被系统收回了（可能是来电、别的软件在用，或者锁屏了），已停止录音。'); });
+    const finishRec = async () => {
       const dur = (Date.now() - start) / 1000;
       const blob = new Blob(chunks, { type: mr.mimeType || chunks[0]?.type || 'audio/webm' });
       let msg = '';
@@ -2812,13 +2819,23 @@ async function toggleRecord() {
       if (state && state.idx === idxAtStart) await loadRecs(); else render();
       if (msg) toast(msg, 3000);
     };
-    try { mr.start(); }
+    try { mr.start(1000); }                             // 每秒交一次数据：录得长、或者停止时浏览器没反应，也不会丢
     catch (e) { stream.getTracks().forEach(t => t.stop()); recFail('开始录音失败：' + esc(e.message)); return; }
-    rec = { mr, on: true, start, timer: setInterval(() => { const el = document.getElementById('recTime'); if (el) el.textContent = ((Date.now() - start) / 1000).toFixed(1) + ' 秒'; }, 200) };
+    rec = { mr, on: true, start, finish, timer: setInterval(() => { const el = document.getElementById('recTime'); if (el) el.textContent = ((Date.now() - start) / 1000).toFixed(1) + ' 秒'; }, 200),
+      cap: setTimeout(() => micStop('一次最长录 ' + REC_MAX + ' 秒，已经自动停止。'), REC_MAX * 1000) };
     render();
   } finally { recBusy = false; recWait = false; clearTimeout(waitTip); }
 }
-let recAudio = null, recIdx = -1; var recWait = false;
+let recAudio = null, recIdx = -1; var recWait = false, recSaving = false;
+const REC_MAX = 60;                                    // 跟读一句话用不了这么久；打分服务一次也只收 60 秒左右
+function micStop(msg) {                                // 停止录音：不管录音机处在什么状态（录音中、被系统暂停、已经自己停了）都能停下来
+  if (!rec.on) return;
+  const mr = rec.mr; clearTimeout(rec.cap);
+  try { if (mr && mr.state !== 'inactive') mr.stop(); } catch (e) {}
+  clearTimeout(rec.guard); rec.guard = setTimeout(() => { if (rec.finish) rec.finish(); }, 3000);   // 有的手机停止后迟迟不回调：3 秒后自己收尾
+  if (mr && mr.state === 'inactive' && rec.finish) rec.finish();
+  if (msg) toast(msg, 3500);
+}
 /* ---------- 跟读打分：录音转成 16k 单声道 wav → 服务器 → Azure 发音评估；同时画原声和你的“语调曲线” ---------- */
 let pronView = { key: '', loading: false, res: null, err: '', curves: null };
 async function decodeMono16k(blob) {                // 解码录音 → 合成单声道 → 自己换算成 16000 赫兹（不靠 OfflineAudioContext，iPhone 上它可能不按要求的采样率输出）
@@ -2876,8 +2893,9 @@ async function pronScore(blob, key, text, t) {
   pronView = { key, loading: true, res: null, err: '', curves: null, t }; render();
   let f32 = null;
   try { f32 = await decodeMono16k(blob); } catch (e) { pronView = { key, loading: false, res: null, err: '这个浏览器没法分析录音，打分不可用。', curves: null }; render(); return; }
-  try {                                                 // 语调曲线（不联网也能看）
-    const me = pitchCurve(f32); let orig = null;
+  await new Promise(r => setTimeout(r, 30));           // 先让界面刷新（显示“正在打分”），再做比较费时的语调分析
+  try {                                                 // 语调曲线（不联网也能看）；太长的只画前 30 秒
+    const me = pitchCurve(f32.length > 480000 ? f32.subarray(0, 480000) : f32); let orig = null;
     try { const ob = (vpCount > 0 ? await vpGet(text) : null) || (state && state.natSrc ? await natFetch(text) : null); if (ob) orig = pitchCurve(await decodeMono16k(ob)); } catch (e) {}
     if (me.length > 4) pronView.curves = { me, orig: orig && orig.length > 4 ? orig : null };
   } catch (e) {}
@@ -3395,7 +3413,7 @@ function openHelp() {
       li('<b>语法讲解</b>：每句下面会讲这句的句子结构和语法点，点“在语法字典中查看”看详细讲解。') +
       li('<b>AI 老师</b>：点“请 AI 老师讲讲这一句”或“和 AI 老师聊聊这一句”，可以追问不懂的地方（需要联网，偶尔会有不准确的地方）。')) +
     sec('4. 跟读打分',
-      li('点“跟读”，读完点“停止”，联网时会给你的发音打分，每个词都有分，读得不好的词会标出来。') +
+      li('点“跟读”，读完点“停止”，联网时会给你的发音打分，每个词都有分，读得不好的词会标出来。一次最长录 60 秒，到时间会自动停止；点停止后按钮会显示“正在保存…”，稍等一下再录下一遍。') +
       li('最近 3 次录音保存在本机，点“对比听”连着听原声和自己的。') +
       li('录不了音：浏览器要允许使用麦克风。手机在系统设置里给浏览器开麦克风权限；电脑点地址栏左边的锁形图标，把麦克风改成“允许”。')) +
     sec('5. 整页翻译和目录',
@@ -4444,7 +4462,7 @@ function render() {
       '<div class="row onerow">' +
           voiceSelectHtml() +
           '<button class="' + (isSlow() ? 'sm rateslow' : 'ghost sm') + '" onclick="cycleRate()" aria-label="' + (isSlow() ? '现在是慢速，点一下改回正常' : '现在是正常速度，点一下改成慢速') + '" title="' + (rateIgnored[voiceKeyNow()] ? '这个声音不支持调速' : '点一下切换正常 / 慢速') + '">' + (isSlow() ? ic('snail') + '慢速' : ic('rabbit') + '正常') + (rateIgnored[voiceKeyNow()] ? ' ⚠' : '') + '</button>' +
-          '<button class="recbtn ' + (rec.on ? 'on' : '') + '" onclick="toggleRecord()">' + (rec.on ? '■ 停止 <span id="recTime">0.0 秒</span>' : recWait ? ic('wait') + '正在打开麦克风…' : ic('mic') + '跟读') + '</button>' +
+          '<button class="recbtn ' + (rec.on ? 'on' : '') + '" onclick="toggleRecord()">' + (rec.on ? '■ 停止 <span id="recTime">0.0 秒</span>' : recWait ? ic('wait') + '正在打开麦克风…' : recSaving ? ic('wait') + '正在保存…' : ic('mic') + '跟读') + '</button>' +
         '</div>' + '</div>' +
     '<div class="bbin">' +
       '<button class="ghost" onclick="prevSentence()" ' + (state.idx > 0 && !rec.on ? '' : 'disabled') + '>上一句</button>' +
