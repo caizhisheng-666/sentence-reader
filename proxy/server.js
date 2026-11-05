@@ -474,6 +474,29 @@ function ipMask(ip) {                                  // 只留网段，不留�
   if (/^\d+\.\d+\.\d+\.\d+$/.test(ip)) return ip.split('.').slice(0, 3).join('.') + '.*';
   return ip.split(':').slice(0, 3).join(':') + ':*';
 }
+/* ---------- 阅读情况：只统计“学习资料”里的书（自己导入的书不上报）。每台设备每本书记：最远读到第几句、总句数、第一次和最近一次时间。
+   设备用匿名编号的指纹，不存原编号；开发者在“访问统计 → 阅读情况”里看每本书多少人读、读到哪、在哪里放弃 ---------- */
+const READS_FILE = path.join(SHOP_DIR, 'reads.json');
+let reads = {}, readsDirty = false;
+try { reads = JSON.parse(fs.readFileSync(READS_FILE, 'utf8')) || {}; } catch (e) {}
+setInterval(() => { if (!readsDirty) return; readsDirty = false; try { fs.mkdirSync(SHOP_DIR, { recursive: true }); const t = READS_FILE + '.tmp'; fs.writeFileSync(t, JSON.stringify(reads)); fs.renameSync(t, READS_FILE); } catch (e) {} }, 30000).unref();
+const readLog = new Map();
+function readLimited(ip) { const now = Date.now(), arr = (readLog.get(ip) || []).filter(t => now - t < 3600000); arr.push(now); readLog.set(ip, arr); if (readLog.size > 5000) for (const [k, v] of readLog) if (now - v[v.length - 1] > 3600000) readLog.delete(k); return arr.length > 300; }
+function recordRead(d, b, m, n) {
+  const k = crypto.createHash('sha256').update('rd1:' + d).digest('hex').slice(0, 12), now = Date.now();
+  const bk = reads[b] || (reads[b] = {}); if (!bk[k] && Object.keys(bk).length >= 50000) return;
+  const r = bk[k] || (bk[k] = { f: now, m: 0, n: 0 }); r.m = Math.max(r.m, m); r.n = n; r.l = now; readsDirty = true;
+}
+function readsSummary() {
+  const titles = {}; for (const it of shopRead().items) titles[it.id] = it.title;
+  const now = Date.now();
+  return Object.entries(reads).map(([id, ds]) => {
+    const rs = Object.values(ds).filter(r => r.n > 0), pct = rs.map(r => Math.min(1, (r.m + 1) / r.n));
+    const buckets = new Array(10).fill(0); for (const p of pct) buckets[Math.min(9, Math.floor(p * 10))]++;
+    return { id, title: titles[id] || id, readers: rs.length, done: pct.filter(p => p >= 0.98).length, avg: pct.length ? Math.round(pct.reduce((a, b) => a + b, 0) / pct.length * 100) : 0,
+      active7: rs.filter(r => now - r.l < 7 * 864e5).length, new7: rs.filter(r => now - r.f < 7 * 864e5).length, buckets, total: (rs[0] || {}).n || 0 };
+  }).sort((a, b) => b.readers - a.readers);
+}
 const hitLog = new Map();
 // ---- 单词报错：读者觉得雅思词条（释义、例句、插图、发音）有错，点一下报上来；开发者在软件里集中查看、改完标“已处理”。不记 IP ----
 /* ---------- 多设备同步：一个同步码对应一份学习进度（书架进度、背单词、学习统计、几项设置）。不需要账号。
@@ -624,6 +647,18 @@ async function shopRoutes(req, res) {
     const words = (nb.Words || []).map(w => { const wp = Object.assign({}, w, w.PronunciationAssessment || {}); return { w: w.Word, s: Math.round(wp.AccuracyScore || 0), e: wp.ErrorType || 'None' }; });
     if (pa.PronScore == null && pa.AccuracyScore != null) pa.PronScore = (pa.AccuracyScore || 0) * 0.6 + (pa.FluencyScore || 0) * 0.2 + (pa.CompletenessScore || 0) * 0.2;
     return out0(200, { ok: true, total: Math.round(pa.PronScore || 0), acc: Math.round(pa.AccuracyScore || 0), flu: Math.round(pa.FluencyScore || 0), comp: Math.round(pa.CompletenessScore || 0), pros: pa.ProsodyScore != null ? Math.round(pa.ProsodyScore) : null, heard: nb.Display || '', words });
+  }
+  if (req.method === 'POST' && url === '/read') {    // 阅读情况：学习资料里的书读到第几句
+    const origin0 = req.headers.origin, okO0 = origin0 && ALLOW.includes(origin0) ? origin0 : null;
+    const hd0 = { 'Content-Type': 'application/json; charset=utf-8' }; if (okO0) { hd0['Access-Control-Allow-Origin'] = okO0; hd0.Vary = 'Origin'; }
+    const out0 = (c, o) => { res.writeHead(c, hd0); res.end(JSON.stringify(o)); return true; };
+    if (!okO0) return out0(403, { error: 'origin-not-allowed' });
+    let b0; try { b0 = JSON.parse(await readBody(req, 500)) || {}; } catch (e) { return out0(400, { error: 'bad-request' }); }
+    const d0 = String(b0.d || ''), id0 = String(b0.b || ''), m0 = Math.floor(+b0.m), n0 = Math.floor(+b0.n);
+    if (!/^[a-z0-9]{12,40}$/.test(d0) || !/^[a-z0-9][a-z0-9-]{0,59}$/.test(id0) || !(n0 > 0 && n0 < 1e6) || !(m0 >= 0 && m0 < n0)) return out0(400, { error: 'bad' });
+    if (!shopRead().items.some(x => x.id === id0)) return out0(404, { error: 'not-in-catalog' });   // 只记书单里有的书
+    if (readLimited(ip)) return out0(429, { error: 'too-many' });
+    recordRead(d0, id0, m0, n0); return out0(200, { ok: true });
   }
   if (req.method === 'POST' && url === '/hit') {     // 访问统计：App 打开时报一下“匿名设备编号”
     const origin0 = req.headers.origin, okO0 = origin0 && ALLOW.includes(origin0) ? origin0 : null;
@@ -906,6 +941,7 @@ async function shopRoutes(req, res) {
       ent[0][1].issued = new Date().toISOString(); codesWrite(j);
       return out(200, { ok: true, code: fmtCode(ent[0][0]), left: ent.length - 1 });
     }
+    if (req.method === 'GET' && url === '/admin/reads') return out(200, { items: readsSummary() });
     if (req.method === 'GET' && url === '/admin/visits') {            // 访问统计：每天多少台设备；带 date 就列出那一天的每台设备
       const q = new URL(req.url, 'http://x').searchParams, date = q.get('date');
       if (date) {

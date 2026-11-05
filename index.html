@@ -288,7 +288,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.11.05-172';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.11.05-174';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -428,7 +428,7 @@ window.addEventListener('online', () => { if (state) loadCurrent(); });
 window.addEventListener('offline', () => render());
 window.addEventListener('pagehide', () => { flushState(); });
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') { flushState(); if (syncCode()) syncNow(false); }
+  if (document.visibilityState === 'hidden') { flushState(); readHit(); if (syncCode()) syncNow(false); }
   else if (syncCode() && Date.now() - (+localStorage.getItem('sr_sync_at') || 0) > 60000) syncNow(false);   // 切回来时超过 1 分钟没同步就同步一次
 });
 setInterval(() => { if (syncCode() && document.visibilityState === 'visible') syncNow(false); }, 300000);
@@ -488,7 +488,7 @@ async function openBook(id) {
 function closeBook() {
   if (rec.on) { toast('正在录音，先点停止再返回', 2000); return; }
   stopSpeech(); try { pgPlayStop(); pgCancel(); } catch (e) {} clearCurImages();
-  flushState();
+  flushState(); readHit();
   state = null; render();
   if (window.__swPending) setTimeout(() => location.reload(), 300);
 }
@@ -3422,6 +3422,7 @@ function openHelp() {
       li('<b>软件好像没更新？</b>点上面的“检查更新”。桌面图标版关掉再打开一两次就会换成新版。') +
       li('<b>查词显示“内置基础词典”？</b>离线大词典会在联网时自动后台下载，下载好后查词更全。可以在 ··· → 词典里看状态。') +
       li('<b>白天 / 夜间模式</b>：软件跟着手机的深色模式自动切换。') +
+      li('<b>中英对照书的中文对不上？</b>软件会按句子长短把每句英文和译文配对；书里中英段落差得太多时，可能配得不准。以前导入的书，删掉后重新导入一次会用新的配对方法。实在不对，点中文旁边的“改看机器翻译”。') +
       li('其他问题：点上面的“复制诊断信息”发给我们。')) +
     sec('隐私与数据',
       li('你导入的资料（“我的学习”里所有的资料）、阅读进度、录音、下载的词典，都<b>只存在这台设备的浏览器里</b>，不会上传。换设备或清除浏览器数据会丢失，请注意。') +
@@ -3430,7 +3431,8 @@ function openHelp() {
       li('<b>单词报错</b>：点“这个词有错？”时，只发送这个单词、你选的错误类型和你写的说明，不包含任何个人信息。') +
       li('<b>自然语音（仅开发者可用）</b>：需要开发者口令解锁。启用后，当前要朗读的那一句英文会发到开发者自己的微软 Azure 账号生成语音。Key 用口令加密后只保存在开发者的设备里，软件代码里没有任何 Key。') +
       li('<b>多设备同步</b>（打开后才有）：书架上每本书的书名、读到第几句，背单词进度，学习记录和几项设置，会存到开发者的服务器上，用同步码区分。服务器只保存同步码的指纹，不保存同步码本身；不包含书的内容、录音和任何个人信息。停止同步后，服务器上的那份不会再更新。') +
-      li('<b>使用人数统计</b>：为了知道有多少人在用，打开软件时会发送一个随机生成的匿名设备编号（不含姓名、账号、手机号，也不含你读了什么）。除此之外不收集使用数据。')) +
+      li('<b>使用人数统计</b>：为了知道有多少人在用，打开软件时会发送一个随机生成的匿名设备编号，服务器同时记下设备类型、浏览器和只保留前几段的 IP（比如 1.2.3.*）。不含姓名、账号、手机号。') +
+      li('<b>阅读情况统计</b>：读“学习资料”里的书时，会上报这本书最远读到第几句（只带匿名设备编号），用来了解哪本书受欢迎、大家一般读到哪里。<b>自己导入的资料不会上报</b>。除此之外不收集使用数据。')) +
     sec('开源与致谢',
       li('英汉词典数据：ECDICT（skywind3000，MIT 许可）') + li('界面图标：Lucide（lucide.dev，ISC 许可）') + li('雅思词库与插图：Word Atlas（词光），Word Atlas contributors，CC BY 4.0 许可（creativecommons.org/licenses/by/4.0）；本软件精简了词条字段，插图原样使用。内容由 AI 生成，不是雅思官方词表') + li('PDF 解析：pdf.js（Mozilla，Apache-2.0）') + li('epub 解压：JSZip（MIT / GPLv3 双许可）') +
       li('各组件版权归原作者所有。')) +
@@ -4457,6 +4459,29 @@ function siteHit() {
   } catch (e) {}
 }
 siteHit(); document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') siteHit(); });
+/* ---------- 阅读情况：学习资料里的书，每台设备最远读到第几句（自己导入的书、试读不上报）；关书、切到后台时报一次，读得更远了才报 ---------- */
+function readHit() {
+  try {
+    if (!state || !/^story-/.test(state.bookId) || !state.sentences) return;
+    const e = shelfGet().find(x => x.id === state.bookId); if (e && e.sample) return;
+    const id = state.bookId.slice(6).split('~')[0], n = state.sentences.length, m = Math.min(n - 1, Math.max(state.idx || 0, (e && e.max) || 0));
+    const d = localStorage.getItem('sr_did'), sent = syncLs('sr_readsent', {}); if (!d || n < 2 || sent[id] >= m) return;
+    fetch(SHOP_BASE + '/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true, body: JSON.stringify({ d, b: id, m, n }) })
+      .then(r => { if (r.ok || r.status === 404) { const s2 = syncLs('sr_readsent', {}); s2[id] = m; localStorage.setItem('sr_readsent', JSON.stringify(s2)); } }).catch(() => {});
+  } catch (e) {}
+}
+async function readsPop() {
+  showPop('<h3 style="margin:0 0 6px">' + ic('book') + '阅读情况</h3><div class="note">正在读取…</div>');
+  const r = await devAdmin('/admin/reads'); if (!r.ok) { showPop('<div class="note" style="color:#b94a48">' + esc(r.msg) + '</div>'); return; }
+  const items = (await r.res.json()).items || [];
+  const bar = bs => { const mx = Math.max(1, ...bs); return '<div style="display:flex;align-items:flex-end;gap:2px;height:34px;margin-top:6px">' + bs.map((v, i) => '<div title="' + (i * 10) + '%–' + (i * 10 + 10) + '%：' + v + ' 人" style="flex:1;background:var(--accent);opacity:' + (v ? .85 : .15) + ';height:' + Math.max(3, Math.round(v / mx * 34)) + 'px;border-radius:2px"></div>').join('') + '</div><div class="note" style="display:flex;justify-content:space-between;font-size:11px"><span>0%</span><span>50%</span><span>读完</span></div>'; };
+  const stuck = bs => { let k = -1, v = 0; for (let i = 0; i < 9; i++) if (bs[i] > v) { v = bs[i]; k = i; } return k < 0 ? '' : '最多人停在 ' + (k * 10) + '%–' + (k * 10 + 10) + '%（' + v + ' 人）'; };
+  showPop('<h3 style="margin:0 0 6px">' + ic('book') + '阅读情况</h3><div class="row" style="margin:6px 0"><button class="ghost sm" onclick="visitsPop()">‹ 返回访问统计</button></div>' +
+    '<div class="note">只统计“学习资料”里的书（自己导入的书、试读不算）。一台设备算一个人，按最远读到的地方算进度。柱子是读到各个进度段的人数。</div>' +
+    (items.length ? items.map(x => '<div class="vbcard" style="text-align:left;margin-top:10px;padding:12px"><b>' + esc(x.title) + '</b>' +
+      '<div class="note" style="margin-top:4px">' + x.readers + ' 人读过 · 读完 ' + x.done + ' 人 · 平均读到 ' + x.avg + '% · 近 7 天在读 ' + x.active7 + ' 人（新来 ' + x.new7 + '）</div>' +
+      bar(x.buckets) + (stuck(x.buckets) ? '<div class="note" style="margin-top:2px">' + stuck(x.buckets) + '</div>' : '') + '</div>').join('') : '<div class="note" style="margin-top:12px">还没有数据。有人读学习资料里的书、关书或切到后台时就会记一次。</div>'));
+}
 const hm = ts => { const d = new Date(ts); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
 async function visitsPop() {
   if (!azReady()) { setScStatus('请先在“帮助”里解锁开发者模式'); return; }
@@ -4464,6 +4489,7 @@ async function visitsPop() {
   const r = await devAdmin('/admin/visits?days=30'); if (!r.ok) { showPop('<h3 style="margin:0 0 6px">' + ic('chart') + '访问统计</h3><div class="note" style="color:#b94a48">' + esc(r.msg) + '</div>'); return; }
   const j = await r.res.json(), tot = (j.days.find(x => x.total != null) || {}).total || 0, ds = j.days.filter(x => x.date);
   showPop('<h3 style="margin:0 0 6px">' + ic('chart') + '访问统计</h3><div class="note">一台设备算一个人（App 没有登录，只能看到匿名设备）。累计 <b>' + tot + '</b> 台设备。点某一天看明细。</div>' +
+    '<div class="row" style="margin-top:8px"><button class="sm" onclick="readsPop()">' + ic('book') + '阅读情况：每本书读到哪</button></div>' +
     '<table style="width:100%;margin-top:10px;border-collapse:collapse;font-size:14px"><tr class="note"><td>日期</td><td>人数</td><td>新增</td><td>打开次数</td></tr>' +
     (ds.length ? ds.map(x => '<tr onclick="visitsDay(\'' + x.date + '\')" style="cursor:pointer;border-top:1px solid var(--line,#ddd)"><td style="padding:8px 0">' + x.date.slice(5) + '</td><td><b>' + x.devices + '</b></td><td>' + x.newDevices + '</td><td>' + x.hits + '</td></tr>').join('') : '<tr><td colspan="4" class="note" style="padding:12px 0">还没有记录。</td></tr>') + '</table>');
 }

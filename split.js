@@ -9,6 +9,7 @@
 //       ③非折行文本里，没标点、下一行大写开头的行都断开。其余换行当空格。
 const BRK = '\uE000';
 const LINE_END_RE = /[.!?…:;]["'”’)\]]*$/;
+const LINE_CONT_RE = /(?:[—–,]|--)$/;          // 以破折号、逗号结尾的行：话还没说完（如 “their names were—” 下一行接名字），不断句
 function markBreaks(text) {
   text = String(text == null ? '' : text).replace(/\r\n?/g, '\n');
   if (text.indexOf('\n') < 0) return text.replace(/\s+/g, ' ');
@@ -28,7 +29,8 @@ function markBreaks(text) {
       const noEnd = !LINE_END_RE.test(prev);
       const nextUpper = /^["'“‘(\[]*[A-Z0-9]/.test(line);
       let brk = false;
-      if (pendingBlank) brk = noEnd;
+      if (LINE_CONT_RE.test(prev)) brk = false;
+      else if (pendingBlank) brk = noEnd;
       else if (noEnd && nextUpper) brk = hardWrapped ? prev.length < shortLimit : true;
       out[out.length - 1].brk = brk;
     }
@@ -81,6 +83,15 @@ function parseBlockSegs(text) {
     if (r.lang === 'en' && prev && prev.lang === 'zh' && nxt && nxt.lang === 'zh' && r.text.trim().split(/\s+/).length <= 3 && (!/[.!?]["”’)]*\s*$/.test(r.text) || /^\s*(?:[A-Z]\.){1,4}\s*$/.test(r.text))) { prev.text += r.text + nxt.text; i++; continue; }
     segs.push({ lang: r.lang, text: r.text });
   }
+  for (let i = 0; i + 2 < segs.length; i++) {             // 中英对照里一句话被作者拆成两段（英文以破折号、逗号结尾）：两段英文合成一句，两段中文也合在一起
+    const a = segs[i], z = segs[i + 1], c = segs[i + 2];
+    const at = a.lang === 'en' ? a.text.replace(/[\s\uE000]+$/, '') : '';
+    if (a.lang === 'en' && z.lang === 'zh' && c.lang === 'en' && LINE_CONT_RE.test(at)) {
+      a.text = at + ' ' + c.text.replace(/^[\s\uE000]+/, '');
+      const z2 = segs[i + 3] && segs[i + 3].lang === 'zh' ? segs[i + 3].text : '';
+      segs.splice(i + 1, z2 ? 3 : 2, { lang: 'zh', text: z.text + z2 }); i--;
+    }
+  }
   const sentences = [], out = [];
   for (const sg of segs) {
     if (sg.lang === 'zh') { out.push({ lang: 'zh', text: sg.text }); continue; }
@@ -115,6 +126,28 @@ function fixZhHeading(zs, firstEn) {
   if (!rest) return zs;
   return (TOC_CHAPTER_RE.test(String(firstEn || '').trim()) ? [head, rest] : [rest]).concat(zs.slice(1));   // 英文没有标题句时，中文标题不用
 }
+// 一段英文 N 句、对应的中文 M 句，句数不一样时按长短配对（类似 Gale-Church）：允许 1 对 1、1 对 2、1 对 3、2 对 1、3 对 1。
+// 中文一句对英文好几句时，这几句英文共用这一句中文（标记成 para）。返回每句英文的中文和是否共用；配不出来返回 null。
+function alignPara(enLens, zhLens, loose, r0) {
+  const n = enLens.length, m = zhLens.length; if (!n || !m) return null;
+  const r = r0 || zhLens.reduce((a, x) => a + x, 0) / Math.max(1, enLens.reduce((a, x) => a + x, 0));   // r0：全书中文字数和英文字母数之比（不传就用这一段自己的）
+  const MOVES = [[1, 1, 0], [1, 2, 0.35], [2, 1, 0.35], [1, 3, 0.8], [3, 1, 0.8], [2, 2, 0.6]];
+  const INF = 1e9, cost = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(INF)), from = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(null));
+  cost[0][0] = 0;
+  const sum = (arr, a, k) => { let s = 0; for (let x = a; x < a + k; x++) s += arr[x]; return s; };
+  for (let i = 0; i <= n; i++) for (let j = 0; j <= m; j++) {
+    if (cost[i][j] >= INF) continue;
+    for (const [di, dj, pen] of MOVES) {
+      if (i + di > n || j + dj > m) continue;
+      const e = sum(enLens, i, di), z = sum(zhLens, j, dj), c = cost[i][j] + pen + Math.abs(Math.log((z + 1) / ((e + 1) * r)));
+      if (c < cost[i + di][j + dj]) { cost[i + di][j + dj] = c; from[i + di][j + dj] = [di, dj]; }
+    }
+  }
+  if (cost[n][m] >= INF || (!loose && cost[n][m] / Math.max(n, m) > 0.9)) return null;            // 平均每步差太多：多半不是一一对应的译文
+  const out = new Array(n); let i = n, j = m;
+  while (i > 0) { const [di, dj] = from[i][j]; for (let k = 0; k < di; k++) out[i - di + k] = { zj: [j - dj, j], share: di > 1 }; i -= di; j -= dj; }
+  out.cost = cost[n][m]; return out;
+}
 // allSegs：全书按顺序排列的语言段（英文段带全书句子序号 idxs）。英文段和紧挨着的中文段配成一对；
 // 句数相同就一句对一句；句数不同就把整段译文给这一段的每一句。译文长度和英文差太多的（如版权页）不配。
 function alignSegs(allSegs, sentences) {
@@ -128,6 +161,7 @@ function alignSegs(allSegs, sentences) {
   for (let i = 0; i + 1 < merged.length; i++) { if (merged[i].lang === 'en' && merged[i + 1].lang === 'zh') ez++; else if (merged[i].lang === 'zh' && merged[i + 1].lang === 'en') ze++; }
   const enFirst = ez >= ze, zh = {}, para = {};              // 英文在前中文在后，还是中文在前英文在后，看哪种更多
   let exact = 0, paraN = 0;
+  const pairs = [];
   for (let i = 0; i + 1 < merged.length; i++) {
     const a = merged[i], b = merged[i + 1];
     const en = enFirst ? (a.lang === 'en' && b.lang === 'zh' ? a : null) : (a.lang === 'zh' && b.lang === 'en' ? b : null);
@@ -136,9 +170,16 @@ function alignSegs(allSegs, sentences) {
     const enLetters = en.idxs.reduce((n, gi) => n + letterCount(sentences[gi]), 0);
     const zs = fixZhHeading(splitZh(zseg.text), sentences[en.idxs[0]]), zChars = zs.join('').replace(/[^\u3400-\u9fff]/g, '').length;
     const ratio = zChars / Math.max(1, enLetters);
-    if (enLetters < 8 || zChars < 2 || ratio < 0.12 || ratio > 1.3) continue;
-    if (zs.length === en.idxs.length) { en.idxs.forEach((gi, k) => { zh[gi] = zs[k]; }); exact += en.idxs.length; }
-    else if (zseg.text.length <= 500) { const whole = zs.join(''); en.idxs.forEach(gi => { zh[gi] = whole; para[gi] = 1; }); paraN += en.idxs.length; }
+    if (enLetters < 8 || zChars < 2 || ratio < 0.12 || ratio > 1.3) { pairs.push(null); continue; }   // 版权页之类：不配，也不和前后合并
+    pairs.push({ idxs: en.idxs.slice(), zs, len: zseg.text.length });
+  }
+  const enL = gi => letterCount(sentences[gi]), zhL = z => z.replace(/[^\u3400-\u9fff]/g, '').length;
+  for (const g of pairs) {
+    if (!g) continue;
+    if (g.zs.length === g.idxs.length) { g.idxs.forEach((gi, n) => { zh[gi] = g.zs[n]; }); exact += g.idxs.length; continue; }   // 句数一样：一句对一句
+    const al = alignPara(g.idxs.map(enL), g.zs.map(zhL));                                                                           // 句数不一样：按长短一句句配
+    if (al) { g.idxs.forEach((gi, n) => { zh[gi] = g.zs.slice(al[n].zj[0], al[n].zj[1]).join(''); if (al[n].share) { para[gi] = 1; paraN++; } else exact++; }); continue; }
+    if (g.len <= 500) { const whole = g.zs.join(''); g.idxs.forEach(gi => { zh[gi] = whole; para[gi] = 1; }); paraN += g.idxs.length; }
   }
   if (exact + paraN < 3) return { zh: {}, para: {}, exact: 0, paraN: 0 };   // 配上的太少，多半是误配，不要
   return { zh, para, exact, paraN };
