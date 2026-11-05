@@ -219,6 +219,7 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .iex{margin-top:8px;font-size:14px;line-height:1.5;cursor:pointer}
 .iexs{margin-top:10px;padding-top:6px;border-top:1px solid var(--line)}
 .isrc{margin-top:8px;font-size:11px;color:var(--sub)}
+.vbsrc{margin-top:12px;padding-top:10px;border-top:1px solid var(--line);text-align:left}.vbsrct{margin-top:4px;font-size:15px;line-height:1.55;cursor:pointer}.vbhl{color:var(--ink);border-bottom:2px solid var(--accent);padding:0 1px}
 .mddoc{font-size:15px;line-height:1.75}.mdh{margin:22px 0 8px}h3.mdh{font-size:20px}h4.mdh{font-size:17px}h5.mdh{font-size:15px}.mdp{margin:8px 0}.mdl{margin:6px 0;padding-left:22px}.mdl li{margin:3px 0}
 .mddoc code{font-size:.9em;background:var(--soft);padding:1px 5px;border-radius:5px;word-break:break-all}.mdpre{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;overflow-x:auto;font-size:12.5px;line-height:1.5;white-space:pre}
 .mdtbl{overflow-x:auto;margin:8px 0}.mdtbl table{border-collapse:collapse;font-size:13.5px;min-width:100%}.mdtbl th,.mdtbl td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}.mdtbl th{background:var(--soft)}.mdhr{border:none;border-top:1px solid var(--line);margin:18px 0}.mdq{border-left:3px solid var(--accent);padding-left:10px;border-radius:0}
@@ -287,7 +288,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.11.05-170';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.11.05-171';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2728,7 +2729,7 @@ async function openBackups(msg) {
   const r = await devAdmin('/admin/backups'); if (!r.ok) { setFullscreenBody('<div class="note">读取失败：' + esc(r.msg) + '</div>'); return; }
   const j = await r.res.json(), items = j.items || [];
   setFullscreenBody((msg ? '<div class="note" style="color:var(--ink);margin-bottom:8px">' + esc(msg) + '</div>' : '') +
-    '<div class="note">服务器每天自动备份一次，保留最近 ' + j.keep + ' 份。包里有兑换码、资料目录、单词报错、访问统计、AI 讲解缓存、书的文字和补充雅思词条；录音和朗读缓存不在包里（录音在你电脑上能重录）。喵喵录音机开着时，会自动把最新的包下载到你电脑的 D:\\19.喵喵录书\\服务器备份。</div>' +
+    '<div class="note">服务器每天自动备份一次，保留最近 ' + j.keep + ' 份。包里有兑换码、资料目录、单词报错、访问统计、AI 讲解缓存、书的文字和补充雅思词条；录音和朗读缓存不在包里（录音在你电脑上能重录）。你电脑上装了「安装自动备份.bat」后，Windows 每天会自动把最新的包下载到 D:\\19.喵喵录书\\服务器备份。</div>' +
     (j.last ? '<div class="note" style="margin-top:4px">上次：' + esc(j.last) + '</div>' : '') +
     '<div class="row" style="margin-top:10px"><button class="sm" onclick="backupNow(this)"' + (j.busy ? ' disabled' : '') + '>' + (j.busy ? '正在备份…' : '立即备份一次') + '</button></div>' +
     (items.length ? items.map(x => '<div class="vbcard" style="text-align:left;margin-top:10px"><div class="row" style="justify-content:space-between;align-items:center"><div><b>' + esc(x.name) + '</b><div class="note">' + kbFmt(x.bytes) + ' · ' + new Date(x.mtime).toLocaleString() + '</div></div><button class="ghost sm" data-n="' + esc(x.name) + '" onclick="backupGet(this)">下载</button></div></div>').join('') : '<div class="note" style="margin-top:12px">还没有备份。服务器更新后一分钟内会自动打第一个包，也可以点上面的按钮。</div>'));
@@ -3065,7 +3066,7 @@ async function ieltsAttach(clean, res) {
     (a & 2 ? '<button class="sm ghost" style="padding:3px 10px;font-size:12px" data-a="' + au('us') + '" data-t="' + wd + '" onclick="ieltsPlay(this.dataset.a, this.dataset.t)">美</button>' : '') + '</div>' +
     '<div style="margin-top:4px;font-size:14px">' + (e.s || []).slice(0, 2).map(x => esc(x[0] + ' ' + x[1])).join('<br>') + '</div>' +
     (e.k && e.k.length ? '<div class="ik">' + e.k.slice(0, 2).map(c => esc(c.replace('｜', ' '))).join(' · ') + '</div>' : '') +
-    (vbGet().cards[f.k] ? '<div class="ik">✓ 已在背单词里</div>' : '<button id="vbAddBtn" class="link" style="margin-top:4px;font-size:13px" data-k="' + esc(f.k) + '" onclick="vbAddWord(this.dataset.k)">＋ 加入背单词</button>') + '</div></div>');
+    (vbGet().cards[f.k] ? (vbKeepSrc(f.k), '<div class="ik">✓ 已在背单词里</div>') : '<button id="vbAddBtn" class="link" style="margin-top:4px;font-size:13px" data-k="' + esc(f.k) + '" onclick="vbAddWord(this.dataset.k)">＋ 加入背单词</button>') + '</div></div>');
   body.insertAdjacentHTML('beforeend', '<div class="iexs"><div class="ilv">雅思例句（点一下朗读）</div>' +
     (e.e || []).map((x, n) => '<div class="iex" data-t="' + esc(x[0]) + '" data-a="' + ((n === 0 && a & 4) ? au('ex') : (n === 1 && a & 8) ? au('ex2') : '') + '" onclick="ieltsPlay(this.dataset.a, this.dataset.t)"><div>' + esc(x[0]) + '</div><div class="note">' + esc(x[1]) + '</div></div>').join('') +
     (e.t ? '<div class="note" style="margin-top:8px">提示：' + esc(e.t) + '</div>' : '') +
@@ -3371,7 +3372,7 @@ function openHelp() {
     sec('3. 读一句',
       li('点书架上的书打开。每次只显示一句，底部“上一句 / 下一句”翻页，顶部数字是读到第几句。') +
       li('<b>点单词</b>：读出这个词并弹出解释。软件会根据这一句的中文，告诉你这个词在这里是哪个意思。离线大词典下载好以后，不联网也能查。') +
-      li('<b>雅思词</b>：查到雅思词时会多出插图、等级、英音 / 美音真人发音和雅思例句（点例句就朗读）。点“＋ 加入背单词”可以把它放进背单词。') +
+      li('<b>雅思词</b>：查到雅思词时会多出插图、等级、英音 / 美音真人发音和雅思例句（点例句就朗读）。点“＋ 加入背单词”可以把它放进背单词。发现词条有错，点弹窗底部的“这个词有错？”告诉我们。') +
       li('读句子时，<b>实线下划线</b>的是 B1 以上的雅思词，<b>带浅色底</b>的是你已经在背的词。不想看这些标记，在右上角 ··· 里关掉“雅思词标记”。') +
       li('<b>朗读</b>：点底部的朗读，读到哪个词哪个词会亮；声音菜单可以换美音、英音、自然语音。<b>正常 / 慢速</b>可以切换语速。') +
       li('中文翻译：资料自带译文的直接显示，没有的联网后机器翻译；点“隐藏中文”可以先自己理解再看。') +
@@ -3394,7 +3395,8 @@ function openHelp() {
       li('<b>软件自动打分</b>：答错或点“不认识”算忘了，过一会儿再考一次；答对但想了 8 秒以上算模糊；很快答对算记得；连续几次都很快答对，或点“太简单”，算很熟。') +
       li('记得越牢，下次复习隔得越久。记得比较牢的词会改成听发音拼写，难度跟着提高。') +
       li('每天打开首页的“背单词”卡片，会显示今天要复习几个、新学几个。做完还可以“再学 10 个新词”。') +
-      li('读书时查到的雅思词点“＋ 加入背单词”，下次背单词时会优先学。')) +
+      li('读书时查到的雅思词点“＋ 加入背单词”，下次背单词时会优先学。') +
+      li('<b>带原句</b>：从书里加进来的词，答完题后卡片底部会显示你是在哪本书、哪一句遇到它的，点句子能听朗读，点“回到书里这一句”直接跳回去接着读。按话题加进来的词，以后读书时再查到它，也会自动补上原句。')) +
     sec('8. 备份背单词进度',
       li('背单词的进度只存在这台设备里，<b>换手机、清浏览器数据都会丢</b>。') +
       li('在背单词完成页点“备份与恢复进度”：可以下载备份文件，或者复制成一段文字发到微信“文件传输助手”保存。') +
@@ -3408,8 +3410,10 @@ function openHelp() {
     sec('隐私与数据',
       li('你导入的资料（“我的学习”里所有的资料）、阅读进度、录音、下载的词典，都<b>只存在这台设备的浏览器里</b>，不会上传。换设备或清除浏览器数据会丢失，请注意。') +
       li('<b>整句翻译</b>：当前这一句英文会发到开发者的翻译中转服务，再转给火山引擎机器翻译，中转服务不保存内容；中转不可用时改发 Google 或 MyMemory 的免费接口。查词时本地词典没有的词会发给第三方词典服务。资料里自带中文译文的句子不会发送。') +
+      li('<b>AI 老师</b>：点“请 AI 老师讲讲这一句”或和 AI 老师聊天时，这一句英文（聊天时还有你输入的话）会发到开发者的服务器，再交给智谱 GLM 或火山引擎豆包大模型生成讲解。同一句讲过一次会存起来，以后直接取。') +
+      li('<b>单词报错</b>：点“这个词有错？”时，只发送这个单词、你选的错误类型和你写的说明，不包含任何个人信息。') +
       li('<b>自然语音（仅开发者可用）</b>：需要开发者口令解锁。启用后，当前要朗读的那一句英文会发到开发者自己的微软 Azure 账号生成语音。Key 用口令加密后只保存在开发者的设备里，软件代码里没有任何 Key。') +
-      li('软件本身不收集任何使用数据。')) +
+      li('<b>使用人数统计</b>：为了知道有多少人在用，打开软件时会发送一个随机生成的匿名设备编号（不含姓名、账号、手机号，也不含你读了什么）。除此之外不收集使用数据。')) +
     sec('开源与致谢',
       li('英汉词典数据：ECDICT（skywind3000，MIT 许可）') + li('界面图标：Lucide（lucide.dev，ISC 许可）') + li('雅思词库与插图：Word Atlas（词光），Word Atlas contributors，CC BY 4.0 许可（creativecommons.org/licenses/by/4.0）；本软件精简了词条字段，插图原样使用。内容由 AI 生成，不是雅思官方词表') + li('PDF 解析：pdf.js（Mozilla，Apache-2.0）') + li('epub 解压：JSZip（MIT / GPLv3 双许可）') +
       li('各组件版权归原作者所有。')) +
@@ -3544,6 +3548,31 @@ function vbAnswer(res, btn) {                        // res：0 不会/答错，
   if (vbQ.mode === 'choice') document.querySelectorAll('.vbopts button').forEach(b => { b.disabled = true; if (vbQ.opts[+b.dataset.i] === vbQ.ans) b.classList.add('vbok'); });
   vbReveal(res, label);
 }
+/* 生词卡带原句：在书里查词时记下“哪本书、哪一句”，背单词揭晓答案时显示原句，可以点着听、跳回书里 */
+function vbSrcNow() {
+  if (!state || !state.sentences) return null;
+  const i = lastWordSentIdx >= 0 ? lastWordSentIdx : state.idx, t = state.sentences[i];
+  if (!t || !curWord || t.toLowerCase().indexOf(curWord.toLowerCase()) < 0) return null;   // 确认这个词真的在这句里，免得记错句子
+  return { t: String(t).slice(0, 400), b: String(state.title || '').slice(0, 60), id: state.bookId, i };
+}
+function vbKeepSrc(k) {                               // 按话题加进来的词没有原句：读书时又查到它，就补上
+  const v = vbGet(), r = v.cards[k]; if (!r || r.src) return;
+  const s = vbSrcNow(); if (s) { r.src = s; vbSave(); }
+}
+function vbSrcHtml(k) {
+  const r = vbGet().cards[k], s = r && r.src; if (!s || !s.t) return '';
+  const e = IELTS[k] || {}, w = String(e.w || k).replace(/[^A-Za-z'-]/g, ''), stem = w.length > 4 ? w.slice(0, -1) : w;
+  const hl = stem ? esc(s.t).replace(new RegExp('\\b(' + stem + '[a-z]*)', 'gi'), '<b class="vbhl">$1</b>') : esc(s.t);
+  return '<div class="vbsrc"><div class="ilv">' + (s.b ? '在《' + esc(s.b) + '》里遇到（点一下朗读）' : '你在书里遇到的句子（点一下朗读）') + '</div>' +
+    '<div class="vbsrct" data-t="' + esc(s.t) + '" onclick="speakText(this.dataset.t)">' + hl + '</div>' +
+    (s.id && s.i >= 0 ? '<button class="link" style="font-size:13px;margin-top:4px" data-k="' + esc(k) + '" onclick="vbGoSrc(this.dataset.k)">回到书里这一句</button>' : '') + '</div>';
+}
+async function vbGoSrc(k) {
+  const r = vbGet().cards[k], s = r && r.src; if (!s) return;
+  if (!shelfGet().some(x => x.id === s.id)) { toast('这本书已经不在“我的学习”里了'); return; }
+  closeFullscreen(); await openBook(s.id);
+  if (state && state.bookId === s.id && s.i < state.sentences.length) jumpTo(s.i);
+}
 function vbReveal(res, label) {
   const k = vbQ.k, e = IELTS[k], w = e.w || k, img = IELTS_MEDIA + 'img/' + encodeURIComponent(e.i || k) + '.webp', ex = (e.e || [])[0];
   const days = Math.round((new Date(vbGet().cards[k].c.due) - Date.now()) / 86400000);
@@ -3556,7 +3585,7 @@ function vbReveal(res, label) {
     (vbAu(k, 'us') ? '<button class="sm ghost" onclick="ieltsPlay(vbAu(vbQ.k,\'us\'), vbQ.k)">美</button>' : '') + '</div>' +
     '<div class="vbsenses">' + (e.s || []).map(s => '<div>' + esc(s[0] + ' ' + s[1]) + '</div>').join('') + '</div>' +
     (ex ? '<div class="iex" onclick="ieltsPlay(vbAu(vbQ.k,\'ex\'), this.dataset.t)" data-t="' + esc(ex[0]) + '"><div>' + esc(ex[0]) + '</div><div class="note">' + esc(ex[1]) + '</div></div>' : '') +
-    (e.k && e.k.length ? '<div class="ik">' + e.k.slice(0, 3).map(c => esc(c.replace('｜', ' '))).join(' · ') + '</div>' : '') + '</div>';
+    (e.k && e.k.length ? '<div class="ik">' + e.k.slice(0, 3).map(c => esc(c.replace('｜', ' '))).join(' · ') + '</div>' : '') + vbSrcHtml(k) + '</div>';
   const box = document.getElementById('fsBody');
   box.insertAdjacentHTML('beforeend', '<div id="vbRev">' + head + card + '<button style="width:100%;margin-top:14px" onclick="vbNext()">下一个</button><div style="text-align:center;margin-top:8px"><button class="link" style="font-size:13px" onclick="vbReportWord()">这个词有错？</button></div></div>');
   const r = document.getElementById('vbRev'); if (r) r.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -3619,7 +3648,7 @@ function vbImportText(txt) {
 }
 async function vbAddWord(k) {                        // 读书时查到的雅思词，一键加进背单词（明天起和新词一起出现，优先于词库顺序）
   const v = vbGet(); if (v.cards[k]) { toast('这个词已经在背单词里了'); return; }
-  v.cards[k] = { add: Date.now() }; vbSave();
+  v.cards[k] = { add: Date.now() }; const s = vbSrcNow(); if (s) v.cards[k].src = s; vbSave();
   const b = document.getElementById('vbAddBtn'); if (b) { b.textContent = '✓ 已加入背单词'; b.disabled = true; }
   toast('已加入背单词，下次背单词时会先学它');
 }
