@@ -287,7 +287,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.11.05-169';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.11.05-170';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2646,7 +2646,7 @@ function openNaturalSettings() {
     '<div class="row"><button onclick="azTest()">保存并试听</button><button class="ghost" onclick="azSaveClose()">保存并关闭</button></div>' +
     '<div id="azStatus" class="note" style="margin-top:10px;min-height:20px"></div>' +
     '<div id="azStats" class="note" style="margin-top:6px"></div>' +
-    '<div class="row" style="margin-top:8px"><button class="ghost sm" onclick="azLock();closePop()">' + ic('lock') + '立即锁定</button><button class="ghost sm" onclick="azClearCacheBtn()">清空语音缓存</button><button class="ghost sm" onclick="azExitDev()">退出开发者模式</button><button class="sm" onclick="closePop();openReports()">' + ic('chart') + '单词报错</button><button class="sm" onclick="closePop();openDevDoc()">' + ic('book') + '开发者使用说明</button></div>' +
+    '<div class="row" style="margin-top:8px"><button class="ghost sm" onclick="azLock();closePop()">' + ic('lock') + '立即锁定</button><button class="ghost sm" onclick="azClearCacheBtn()">清空语音缓存</button><button class="ghost sm" onclick="azExitDev()">退出开发者模式</button><button class="sm" onclick="closePop();openReports()">' + ic('chart') + '单词报错</button><button class="sm" onclick="closePop();openDevDoc()">' + ic('book') + '开发者使用说明</button><button class="sm" onclick="closePop();openBackups()">' + ic('file') + '服务器备份</button></div>' +
     '<div class="note" style="margin-top:10px">费用：免费档每月 50 万字符免费（约 6000 句）；每句只生成一次，之后用缓存，不再计费。用量请在 Azure 门户里查看。</div>'
   );
   azRefreshStats();
@@ -2721,6 +2721,26 @@ async function openReports() {                       // 开发者：看大家报
       (x.done ? '<div class="note">已处理</div>' : '<button class="ghost sm" style="margin-top:6px" data-w="' + esc(x.w) + '" onclick="reportDone(this)">标为已处理</button>') + '</div>').join('') : '<div class="note" style="margin-top:12px">还没有人报错。</div>'));
 }
 async function reportDone(btn) { const r = await devAdmin('/admin/reports/done', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ w: btn.dataset.w }) }); if (r.ok) { btn.outerHTML = '<div class="note">已处理</div>'; } else toast('失败：' + r.msg); }
+/* ---------- 服务器备份：服务器每天自动打一个包（兑换码、目录、报错、统计、书的文字等小文件，不含录音），这里能看、能手动下载 ---------- */
+const kbFmt = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+async function openBackups(msg) {
+  showFullscreen('服务器备份', '<div class="note">正在读取…</div>');
+  const r = await devAdmin('/admin/backups'); if (!r.ok) { setFullscreenBody('<div class="note">读取失败：' + esc(r.msg) + '</div>'); return; }
+  const j = await r.res.json(), items = j.items || [];
+  setFullscreenBody((msg ? '<div class="note" style="color:var(--ink);margin-bottom:8px">' + esc(msg) + '</div>' : '') +
+    '<div class="note">服务器每天自动备份一次，保留最近 ' + j.keep + ' 份。包里有兑换码、资料目录、单词报错、访问统计、AI 讲解缓存、书的文字和补充雅思词条；录音和朗读缓存不在包里（录音在你电脑上能重录）。喵喵录音机开着时，会自动把最新的包下载到你电脑的 D:\\19.喵喵录书\\服务器备份。</div>' +
+    (j.last ? '<div class="note" style="margin-top:4px">上次：' + esc(j.last) + '</div>' : '') +
+    '<div class="row" style="margin-top:10px"><button class="sm" onclick="backupNow(this)"' + (j.busy ? ' disabled' : '') + '>' + (j.busy ? '正在备份…' : '立即备份一次') + '</button></div>' +
+    (items.length ? items.map(x => '<div class="vbcard" style="text-align:left;margin-top:10px"><div class="row" style="justify-content:space-between;align-items:center"><div><b>' + esc(x.name) + '</b><div class="note">' + kbFmt(x.bytes) + ' · ' + new Date(x.mtime).toLocaleString() + '</div></div><button class="ghost sm" data-n="' + esc(x.name) + '" onclick="backupGet(this)">下载</button></div></div>').join('') : '<div class="note" style="margin-top:12px">还没有备份。服务器更新后一分钟内会自动打第一个包，也可以点上面的按钮。</div>'));
+}
+async function backupNow(btn) { btn.disabled = true; btn.textContent = '正在备份…'; const r = await devAdmin('/admin/backups/run', { method: 'POST' }); let j = {}; try { j = r.ok ? await r.res.json() : {}; } catch (e) {} openBackups(r.ok && j.ok ? '已备份：' + j.name + '（' + kbFmt(j.bytes) + '）' : '备份失败：' + (r.ok ? (j.error || '未知原因') : r.msg)); }
+async function backupGet(btn) {
+  btn.disabled = true; btn.textContent = '下载中…';
+  const r = await devAdmin('/admin/backups/' + btn.dataset.n);
+  if (!r.ok) { btn.disabled = false; btn.textContent = '下载'; toast('下载失败：' + r.msg, 3500); return; }
+  const url = URL.createObjectURL(await r.res.blob()), a = document.createElement('a'); a.href = url; a.download = btn.dataset.n; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 30000);
+  btn.disabled = false; btn.textContent = '下载';
+}
 function recKey() { return state.bookId + ':' + state.idx; }
 async function loadRecs() {
   if (!state) return;

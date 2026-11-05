@@ -166,6 +166,36 @@ function unzipBuf(buf) {
 // ---- 每本书含多少个雅思词（B1 及以上）：书单里显示“含 XX 个雅思词”。和手机书架上的算法一样（同一份 grammar.js 还原词形、同一份 ielts/words.json），
 //      按书文件的修改时间缓存，书更新了会重算。网站目录里没有词库时不显示，不影响书单 ----
 const SITE_DIR = process.env.SITE_DIR || '/var/www/sentence-reader';
+/* ---------- 每天自动备份：把服务器上“丢了就找不回”的小文件（兑换码、目录、报错、统计、AI 讲解缓存、书的文字、补充雅思词条）打成一个包。
+   录音（mp3/zip）和朗读缓存不进包：录音在你电脑上能重录，朗读缓存会自动重新生成。包放在 BACKUP_DIR，保留最近 BACKUP_KEEP 份；
+   你电脑上的喵喵录音机会定时把最新的包下载到 D:\19.喵喵录书\服务器备份（异地一份），开发者模式里也能手动下载 ---------- */
+const BACKUP_DIR = process.env.BACKUP_DIR || path.join(path.dirname(SHOP_DIR), 'backups'), BACKUP_KEEP = +process.env.BACKUP_KEEP || 30;
+const BACKUP_NAME = /^sr-\d{8}-\d{4}\.tar\.gz$/;
+let backupBusy = false, backupLast = '';
+function backupList() {
+  try { return fs.readdirSync(BACKUP_DIR).filter(f => BACKUP_NAME.test(f)).sort().reverse().map(f => { const st = fs.statSync(path.join(BACKUP_DIR, f)); return { name: f, bytes: st.size, mtime: st.mtimeMs }; }); } catch (e) { return []; }
+}
+function backupRun() {
+  if (backupBusy) return Promise.resolve({ ok: false, error: 'busy' });
+  backupBusy = true;
+  const d = new Date(Date.now() + 8 * 3600000).toISOString(), name = 'sr-' + d.slice(0, 10).replace(/-/g, '') + '-' + d.slice(11, 16).replace(':', '') + '.tar.gz';   // 文件名用北京时间
+  const out = path.join(BACKUP_DIR, name), tmp = out + '.tmp';
+  const args = ['-czf', tmp, '--exclude=*.mp3', '--exclude=*.zip', '--exclude=*.tmp', '--exclude=./tts', '-C', SHOP_DIR, '.'];
+  if (fs.existsSync(path.join(SITE_DIR, 'ielts', 'extra'))) args.push('-C', SITE_DIR, 'ielts/extra');
+  if (fs.existsSync(USAGE_FILE)) args.push('-C', path.dirname(USAGE_FILE), path.basename(USAGE_FILE));
+  return new Promise(ok => {
+    try { fs.mkdirSync(BACKUP_DIR, { recursive: true }); } catch (e) {}
+    require('child_process').execFile('tar', args, { timeout: 600000 }, (err, so, se) => {
+      backupBusy = false;
+      if (err && err.code !== 1) { try { fs.unlinkSync(tmp); } catch (e) {} backupLast = new Date().toISOString() + ' 失败：' + String(se || err.message).slice(0, 200); console.error('backup failed:', backupLast); return ok({ ok: false, error: backupLast }); }   // tar 返回 1 只是“打包时有文件在变”，包照样能用
+      try { fs.renameSync(tmp, out); } catch (e) { return ok({ ok: false, error: String(e.message) }); }
+      for (const x of backupList().slice(BACKUP_KEEP)) { try { fs.unlinkSync(path.join(BACKUP_DIR, x.name)); } catch (e) {} }
+      backupLast = new Date().toISOString() + ' 成功：' + name; ok({ ok: true, name, bytes: fs.statSync(out).size });
+    });
+  });
+}
+setInterval(() => { const l = backupList()[0]; if (!l || Date.now() - l.mtime > 20 * 3600000) backupRun(); }, 3600000).unref();   // 每小时看一眼：最新的包超过 20 小时就再打一个
+setTimeout(() => { const l = backupList()[0]; if (!l || Date.now() - l.mtime > 20 * 3600000) backupRun(); }, 60000).unref();
 const IW = { ok: null, failAt: 0, cache: new Map(), lem: new Map() };
 function iwInit() {
   const xf = path.join(SITE_DIR, 'ielts', 'extra', 'words-extra.json');     // 补充词条（生成后才有）：文件变了就整个重新加载
@@ -857,6 +887,14 @@ async function shopRoutes(req, res) {
     if (req.method === 'POST' && url === '/admin/reports/done') {   // 标为已处理：这个词在此之前的报错都算处理过了；之后再有人报还会出来
       const b = JSON.parse(await readBody(req, 500)), w = String(b.w || '').toLowerCase(); if (!w) return out(400, { error: 'bad-word' });
       const d = repDone(); d[w] = Date.now(); fs.mkdirSync(SHOP_DIR, { recursive: true }); fs.writeFileSync(REPORT_DONE, JSON.stringify(d)); return out(200, { ok: true });
+    }
+    if (req.method === 'GET' && url === '/admin/backups') return out(200, { items: backupList(), keep: BACKUP_KEEP, busy: backupBusy, last: backupLast });
+    if (req.method === 'POST' && url === '/admin/backups/run') return out(200, await backupRun());
+    m = /^\/admin\/backups\/(sr-\d{8}-\d{4}\.tar\.gz)$/.exec(url);
+    if (req.method === 'GET' && m) {
+      const f = path.join(BACKUP_DIR, m[1]); if (!fs.existsSync(f)) return out(404, { error: 'not-found' });
+      res.writeHead(200, { ...hd, 'Content-Type': 'application/gzip', 'Content-Length': fs.statSync(f).size, 'Content-Disposition': 'attachment; filename="' + m[1] + '"', 'Cache-Control': 'no-store' });
+      fs.createReadStream(f).pipe(res); return true;
     }
     if (url === '/admin/devdoc') {                       // 开发者使用说明：存在服务器私有目录（不在公开的 GitHub 仓库里），只有带后台口令才能看、能改
       const f = path.join(SHOP_DIR, 'devdoc.md');
