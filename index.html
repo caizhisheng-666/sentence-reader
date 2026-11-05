@@ -288,7 +288,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.11.05-171';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.11.05-172';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -422,11 +422,16 @@ async function boot() {
   loadLibs().catch(() => {});
   loadVoices().then(refreshVoiceSelect).catch(() => {});      // 提前把声音列表加载好，第一次点底部的“▶ 朗读”才有声音
   if (!dictInfo || !dictInfo.count) setTimeout(autoImportDict, 2500);      // 先让书架显示出来，词典稍后在后台下载
+  if (syncCode()) setTimeout(() => syncNow(false), 2000);
 }
 window.addEventListener('online', () => { if (state) loadCurrent(); });
 window.addEventListener('offline', () => render());
 window.addEventListener('pagehide', () => { flushState(); });
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushState(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') { flushState(); if (syncCode()) syncNow(false); }
+  else if (syncCode() && Date.now() - (+localStorage.getItem('sr_sync_at') || 0) > 60000) syncNow(false);   // 切回来时超过 1 分钟没同步就同步一次
+});
+setInterval(() => { if (syncCode() && document.visibilityState === 'visible') syncNow(false); }, 300000);
 boot();
 
 /* ---------- 书架：每本书存在 IndexedDB 里，书架目录（书名、进度）存在 localStorage ---------- */
@@ -464,7 +469,7 @@ async function openBook(id) {
   if (!b || !Array.isArray(b.sentences)) {
     if (err) { toast('打开失败（手机存储暂时读不出来），请稍等再点一次。你的资料和进度都还在。', 5000); render(); return; }
     const sid = /^story-/.test(id) ? id.slice(6) : '';
-    showPop('<h3 style="margin:0 0 6px">这份资料的内容找不到了</h3><div class="note">可能是手机清理了浏览器存储。' + (sid ? '学习资料里的内容可以重新下载，读到哪里会接着读。' : '自己导入的资料需要重新导入一次。') + '</div>' +
+    showPop('<h3 style="margin:0 0 6px">这份资料的内容找不到了</h3><div class="note">可能是手机清理了浏览器存储，或者这本书是从别的设备同步过来的（同步只同步进度，不同步书的内容）。' + (sid ? '学习资料里的内容可以重新下载，读到哪里会接着读。' : '自己导入的资料需要在这台设备上重新导入同一个文件，读到哪里会自动接上。') + '</div>' +
       '<div class="row" style="margin-top:12px;gap:8px">' + (sid ? '<button onclick="redownload(\'' + esc(sid) + '\')">重新下载</button>' : '<button onclick="closePop();openImportPop()">重新导入</button>') +
       '<button class="ghost" onclick="if(confirm(\'从“我的学习”里移除这份资料吗？\')){shelfSet(shelfGet().filter(x=>x.id!==\'' + esc(id) + '\'));closePop();render();}">移除</button></div>');
     return;
@@ -651,7 +656,12 @@ let importTitle = '', importBookId = '', importNatVoice = '', importNatSrc = '';
 async function finalizeImport(sentences, imageRanges, bookId, extraToast, toc, bil) {
   if (!sentences.length) { alert('没有识别到英文句子，请检查导入的内容。扫描版或英文画在图里的资料，软件暂不支持识别图片里的文字。'); return; }
   let startIdx = detectStart(sentences);
-  const prevState = state, newId = bookId || importBookId || ('b' + Date.now());
+  let reuseId = '';
+  if (!bookId && !importBookId) {                    // 同步过来、但这台设备上还没有内容的书：重新导入同一个文件时沿用原来的编号，进度自动接上
+    const t0 = (importTitle || '').trim() || bookShortTitle(sentences);
+    for (const x of shelfGet()) if (x.title === t0 && x.total === sentences.length) { let has = null; try { has = await idbGet('books', x.id); } catch (e) { has = 1; } if (!has) { reuseId = x.id; break; } }
+  }
+  const prevState = state, newId = bookId || importBookId || reuseId || ('b' + Date.now());
   const e0 = shelfGet().find(x => x.id === newId); let oldB = null;
   if (e0) { try { oldB = await idbGet('books', newId); } catch (e) {} if (typeof e0.idx === 'number') startIdx = Math.max(0, Math.min(e0.idx, sentences.length)); }   // 同一份资料重新下载/更新：读到哪里、学习进度都保留
   state = { natVoice: importNatVoice || '', natSrc: importNatSrc || '', bookId: newId, sentences, idx: startIdx, prog: {}, cache: {}, startDate: Date.now(), totalCompleted: 0, imageRanges: imageRanges || [], toc: toc || buildTextToc(sentences, startIdx), zh: (bil && bil.zh) || {}, zhp: (bil && bil.para) || {}, zhOff: {} };
@@ -3397,11 +3407,17 @@ function openHelp() {
       li('每天打开首页的“背单词”卡片，会显示今天要复习几个、新学几个。做完还可以“再学 10 个新词”。') +
       li('读书时查到的雅思词点“＋ 加入背单词”，下次背单词时会优先学。') +
       li('<b>带原句</b>：从书里加进来的词，答完题后卡片底部会显示你是在哪本书、哪一句遇到它的，点句子能听朗读，点“回到书里这一句”直接跳回去接着读。按话题加进来的词，以后读书时再查到它，也会自动补上原句。')) +
-    sec('8. 备份背单词进度',
-      li('背单词的进度只存在这台设备里，<b>换手机、清浏览器数据都会丢</b>。') +
+    sec('8. 多设备同步',
+      li('手机、平板、电脑想用同一份进度：右上角 ··· →“多设备同步”。第一台设备点“生成同步码”，得到一个 MIAO- 开头的码；其他设备在同一个地方输入这个码。') +
+      li('同步的内容：每本书读到第几句、背单词进度（含原句）、已读 / 已听句数和连续天数、语速等几项设置。打开软件、切回软件时自动同步，也可以点“立即同步”。') +
+      li('<b>不同步书的内容</b>：从“学习资料”下载的书，在新设备上点一下会重新下载；自己导入的书，要在新设备上再导入一次同一个文件，读到哪里会自动接上。') +
+      li('两台设备都读过同一本书时，以最近读的那台为准。一台设备上删掉的书，其他设备同步后也会删掉。') +
+      li('同步码相当于密码，别发给别人。不小心泄露了，点“换一个新码”，旧码马上作废，其他设备重新输入新码就行。')) +
+    sec('9. 备份背单词进度',
+      li('没开多设备同步时，背单词的进度只存在这台设备里，<b>换手机、清浏览器数据都会丢</b>。开了同步就不用担心。') +
       li('在背单词完成页点“备份与恢复进度”：可以下载备份文件，或者复制成一段文字发到微信“文件传输助手”保存。') +
       li('换了手机：进背单词，点“从备份恢复进度”，选文件或粘贴文字。恢复时会和新手机上的进度合并，不会把新进度盖掉。')) +
-    sec('9. 常见问题',
+    sec('10. 常见问题',
       li('<b>声音只有几个？</b>iPhone、iPad 只能用系统自带的声音（苹果的限制）；带自然语音的书会用录好的真人风格声音。安卓和电脑可以在系统设置里下载更多英文声音。') +
       li('<b>软件好像没更新？</b>点上面的“检查更新”。桌面图标版关掉再打开一两次就会换成新版。') +
       li('<b>查词显示“内置基础词典”？</b>离线大词典会在联网时自动后台下载，下载好后查词更全。可以在 ··· → 词典里看状态。') +
@@ -3413,6 +3429,7 @@ function openHelp() {
       li('<b>AI 老师</b>：点“请 AI 老师讲讲这一句”或和 AI 老师聊天时，这一句英文（聊天时还有你输入的话）会发到开发者的服务器，再交给智谱 GLM 或火山引擎豆包大模型生成讲解。同一句讲过一次会存起来，以后直接取。') +
       li('<b>单词报错</b>：点“这个词有错？”时，只发送这个单词、你选的错误类型和你写的说明，不包含任何个人信息。') +
       li('<b>自然语音（仅开发者可用）</b>：需要开发者口令解锁。启用后，当前要朗读的那一句英文会发到开发者自己的微软 Azure 账号生成语音。Key 用口令加密后只保存在开发者的设备里，软件代码里没有任何 Key。') +
+      li('<b>多设备同步</b>（打开后才有）：书架上每本书的书名、读到第几句，背单词进度，学习记录和几项设置，会存到开发者的服务器上，用同步码区分。服务器只保存同步码的指纹，不保存同步码本身；不包含书的内容、录音和任何个人信息。停止同步后，服务器上的那份不会再更新。') +
       li('<b>使用人数统计</b>：为了知道有多少人在用，打开软件时会发送一个随机生成的匿名设备编号（不含姓名、账号、手机号，也不含你读了什么）。除此之外不收集使用数据。')) +
     sec('开源与致谢',
       li('英汉词典数据：ECDICT（skywind3000，MIT 许可）') + li('界面图标：Lucide（lucide.dev，ISC 许可）') + li('雅思词库与插图：Word Atlas（词光），Word Atlas contributors，CC BY 4.0 许可（creativecommons.org/licenses/by/4.0）；本软件精简了词条字段，插图原样使用。内容由 AI 生成，不是雅思官方词表') + li('PDF 解析：pdf.js（Mozilla，Apache-2.0）') + li('epub 解压：JSZip（MIT / GPLv3 双许可）') +
@@ -3675,6 +3692,143 @@ function closeFullscreen() {
 }
 function fsOpen() { return document.getElementById('fsModal').classList.contains('show'); }
 
+/* ---------- 多设备同步：同一个同步码的设备之间同步书架进度、背单词、学习统计和几项设置（不同步书的内容）。
+   流程：取服务器上的 → 和本机的合并 → 写回本机 → 带着版本号写回服务器（别的设备刚写过就重来一遍）。
+   “上次同步时的样子”记在 sr_sync_last，用来分辨“这台设备删掉 / 改过的”和“别的设备新加的” ---------- */
+const SYNC_SET_KEYS = ['sr_rate', 'sr_show_zh', 'sr_ielts_hl'];
+let syncBusy = false;
+function syncCode() { try { return localStorage.getItem('sr_sync_code') || ''; } catch (e) { return ''; } }
+function syncLs(k, d) { try { const v = JSON.parse(localStorage.getItem(k) || 'null'); return v == null ? d : v; } catch (e) { return d; } }
+function syncCollect() {
+  const set = {}; for (const k of SYNC_SET_KEYS) { const v = localStorage.getItem(k); if (v != null) set[k] = v; }
+  const shelf = shelfGet().map(e => { const o = {}; for (const k in e) if (!(typeof e[k] === 'string' && e[k].length > 2000)) o[k] = e[k]; return o; });   // 太长的字段（比如封面图）不传
+  return { shelf, vb: vbGet(), stats: statsGet(), heard: syncLs('sr_heard', []), spoke: syncLs('sr_spoke', []), set };
+}
+function syncDayT(d) { const m = /^(\d+)-(\d+)-(\d+)$/.exec(d || ''); return m ? new Date(+m[1], m[2] - 1, +m[3]).getTime() : 0; }
+function syncMerge(r, l, last) {
+  r = r || {}; const now = Date.now(), out = {};
+  // 书架：每本书以最近读过的那台设备为准；“读到最远”和“读完”取两边的最大
+  const del = Object.assign({}, r.del || {}), lastIds = last.shelfIds || [], localIds = new Set(l.shelf.map(e => e.id));
+  for (const id of lastIds) if (!localIds.has(id)) del[id] = now;                      // 这台设备上次同步后删掉的书
+  const rm = {}; for (const e of r.shelf || []) rm[e.id] = e;
+  const merged = [], seen = new Set();
+  const one = (a, b2) => { if (!b2) return a; if (!a) return b2; const base = (a.lastAt || 0) >= (b2.lastAt || 0) ? a : b2, other = base === a ? b2 : a; const m = Object.assign({}, other, base); m.max = Math.max(a.max || 0, b2.max || 0, m.idx || 0); if (a.done || b2.done) m.done = 1; return m; };
+  for (const e of l.shelf) { merged.push(one(e, rm[e.id])); seen.add(e.id); }
+  for (const e of r.shelf || []) if (!seen.has(e.id)) merged.push(e);
+  out.shelf = merged.filter(e => !(del[e.id] && del[e.id] >= (e.lastAt || 0)));
+  for (const e of out.shelf) delete del[e.id];                                          // 删了又重新加回来的，以加回来为准
+  for (const id in del) if (now - del[id] > 180 * 864e5) delete del[id];
+  out.del = del;
+  // 背单词：每个词取最近复习过的那一份；设置以这台设备改过的为准；今天的计数取大的
+  const rv = r.vb || {}, lv = l.vb, t = x => x && x.c && x.c.last_review ? new Date(x.c.last_review).getTime() : x && x.add ? 0 : -1;
+  const cards = Object.assign({}, rv.cards || {}); for (const k in lv.cards) if (!cards[k] || t(lv.cards[k]) >= t(cards[k])) cards[k] = Object.assign({}, cards[k] && cards[k].src ? { src: cards[k].src } : {}, lv.cards[k]);
+  for (const k in cards) if (cards[k] && !cards[k].src && rv.cards && rv.cards[k] && rv.cards[k].src) cards[k].src = rv.cards[k].src;
+  const lcfgChanged = JSON.stringify(lv.cfg || null) !== JSON.stringify(last.cfg === undefined ? (lv.cfg || null) : last.cfg);
+  const cfg = lcfgChanged || !rv.cfg ? lv.cfg : rv.cfg;
+  let day = lv.day || { d: '', n: 0 }; const rd = rv.day || { d: '', n: 0 };
+  if (rd.d === day.d) day = { d: day.d, n: Math.max(day.n || 0, rd.n || 0), ok: Math.max(day.ok || 0, rd.ok || 0), all: Math.max(day.all || 0, rd.all || 0) }; else if (syncDayT(rd.d) > syncDayT(day.d)) day = rd;
+  const stat = Object.assign({}, rv.stat || {}); for (const k in lv.stat || {}) stat[k] = typeof lv.stat[k] === 'number' ? Math.max(lv.stat[k], +stat[k] || 0) : lv.stat[k];
+  out.vb = Object.assign({}, rv, lv, { cards, cfg: cfg || null, day, stat });
+  // 学习统计：读过 / 听过的句子取并集；连续天数以最近学习的那一天为准
+  const heard = [...new Set([].concat(r.heard || [], l.heard))], spoke = [...new Set([].concat(r.spoke || [], l.spoke))];
+  const rs = r.stats || {}, ls = l.stats, st = Object.assign({}, rs, ls);
+  st.heard = Math.max(ls.heard || 0, rs.heard || 0, heard.length); st.spoke = Math.max(ls.spoke || 0, rs.spoke || 0, spoke.length);
+  if (rs.day === ls.day) st.streak = Math.max(rs.streak || 0, ls.streak || 0); else if (syncDayT(rs.day) > syncDayT(ls.day)) { st.day = rs.day; st.streak = rs.streak; }
+  out.stats = st; out.heard = heard.slice(-30000); out.spoke = spoke.slice(-30000);
+  // 设置：这台设备上次同步后改过的用这台的，否则用另一台的
+  out.set = {}; const ks = new Set([].concat(Object.keys(r.set || {}), Object.keys(l.set)));
+  for (const k of ks) { const lvv = l.set[k], changed = lvv !== (last.set || {})[k]; const v = changed || !(r.set && k in r.set) ? lvv : r.set[k]; if (v != null) out.set[k] = v; }
+  return out;
+}
+function syncApply(m) {
+  const cur = state && state.bookId, keep = cur && shelfGet().find(e => e.id === cur);
+  let shelf = m.shelf; if (keep) shelf = shelf.map(e => e.id === cur ? Object.assign({}, e, { idx: keep.idx, lastAt: Math.max(keep.lastAt || 0, e.lastAt || 0) }) : e);   // 正在读的书，位置不被别的设备改掉
+  shelfSet(shelf);
+  VB = m.vb; vbSave();
+  try { localStorage.setItem('sr_stats', JSON.stringify(m.stats)); localStorage.setItem('sr_heard', JSON.stringify(m.heard)); localStorage.setItem('sr_spoke', JSON.stringify(m.spoke)); } catch (e) {}
+  for (const k of SYNC_SET_KEYS) { try { if (k in m.set) localStorage.setItem(k, m.set[k]); } catch (e) {} }
+  try { localStorage.setItem('sr_sync_last', JSON.stringify({ shelfIds: shelf.map(e => e.id), set: m.set, cfg: m.vb.cfg || null })); } catch (e) {}
+}
+async function syncCall(op, body) {
+  const r = await fetch(SHOP_BASE + '/sync/' + op, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  let j = {}; try { j = await r.json(); } catch (e) {}
+  return { s: r.status, j };
+}
+async function syncNow(manual) {
+  const code = syncCode(); if (!code || syncBusy) return false;
+  syncBusy = true; let ok = false, msg = '';
+  try {
+    for (let a = 0; a < 4 && !ok; a++) {
+      const g = await syncCall('get', { code });
+      if (g.s === 404) { msg = '这个同步码已经失效（可能在别的设备上换了新码）。请在“多设备同步”里输入新的同步码。'; break; }
+      if (g.s !== 200) { msg = g.s === 429 ? '操作太频繁，过一会儿再试' : '服务器返回 ' + g.s; break; }
+      const m = syncMerge(g.j.data, syncCollect(), syncLs('sr_sync_last', {}));
+      syncApply(m);
+      const p = await syncCall('put', { code, v: g.j.v, data: m });
+      if (p.s === 200) ok = true; else if (p.s !== 409) { msg = p.s === 413 ? '要同步的数据太大了' : '服务器返回 ' + p.s; break; }
+    }
+    if (ok) try { localStorage.setItem('sr_sync_at', String(Date.now())); } catch (e) {}
+  } catch (e) { msg = navigator.onLine ? '连不上服务器' : '现在没联网'; }
+  syncBusy = false;
+  if (manual) toast(ok ? '已同步' : '同步没成功：' + msg, ok ? 1800 : 4000);
+  if (ok && !state && !fsOpen()) try { render(); } catch (e) {}
+  const el = document.getElementById('syncInfo'); if (el) el.innerHTML = syncInfoHtml();
+  return ok;
+}
+function syncInfoHtml() { const t = +localStorage.getItem('sr_sync_at') || 0; return t ? '上次同步：' + new Date(t).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '还没同步过'; }
+function openSyncPop() {
+  const code = syncCode();
+  if (!code) {
+    showPop('<h3 style="margin:0 0 6px">' + ic('refresh') + '多设备同步</h3>' +
+      '<div class="note">手机、平板、电脑用同一个<b>同步码</b>，读到第几句、背单词进度、学习记录会自动同步。不用注册账号。</div>' +
+      '<div class="note" style="margin-top:6px">不同步书的内容：从“学习资料”下载的书在新设备上点一下就重新下载；自己导入的书要在新设备上再导入一次同一个文件，进度会自动接上。</div>' +
+      '<button style="width:100%;margin-top:14px" onclick="syncCreate(this)">这是第一台设备：生成同步码</button>' +
+      '<div class="vbsec" style="margin-top:16px">已经有同步码</div>' +
+      '<input id="syncIn" placeholder="MIAO-XXXX-XXXX" autocapitalize="characters" autocomplete="off" style="width:100%;margin-top:6px;text-transform:uppercase">' +
+      '<button class="ghost" style="width:100%;margin-top:8px" onclick="syncJoin(this)">输入同步码，连上其他设备</button>');
+    return;
+  }
+  showPop('<h3 style="margin:0 0 6px">' + ic('refresh') + '多设备同步</h3>' +
+    '<div class="note">在其他设备上打开“··· → 多设备同步”，输入下面的同步码：</div>' +
+    '<div style="font-size:24px;font-weight:700;letter-spacing:2px;text-align:center;margin:12px 0;user-select:all">' + esc(code) + '</div>' +
+    '<div class="row" style="justify-content:center"><button class="ghost sm" onclick="syncCopy()">复制同步码</button><button class="sm" onclick="syncNow(true)">立即同步</button></div>' +
+    '<div class="note" id="syncInfo" style="text-align:center;margin-top:8px">' + syncInfoHtml() + '</div>' +
+    '<div class="note" style="margin-top:10px">打开软件、切回软件时会自动同步。同步码相当于密码，别发给别人；不小心泄露了就点“换一个新码”，旧码马上作废，其他设备要重新输入新码。</div>' +
+    '<div class="row" style="margin-top:10px"><button class="ghost sm" onclick="syncRotate(this)">换一个新码</button><button class="ghost sm" onclick="syncStop()">这台设备停止同步</button></div>');
+}
+async function syncCreate(btn) {
+  btn.disabled = true; btn.textContent = '正在生成…';
+  try {
+    const r = await syncCall('new');
+    if (r.s !== 200 || !r.j.code) throw new Error(r.s === 429 ? '操作太频繁，过一会儿再试' : '服务器返回 ' + r.s);
+    localStorage.setItem('sr_sync_code', r.j.code); localStorage.removeItem('sr_sync_last');
+    await syncNow(false); openSyncPop(); toast('同步码已生成，在其他设备上输入它就能同步', 3500);
+  } catch (e) { btn.disabled = false; btn.textContent = '这是第一台设备：生成同步码'; toast('没生成成功：' + (navigator.onLine ? e.message : '现在没联网'), 3500); }
+}
+async function syncJoin(btn) {
+  const raw = (document.getElementById('syncIn').value || '').toUpperCase().replace(/[^0-9A-Z]/g, ''), c = raw.length === 12 && raw.startsWith('MIAO') ? raw.slice(4) : raw;
+  if (!/^[0-9A-Z]{8}$/.test(c)) { toast('同步码是 MIAO- 开头的 8 位字母数字，比如 MIAO-7K3P-9QXD', 3500); return; }
+  const code = 'MIAO-' + c.slice(0, 4) + '-' + c.slice(4);
+  btn.disabled = true; btn.textContent = '正在连接…';
+  try {
+    const r = await syncCall('get', { code });
+    if (r.s === 404) throw new Error('没有这个同步码，检查一下有没有输错');
+    if (r.s !== 200) throw new Error(r.s === 429 ? '输错太多次了，过一小时再试' : '服务器返回 ' + r.s);
+    localStorage.setItem('sr_sync_code', code); localStorage.removeItem('sr_sync_last');
+    const ok = await syncNow(false); openSyncPop(); toast(ok ? '已连上，这台设备和其他设备的进度已经合并' : '已保存同步码，稍后会自动同步', 3500);
+  } catch (e) { btn.disabled = false; btn.textContent = '输入同步码，连上其他设备'; toast(navigator.onLine ? e.message : '现在没联网', 3500); }
+}
+async function syncRotate(btn) {
+  if (!confirm('换一个新的同步码？旧码马上作废，其他设备需要重新输入新码。')) return;
+  btn.disabled = true;
+  try { const r = await syncCall('rotate', { code: syncCode() }); if (r.s !== 200 || !r.j.code) throw new Error('服务器返回 ' + r.s); localStorage.setItem('sr_sync_code', r.j.code); openSyncPop(); toast('已换成新码，记得在其他设备上输入新码', 3500); }
+  catch (e) { btn.disabled = false; toast('没换成功：' + (navigator.onLine ? e.message : '现在没联网'), 3500); }
+}
+function syncStop() {
+  if (!confirm('这台设备停止同步？本机的进度都还在，只是以后不再和其他设备同步。')) return;
+  localStorage.removeItem('sr_sync_code'); localStorage.removeItem('sr_sync_last'); localStorage.removeItem('sr_sync_at'); closePop(); toast('这台设备已停止同步');
+}
+function syncCopy() { const c = syncCode(); try { navigator.clipboard.writeText(c).then(() => toast('已复制：' + c), () => toast(c, 5000)); } catch (e) { toast(c, 5000); } }
 /* 右上角“···”菜单：把不常用的功能收在这里 */
 function openMoreMenu() {
   const it = (fn, label, hint) => '<button onclick="closePop();' + fn + '">' + label + (hint ? '<span>' + hint + '</span>' : '') + '</button>';
@@ -3682,6 +3836,7 @@ function openMoreMenu() {
     it('openDictSettings()', '词典', '') +
     it('openGrammarDict()', '语法字典', '') +
     it('toggleIw()', '雅思词标记', iwOn() ? '已打开' : '已关闭') +
+    it('openSyncPop()', '多设备同步', syncCode() ? '已开启' : '未开启') +
     it('openHelp()', '帮助与反馈', '') + '</div>');
 }
 function showPop(html) {
@@ -4241,9 +4396,9 @@ function render() {
   else trans = '正在翻译…<span style="color:var(--sub);font-size:.85em">（免费翻译偶尔较慢，请稍等）</span>';
 
   const ga = getAnalysis(), gs = gsGet(state.sentences[state.idx]), gsOk = gs && gs.v;
-  if (!gs && navigator.onLine && gramOpen) setTimeout(() => gsFetch(state.idx), 0);
+  if (!gs && navigator.onLine && gramOpen) setTimeout(() => { if (state) gsFetch(state.idx); }, 0);
   const oldItems = gsOk ? ga.items.filter(it => !/从句|主谓|系动词|直接引语|并列句|倒装|There be|强调/.test(it.title)) : ga.items;
-  const gHtml = '<details class="section" ' + (gramOpen ? 'open' : '') + ' ontoggle="gramOpen=this.open;if(this.open)gsFetch(state.idx)"><summary>语法讲解</summary>' +
+  const gHtml = '<details class="section" ' + (gramOpen ? 'open' : '') + ' ontoggle="gramOpen=this.open;if(this.open&&state)gsFetch(state.idx)"><summary>语法讲解</summary>' +
     (gsOk ? gsHtml(gs) + (oldItems.length ? '<div class="note" style="margin:10px 0 4px">其他语法点</div>' : '') : (ga.summary ? '<div class="gsum">' + esc(ga.summary) + '</div>' : '') +
       (navigator.onLine && !gs ? '<div class="note" style="margin:4px 0 8px">正在分析句子结构…</div>' : gs && gs.fail ? '<div class="note" style="margin:4px 0 8px">句子结构分析暂时不可用，先看简版讲解。</div>' : '')) +
     oldItems.map(it => '<div class="gi"><div class="gt">' + esc(it.title) + '</div>' +

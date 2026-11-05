@@ -476,6 +476,23 @@ function ipMask(ip) {                                  // 只留网段，不留�
 }
 const hitLog = new Map();
 // ---- 单词报错：读者觉得雅思词条（释义、例句、插图、发音）有错，点一下报上来；开发者在软件里集中查看、改完标“已处理”。不记 IP ----
+/* ---------- 多设备同步：一个同步码对应一份学习进度（书架进度、背单词、学习统计、几项设置）。不需要账号。
+   服务器只按同步码的指纹（sha256）存文件，不存同步码本身；合并在手机上做，服务器只负责“版本号对上才能写”。
+   每个 IP 每小时最多新建 10 个码、输错 20 次；单份最大 3MB ---------- */
+const SYNC_DIR = path.join(SHOP_DIR, 'sync'), SYNC_MAX = 3 * 1048576, SYNC_ALPHA = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+const syncNorm = c => { c = String(c || '').toUpperCase().replace(/[^0-9A-Z]/g, ''); if (c.length === 12 && c.startsWith('MIAO')) c = c.slice(4); return /^[2-9A-HJKMNP-Z]{8}$/.test(c) ? c : ''; };
+const syncShow = c => 'MIAO-' + c.slice(0, 4) + '-' + c.slice(4);
+const syncFile = c => path.join(SYNC_DIR, crypto.createHash('sha256').update('sr-sync-1:' + c).digest('hex').slice(0, 40) + '.json');
+function syncNewCode() { for (;;) { let s = ''; for (const x of crypto.randomBytes(8)) s += SYNC_ALPHA[x % SYNC_ALPHA.length]; if (!fs.existsSync(syncFile(s))) return s; } }
+function syncRead(c) { try { return JSON.parse(fs.readFileSync(syncFile(c), 'utf8')); } catch (e) { return null; } }
+function syncWrite(c, j) { fs.mkdirSync(SYNC_DIR, { recursive: true }); const f = syncFile(c), t = f + '.tmp'; fs.writeFileSync(t, JSON.stringify(j)); fs.renameSync(t, f); }
+const syncHits = new Map();
+function syncLimited(ip, kind, max) {
+  const k = kind + ':' + ip, now = Date.now(), arr = (syncHits.get(k) || []).filter(t => now - t < 3600000);
+  syncHits.set(k, arr); if (syncHits.size > 5000) for (const [kk, v] of syncHits) if (!v.length || now - v[v.length - 1] > 3600000) syncHits.delete(kk);
+  return arr.length >= max;
+}
+const syncMark = (ip, kind) => { const k = kind + ':' + ip; (syncHits.get(k) || syncHits.set(k, []).get(k)).push(Date.now()); };
 const REPORT_FILE = path.join(SHOP_DIR, 'reports.jsonl'), REPORT_DONE = path.join(SHOP_DIR, 'reports-done.json'), REPORT_WHY = ['释义不对', '例句有问题', '插图不对', '发音不对', '等级不对', '其他'];
 const repLog = new Map();
 function repLimited(ip) {
@@ -618,6 +635,33 @@ async function shopRoutes(req, res) {
     if (hitLimited(ip)) return out0(429, { error: 'too-many' });
     recordHit(d0, ip, req.headers['user-agent'], String(b0.v || '').slice(0, 30), b0.pwa);
     return out0(200, { ok: true });
+  }
+  if (req.method === 'POST' && /^\/sync\/(new|get|put|rotate)$/.test(url)) {   // 多设备同步
+    const origin0 = req.headers.origin, okO0 = origin0 && ALLOW.includes(origin0) ? origin0 : null;
+    const hd0 = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }; if (okO0) { hd0['Access-Control-Allow-Origin'] = okO0; hd0.Vary = 'Origin'; }
+    const out0 = (c, o) => { res.writeHead(c, hd0); res.end(JSON.stringify(o)); return true; };
+    if (!okO0) return out0(403, { error: 'origin-not-allowed' });
+    let b0; try { b0 = JSON.parse((await readBodyBuf(req, SYNC_MAX)).toString('utf8') || '{}') || {}; } catch (e) { return out0(e.message === 'too-big' ? 413 : 400, { error: e.message === 'too-big' ? 'too-big' : 'bad-request' }); }
+    const op = url.slice(6);
+    if (op === 'new') {
+      if (syncLimited(ip, 'new', 10)) return out0(429, { error: 'too-many' });
+      syncMark(ip, 'new'); const c = syncNewCode(); syncWrite(c, { v: 0, at: Date.now(), data: null });
+      return out0(200, { ok: true, code: syncShow(c), v: 0 });
+    }
+    if (syncLimited(ip, 'bad', 20)) return out0(429, { error: 'too-many-wrong' });
+    const c = syncNorm(b0.code), cur = c && syncRead(c);
+    if (!cur) { syncMark(ip, 'bad'); return out0(404, { error: 'no-such-code' }); }
+    if (op === 'get') return out0(200, { ok: true, v: cur.v, at: cur.at, data: cur.data });
+    if (op === 'put') {
+      if (+b0.v !== cur.v) return out0(409, { error: 'changed', v: cur.v, data: cur.data });     // 别的设备刚写过：手机上重新合并再写
+      if (!b0.data || typeof b0.data !== 'object') return out0(400, { error: 'bad-data' });
+      const nj = { v: cur.v + 1, at: Date.now(), data: b0.data }; syncWrite(c, nj);
+      return out0(200, { ok: true, v: nj.v, at: nj.at });
+    }
+    if (op === 'rotate') {                             // 换新码：旧码马上作废
+      const n = syncNewCode(); syncWrite(n, cur); try { fs.unlinkSync(syncFile(c)); } catch (e) {}
+      return out0(200, { ok: true, code: syncShow(n), v: cur.v });
+    }
   }
   if (req.method === 'POST' && url === '/report') {  // 单词报错
     const origin0 = req.headers.origin, okO0 = origin0 && ALLOW.includes(origin0) ? origin0 : null;
