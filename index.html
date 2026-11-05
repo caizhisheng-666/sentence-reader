@@ -288,7 +288,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.11.05-174';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.11.05-175';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -3014,12 +3014,18 @@ function ieltsLoad() {                              // 第一次查词时才下�
   if (IELTS) return Promise.resolve(IELTS);
   if (!ieltsP) ieltsP = fetch('./ielts/words.json').then(r => { if (!r.ok) throw 0; return r.json(); }).then(async j => {
     if (!/github\.io$/.test(location.hostname)) try {           // 补充词条（词光缺的雅思词，按同样规范生成，只在香港服务器上）：有就合并，没有不影响
-      const r2 = await fetch('./ielts/extra/words-extra.json'); if (r2.ok) { const x = await r2.json(); for (const k in x) if (!j[k]) j[k] = x[k]; }
+      const r2 = await fetch('./ielts/extra/words-extra.json'); if (r2.ok) {
+        const x = await r2.json(); for (const k in x) if (!j[k]) j[k] = x[k];
+        let have = {}; try { const r3 = await fetch(SHOP_BASE + '/ielts-audio/have'); if (r3.ok) have = await r3.json(); } catch (e) {}   // 补充词条的发音（ieltsrec.py 录的）放在后台服务上
+        for (const k in x) if (j[k] === x[k]) { const s = iaSlug(k); x[k].i = s; x[k].a = have[s] || 0; }
+      }
     } catch (e) {}
     return (IELTS = j);
   }).catch(() => { ieltsP = null; return null; });
   return ieltsP;
 }
+function iaSlug(k) { return String(k).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60); }
+function ieltsAudioBase(e) { return e && e.x ? SHOP_BASE + '/ielts-audio/' : IELTS_MEDIA + 'audio/'; }   // 补充词条的发音在后台服务上，词光原有的在网站目录里
 function ieltsFind(raw, res) {
   if (!IELTS) return null;
   let keys = [raw.toLowerCase()].concat((res || []).map(r => String(r.head || '').toLowerCase()));
@@ -3068,7 +3074,7 @@ async function ieltsAttach(clean, res) {
   const f = ieltsFind(clean, res); if (!f) return;
   const body = document.getElementById('wpBody'), head = body && body.firstElementChild; if (!head) return;
   const e = f.e, id = encodeURIComponent(e.i || f.k), img = IELTS_MEDIA + 'img/' + id + '.webp', a = e.a || 0, wd = esc(e.w || f.k);
-  const au = kind => IELTS_MEDIA + 'audio/' + kind + '/' + id + '.mp3';
+  const au = kind => ieltsAudioBase(e) + kind + '/' + id + '.mp3';
   const rp = () => { if (lastWordEl) positionWordPop(lastWordEl.getBoundingClientRect()); };
   head.insertAdjacentHTML('afterend', '<div class="itop"><img src="' + img + '" alt="" onerror="this.remove()">' +
     '<div><div><span class="ib">雅思词</span><span class="ilv">' + esc(e.c || '') + '</span></div>' +
@@ -3382,7 +3388,7 @@ function openHelp() {
     sec('3. 读一句',
       li('点书架上的书打开。每次只显示一句，底部“上一句 / 下一句”翻页，顶部数字是读到第几句。') +
       li('<b>点单词</b>：读出这个词并弹出解释。软件会根据这一句的中文，告诉你这个词在这里是哪个意思。离线大词典下载好以后，不联网也能查。') +
-      li('<b>雅思词</b>：查到雅思词时会多出插图、等级、英音 / 美音真人发音和雅思例句（点例句就朗读）。点“＋ 加入背单词”可以把它放进背单词。发现词条有错，点弹窗底部的“这个词有错？”告诉我们。') +
+      li('<b>雅思词</b>：查到雅思词时会多出插图、等级、英音 / 美音真人发音和雅思例句（点例句就朗读）。点“＋ 加入背单词”可以把它放进背单词。少数词条标着“补充词条”，是按同样规范补上的，有发音但没有插图。发现词条有错，点弹窗底部的“这个词有错？”告诉我们。') +
       li('读句子时，<b>实线下划线</b>的是 B1 以上的雅思词，<b>带浅色底</b>的是你已经在背的词。不想看这些标记，在右上角 ··· 里关掉“雅思词标记”。') +
       li('<b>朗读</b>：点底部的朗读，读到哪个词哪个词会亮；声音菜单可以换美音、英音、自然语音。<b>正常 / 慢速</b>可以切换语速。') +
       li('中文翻译：资料自带译文的直接显示，没有的联网后机器翻译；点“隐藏中文”可以先自己理解再看。') +
@@ -3524,7 +3530,7 @@ function vbOptions(k) {                              // 干扰项：同难度、
   const opts = [...out]; for (let i = opts.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [opts[i], opts[j]] = [opts[j], opts[i]]; }
   return { opts, ans };
 }
-function vbAu(k, kind) { const e = IELTS[k], a = e.a || 0, b = { uk: 1, us: 2, ex: 4, ex2: 8 }[kind]; return a & b ? IELTS_MEDIA + 'audio/' + kind + '/' + encodeURIComponent(e.i || k) + '.mp3' : ''; }
+function vbAu(k, kind) { const e = IELTS[k], a = e.a || 0, b = { uk: 1, us: 2, ex: 4, ex2: 8 }[kind]; return a & b ? ieltsAudioBase(e) + kind + '/' + encodeURIComponent(e.i || k) + '.mp3' : ''; }
 function vbBar() { return '<div class="vbbar"><span style="width:' + Math.round(vbQ.i / vbQ.list.length * 100) + '%"></span></div><div class="note" style="text-align:right">' + (vbQ.i + 1) + ' / ' + vbQ.list.length + '</div>'; }
 function vbAsk() {
   const k = vbQ.list[vbQ.i], e = IELTS[k], w = e.w || k, mode = vbMode(k);

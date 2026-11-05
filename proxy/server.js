@@ -476,6 +476,16 @@ function ipMask(ip) {                                  // 只留网段，不留�
 }
 /* ---------- 阅读情况：只统计“学习资料”里的书（自己导入的书不上报）。每台设备每本书记：最远读到第几句、总句数、第一次和最近一次时间。
    设备用匿名编号的指纹，不存原编号；开发者在“访问统计 → 阅读情况”里看每本书多少人读、读到哪、在哪里放弃 ---------- */
+/* ---------- 补充雅思词条的发音：录音机（ieltsrec.py）录好上传到 shop/ielts-audio/<uk|us|ex|ex2>/<词的 slug>.mp3；
+   手机查词时先拿 /ielts-audio/have 知道哪些词有哪几种发音，再从 /ielts-audio/<种类>/<slug>.mp3 取 ---------- */
+const IA_DIR = path.join(SHOP_DIR, 'ielts-audio'), IA_KINDS = { uk: 1, us: 2, ex: 4, ex2: 8 }, IA_SLUG = /^[a-z0-9_]{1,60}$/;
+let iaHave = null, iaHaveAt = 0;
+function iaHaveMap() {
+  if (iaHave && Date.now() - iaHaveAt < 60000) return iaHave;
+  const m = {};
+  for (const k in IA_KINDS) { let fsl = []; try { fsl = fs.readdirSync(path.join(IA_DIR, k)); } catch (e) {} for (const f of fsl) if (f.endsWith('.mp3')) { const s = f.slice(0, -4); m[s] = (m[s] || 0) | IA_KINDS[k]; } }
+  iaHave = m; iaHaveAt = Date.now(); return m;
+}
 const READS_FILE = path.join(SHOP_DIR, 'reads.json');
 let reads = {}, readsDirty = false;
 try { reads = JSON.parse(fs.readFileSync(READS_FILE, 'utf8')) || {}; } catch (e) {}
@@ -648,6 +658,12 @@ async function shopRoutes(req, res) {
     if (pa.PronScore == null && pa.AccuracyScore != null) pa.PronScore = (pa.AccuracyScore || 0) * 0.6 + (pa.FluencyScore || 0) * 0.2 + (pa.CompletenessScore || 0) * 0.2;
     return out0(200, { ok: true, total: Math.round(pa.PronScore || 0), acc: Math.round(pa.AccuracyScore || 0), flu: Math.round(pa.FluencyScore || 0), comp: Math.round(pa.CompletenessScore || 0), pros: pa.ProsodyScore != null ? Math.round(pa.ProsodyScore) : null, heard: nb.Display || '', words });
   }
+  if (req.method === 'GET' && url === '/ielts-audio/have') { res.writeHead(200, { ...pubHead, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=300' }); res.end(JSON.stringify(iaHaveMap())); return true; }
+  const mIa = /^\/ielts-audio\/(uk|us|ex|ex2)\/([a-z0-9_]{1,60})\.mp3$/.exec(url);
+  if (req.method === 'GET' && mIa) {
+    const f = path.join(IA_DIR, mIa[1], mIa[2] + '.mp3'); if (!fs.existsSync(f)) { res.writeHead(404, pubHead); res.end(); return true; }
+    res.writeHead(200, { ...pubHead, 'Content-Type': 'audio/mpeg', 'Content-Length': fs.statSync(f).size, 'Cache-Control': 'public, max-age=2592000' }); fs.createReadStream(f).pipe(res); return true;
+  }
   if (req.method === 'POST' && url === '/read') {    // 阅读情况：学习资料里的书读到第几句
     const origin0 = req.headers.origin, okO0 = origin0 && ALLOW.includes(origin0) ? origin0 : null;
     const hd0 = { 'Content-Type': 'application/json; charset=utf-8' }; if (okO0) { hd0['Access-Control-Allow-Origin'] = okO0; hd0.Vary = 'Origin'; }
@@ -813,6 +829,13 @@ async function shopRoutes(req, res) {
       fs.rmSync(dst, { recursive: true, force: true }); fs.mkdirSync(dst, { recursive: true });
       let n = 0; for (const h of hs) { const f = path.join(src, h + '.mp3'); if (fs.existsSync(f)) { fs.copyFileSync(f, path.join(dst, h + '.mp3')); n++; } }
       return out(200, { ok: true, copied: n });
+    }
+    if (url === '/admin/ielts-audio' && req.method === 'PUT') {     // 补充雅思词条的发音：zip 里是 clips/<slug>.mp3；?kind=uk|us|ex|ex2
+      const k = new URL(req.url, 'http://x').searchParams.get('kind') || ''; if (!IA_KINDS[k]) return out(400, { error: 'bad-kind' });
+      let ents; try { ents = unzipBuf(await readBodyBuf(req, MAX_UPLOAD)); } catch (e) { return out(e.message === 'too-big' ? 413 : 400, { error: e.message === 'too-big' ? 'too-big' : 'bad-zip' }); }
+      const d = path.join(IA_DIR, k); fs.mkdirSync(d, { recursive: true }); let n = 0;
+      for (const e of ents) { const mm = /^clips\/([a-z0-9_]{1,60})\.mp3$/.exec(e.name); if (mm && e.data.length > 100) { fs.writeFileSync(path.join(d, mm[1] + '.mp3'), e.data); n++; } }
+      iaHave = null; return out(200, { ok: true, n });
     }
     if (url === '/admin/words/missing' && req.method === 'POST') {   // 录音机问：这些单词（哈希）公共库里哪些还没有？{voice, hashes} → {missing}
       const b = JSON.parse(await readBody(req, 6 * 1048576) || '{}'), v = String(b.voice || ''); if (!WVK.test(v)) return out(400, { error: 'bad-voice' });
