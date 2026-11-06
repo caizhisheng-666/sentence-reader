@@ -289,7 +289,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.11.06-177';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.11.06-178';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -3061,6 +3061,7 @@ let IA_HAVE = {};
 /* ---------- AI 词卡：大词典里查不到的词自动请 AI 解释；不是雅思词的生词也能“加入背单词”，由 AI 按 Word Atlas 规范生成词卡（插图、发音随后补上）。
    词卡所有人共用（服务器上一份），自己查过的存在本机 sr_aiw，换手机或同步后打开背单词时自动补齐 ---------- */
 const AIW_RE = /^[a-z][a-z'\-]{0,39}$/;
+const aiwNorm = w => String(w || '').toLowerCase().replace(/[’‘]/g, "'").replace(/[‐‑‒–—―]/g, '-');   // 书里的连字符常是长短破折号（majestic–looking），统一成 -
 function aiwLocal() { if (!aiwLocal.m) { try { aiwLocal.m = JSON.parse(localStorage.getItem('sr_aiw') || '{}') || {}; } catch (e) { aiwLocal.m = {}; } } return aiwLocal.m; }
 function aiwKeep(k, e) {
   const l = aiwLocal(); l[k] = e;
@@ -3084,7 +3085,7 @@ async function aiwFill() {                          // 背单词里有、但本�
 function aiwSrcCtx() { const s = vbSrcNow(); return s ? s.t : ''; }
 function aiwOffer(clean, res) {                     // 查到的词不在雅思词库里：词典有释义 → 给一个“加入背单词”；词典也没有 → 直接请 AI 解释
   const body = document.getElementById('wpBody'); if (!body || !IELTS) return;
-  const dh = res.find(r => r.src !== '在线翻译'), k = String(dh ? dh.head : clean).toLowerCase().replace(/[’‘]/g, "'");
+  const dh = res.find(r => r.src !== '在线翻译'), k = aiwNorm(dh ? dh.head : clean);
   if (!AIW_RE.test(k)) return;
   const rp = () => { if (lastWordEl) positionWordPop(lastWordEl.getBoundingClientRect()); };
   const known = aiwLocal()[k];
@@ -3118,7 +3119,7 @@ function iaSlug(k) { return String(k).toLowerCase().replace(/[^a-z0-9]+/g, '_').
 function ieltsAudioBase(e) { return e && e.x ? SHOP_BASE + '/ielts-audio/' : IELTS_MEDIA + 'audio/'; }   // 补充词条的发音在后台服务上，词光原有的在网站目录里
 function ieltsFind(raw, res) {
   if (!IELTS) return null;
-  let keys = [raw.toLowerCase()].concat((res || []).map(r => String(r.head || '').toLowerCase()));
+  let keys = [raw.toLowerCase(), aiwNorm(raw)].concat((res || []).map(r => String(r.head || '').toLowerCase()));
   try { keys = keys.concat(EG.lemmaCandidates(raw).map(c => c.w)); } catch (e) {}
   for (const k of keys) if (k && IELTS[k]) return { k, e: IELTS[k] };
   return null;
