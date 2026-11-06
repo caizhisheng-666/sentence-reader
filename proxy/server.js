@@ -486,6 +486,119 @@ function iaHaveMap() {
   for (const k in IA_KINDS) { let fsl = []; try { fsl = fs.readdirSync(path.join(IA_DIR, k)); } catch (e) {} for (const f of fsl) if (f.endsWith('.mp3')) { const s = f.slice(0, -4); m[s] = (m[s] || 0) | IA_KINDS[k]; } }
   iaHave = m; iaHaveAt = Date.now(); return m;
 }
+/* ---------- AI 词卡：大词典里查不到的词、或者不是雅思词的生词，让 AI 按 Word Atlas 同样的规范生成词条（音标、释义、例句、搭配、提示），
+   所有人共用一份（shop/aiword/words.json），第二个人再查同一个词就不再调用 AI。加进背单词时再用智谱免费的 CogView-3-Flash 画一张插图
+   （shop/aiword/img/<slug>.webp）；发音由电脑上的录音机（ieltsrec.py）定时拉 /admin/aiword/pending 录好，和补充词条的发音放在一起 ---------- */
+const AIW_DIR = path.join(SHOP_DIR, 'aiword'), AIW_FILE = path.join(AIW_DIR, 'words.json'), AIW_IMG = path.join(AIW_DIR, 'img');
+const AIW_PER_IP_HOUR = +process.env.AIW_PER_IP_HOUR || 40, AIW_DAILY_MAX = +process.env.AIW_DAILY_MAX || 1500, AIW_IMG_DAILY = +process.env.AIW_IMG_DAILY || 300;
+const AIW_IMG_MODEL = process.env.AIW_IMG_MODEL || 'cogview-3-flash';
+const AIW_RE = /^[a-z][a-z'\-]{0,39}$/, AIW_LV = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+const AIW_TOPICS = ['education', 'work', 'technology', 'science', 'environment', 'health', 'society', 'government', 'economy', 'media', 'arts', 'travel', 'city', 'nature', 'daily', 'emotion', 'thinking', 'sport', 'history'];
+let aiw = {}, aiwDirty = false; const aiwBusy = new Map(), aiwLog = new Map(); let aiwDay = { d: '', n: 0, img: 0 };
+try { aiw = JSON.parse(fs.readFileSync(AIW_FILE, 'utf8')) || {}; } catch (e) {}
+function aiwFlush() { if (!aiwDirty) return; aiwDirty = false; try { fs.mkdirSync(AIW_DIR, { recursive: true }); const t = AIW_FILE + '.tmp'; fs.writeFileSync(t, JSON.stringify(aiw)); fs.renameSync(t, AIW_FILE); } catch (e) { console.error('aiword save:', e.message); } }
+setInterval(aiwFlush, 20000).unref(); process.on('exit', aiwFlush);
+function aiwToday() { const d = bjDay(Date.now()); if (aiwDay.d !== d) aiwDay = { d, n: 0, img: 0 }; return aiwDay; }
+function aiwLimited(ip) { const now = Date.now(), arr = (aiwLog.get(ip) || []).filter(t => now - t < 3600000); arr.push(now); aiwLog.set(ip, arr); if (aiwLog.size > 5000) for (const [k, v] of aiwLog) if (now - v[v.length - 1] > 3600000) aiwLog.delete(k); return arr.length > AIW_PER_IP_HOUR; }
+const aiwSlug = k => String(k).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
+function aiwImgFile(s) { for (const x of ['webp', 'png', 'jpg']) { const f = path.join(AIW_IMG, s + '.' + x); if (fs.existsSync(f)) return f; } return ''; }
+function aiwOut(k) {                                   // 给手机的词条：和雅思词库同样的字段，x:2 表示“AI 词卡”；f = 不是普通单词（人名、地名等）的说明
+  const r = aiw[k]; if (!r) return null;
+  if (r.f) return { f: r.f };
+  const o = { u: r.u, c: r.c, p: r.p, s: r.s, e: r.e, k: r.k, x: 2, i: aiwSlug(k) };
+  if (r.t) o.t = r.t; if (r.us) o.us = r.us; if (r.w) o.w = r.w; if (r.g) o.g = 1;
+  return o;
+}
+const AIW_SYS = `You are the lead lexicographer of an open-source English vocabulary atlas for Chinese learners (school students and adults, IELTS band 5-7).
+A learner met this word while reading an English book and the dictionary could not help. Write ORIGINAL content in your own words.
+Accuracy beats creativity: IPA, part of speech, Chinese meanings and grammar must be correct. Prefer standard British IPA for "uk" and General American for "us", with slashes.
+If the word is an inflected form (past tense, plural, -ing, comparative...), still describe the form given, and mention the base form in the first sense, e.g. "（hop 的过去式）跳".
+If the word is archaic, dialect, a misspelling of a real word, or a sound/onomatopoeia, still explain it, and say so briefly in "tip".
+If it is NOT an English word at all, or only a person's name, a place name or a brand, set "flag" to a short Chinese note such as "人名（彼得）" or "地名：英国的一个郡" or "不是英文单词", and leave the other fields empty.
+Return strict JSON only, no other text:
+{"w": headword exactly as given,
+ "uk": "/IPA/", "us": "/IPA/",
+ "senses": [{"pos": "n.|v.|adj.|adv.|prep.|conj.|pron.|phr.|num.|int.|det.|aux.", "zh": "简洁中文释义，可用；分隔，≤14字"}],
+ "ex": [{"en": "Everyday sentence, 7-13 words, natural, uses the word or an inflected form", "zh": "自然的中文翻译"},
+        {"en": "Second sentence, 10-20 words, a little more formal", "zh": "自然的中文翻译"}],
+ "col": ["0-3 useful collocations, each as 'english phrase｜中文'"],
+ "tip": "≤36字中文：最有用的一条用法/辨析/记忆提示。不得编造词源。",
+ "cefr": "A1|A2|B1|B2|C1|C2",
+ "topic": one of ${JSON.stringify(AIW_TOPICS)},
+ "scene": "English, ≤25 words: one concrete, cheerful, child-safe picture that shows the most common meaning; no text, letters or numbers in the picture",
+ "flag": ""}
+senses: 1-3 senses, most common first; if a context sentence is given, make sure the sense used there is included.
+Sentences must be safe for all ages, culturally neutral, and must not mention real brands or living public figures.`;
+function aiwClean(j, k) {
+  const str = (x, n) => String(x == null ? '' : x).trim().slice(0, n);
+  if (!j || typeof j !== 'object') return null;
+  if (j.flag) return { f: str(j.flag, 40), at: Date.now() };
+  const s = (Array.isArray(j.senses) ? j.senses : []).filter(x => x && x.zh).slice(0, 3).map(x => [str(x.pos, 8), str(x.zh, 40)]);
+  const e = (Array.isArray(j.ex) ? j.ex : []).filter(x => x && x.en && x.zh).slice(0, 2).map(x => [str(x.en, 220), str(x.zh, 160)]);
+  if (!s.length || !e.length) return null;
+  const o = { u: str(j.uk, 60), c: AIW_LV.includes(j.cefr) ? j.cefr : 'B2', p: AIW_TOPICS.includes(j.topic) ? j.topic : 'daily', s, e,
+    k: (Array.isArray(j.col) ? j.col : []).filter(x => typeof x === 'string' && x.includes('｜')).slice(0, 3).map(x => str(x, 60)), at: Date.now(), v: 0 };
+  if (j.tip) o.t = str(j.tip, 60); if (j.us) o.us = str(j.us, 60); if (j.scene) o.sc = str(j.scene, 240);
+  const w = str(j.w, 40); if (w && w !== k && w.toLowerCase() === k) o.w = w;   // 只接受大小写不同（比如专有形容词）
+  return o;
+}
+async function aiwGen(k, ctx) {                        // 同一个词同时有人在生成，就等同一个结果
+  if (aiw[k]) return aiw[k];
+  if (aiwBusy.has(k)) return aiwBusy.get(k);
+  const p = (async () => {
+    const user = 'Word: ' + k + (ctx ? '\nContext sentence from the book (only to choose the right sense): ' + ctx : '');
+    const r = await arkRequest({ messages: [{ role: 'system', content: AIW_SYS }, { role: 'user', content: user }], temperature: 0.3, max_tokens: 1500, thinking: { type: 'disabled' } });
+    if (r.s !== 200) throw new Error('ai-' + r.s);
+    let txt = ''; try { txt = JSON.parse(r.b).choices[0].message.content; } catch (e) {}
+    const a = txt.indexOf('{'), b = txt.lastIndexOf('}'); let j = null; if (a >= 0 && b > a) try { j = JSON.parse(txt.slice(a, b + 1)); } catch (e) {}
+    const o = aiwClean(j, k); if (!o) throw new Error('ai-bad');
+    aiw[k] = o; aiwDirty = true; aiwToday().n++; return o;
+  })();
+  aiwBusy.set(k, p); try { return await p; } finally { aiwBusy.delete(k); }
+}
+function httpGetBuf(u, limit, hops) {
+  return new Promise((ok, no) => {
+    const q = https.get(u, { timeout: 30000 }, r => {
+      if (r.statusCode >= 300 && r.statusCode < 400 && r.headers.location && (hops || 0) < 3) { r.resume(); return httpGetBuf(new URL(r.headers.location, u).href, limit, (hops || 0) + 1).then(ok, no); }
+      if (r.statusCode !== 200) { r.resume(); return no(new Error('HTTP ' + r.statusCode)); }
+      const ch = []; let n = 0; r.on('data', c => { n += c.length; if (n > limit) q.destroy(new Error('too-big')); else ch.push(c); }); r.on('end', () => ok(Buffer.concat(ch)));
+    });
+    q.on('timeout', () => q.destroy(new Error('timeout'))); q.on('error', no);
+  });
+}
+const aiwImgQ = []; let aiwImgRun = false; const aiwImgStat = { ok: 0, fail: 0, last: '' };
+function aiwImgQueue(k) { const r = aiw[k]; if (!r || r.f || r.g || r.gf >= 3 || aiwImgQ.includes(k)) return; aiwImgQ.push(k); aiwImgPump(); }
+async function aiwImgPump() {                          // 一次只画一张：免费模型并发很低
+  if (aiwImgRun || !GLM_KEY) return; aiwImgRun = true;
+  try {
+    while (aiwImgQ.length) {
+      const k = aiwImgQ.shift(), r = aiw[k]; if (!r || r.g) continue;
+      if (aiwToday().img >= AIW_IMG_DAILY) { aiwImgQ.unshift(k); break; }   // 今天画够了，明天接着画（见下面的定时器）
+      aiwToday().img++;
+      try {
+        const prompt = 'Simple flat vector illustration for a children\'s vocabulary card, soft pastel colors, clean shapes, plain light background, no text, no letters, no numbers. ' + (r.sc || ('The meaning of the English word "' + k + '": ' + r.s.map(x => x[1]).join('；')));
+        const body = JSON.stringify({ model: AIW_IMG_MODEL, prompt, size: '1024x1024' });
+        const res = await new Promise(ok => {
+          const u = new URL(GLM_HOST), q = https.request({ hostname: u.hostname, port: u.port || 443, path: '/api/paas/v4/images/generations', method: 'POST', timeout: 90000,
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + GLM_KEY, 'Content-Length': Buffer.byteLength(body) } }, rr => { const ch = []; rr.on('data', c => ch.push(c)); rr.on('end', () => ok({ s: rr.statusCode, b: Buffer.concat(ch).toString('utf8') })); });
+          q.on('timeout', () => q.destroy(new Error('timeout'))); q.on('error', e => ok({ s: 0, b: String(e.message) })); q.end(body);
+        });
+        let url = ''; try { url = JSON.parse(res.b).data[0].url; } catch (e) {}
+        if (res.s !== 200 || !url) throw new Error(res.s + ' ' + String(res.b).slice(0, 160));
+        const buf = await httpGetBuf(url, 15 * 1048576), s = aiwSlug(k);           // 图片链接是临时的，马上下载存好
+        fs.mkdirSync(AIW_IMG, { recursive: true });
+        const ext = buf[0] === 0x89 ? 'png' : 'jpg', raw = path.join(AIW_IMG, s + '.' + ext), webp = path.join(AIW_IMG, s + '.webp'); fs.writeFileSync(raw, buf);
+        const conv = (cmd, args) => new Promise(ok => require('child_process').execFile(cmd, args, { timeout: 60000 }, e => ok(!e)));
+        let done = await conv('cwebp', ['-quiet', '-q', '78', '-resize', '512', '0', raw, '-o', webp]) || await conv('convert', [raw, '-resize', '512x512', '-quality', '78', webp]);   // 压成 512px 的 webp（约 30KB），手机上加载快
+        if (done) fs.unlinkSync(raw);                                              // 服务器上没有 cwebp / ImageMagick 就直接用原图
+        r.g = 1; aiwDirty = true; aiwImgStat.ok++;
+      } catch (e) { r.gf = (r.gf || 0) + 1; aiwDirty = true; aiwImgStat.fail++; aiwImgStat.last = new Date().toISOString() + ' ' + k + ' ' + String(e.message).slice(0, 160); console.error('aiword img:', aiwImgStat.last); await new Promise(z => setTimeout(z, 5000)); }
+      await new Promise(z => setTimeout(z, 1500));
+    }
+  } finally { aiwImgRun = false; }
+}
+setInterval(() => { for (const k in aiw) if (aiw[k].v > 0 && !aiw[k].g && !(aiw[k].gf >= 3)) aiwImgQueue(k); }, 3 * 3600000).unref();   // 漏画的（当天额度用完、失败）每 3 小时补一次
+setTimeout(() => { for (const k in aiw) if (aiw[k].v > 0 && !aiw[k].g && !(aiw[k].gf >= 3)) aiwImgQueue(k); }, 90000).unref();
 const READS_FILE = path.join(SHOP_DIR, 'reads.json');
 let reads = {}, readsDirty = false;
 try { reads = JSON.parse(fs.readFileSync(READS_FILE, 'utf8')) || {}; } catch (e) {}
@@ -664,6 +777,33 @@ async function shopRoutes(req, res) {
     const f = path.join(IA_DIR, mIa[1], mIa[2] + '.mp3'); if (!fs.existsSync(f)) { res.writeHead(404, pubHead); res.end(); return true; }
     res.writeHead(200, { ...pubHead, 'Content-Type': 'audio/mpeg', 'Content-Length': fs.statSync(f).size, 'Cache-Control': 'public, max-age=2592000' }); fs.createReadStream(f).pipe(res); return true;
   }
+  if (req.method === 'POST' && (url === '/aiword' || url === '/aiword/get')) {   // AI 词卡：查一个词（没有就生成）/ 一次取多个已有的（换手机、多设备同步后补齐词条）
+    const origin0 = req.headers.origin, okO0 = origin0 && ALLOW.includes(origin0) ? origin0 : null;
+    const hd0 = { 'Content-Type': 'application/json; charset=utf-8' }; if (okO0) { hd0['Access-Control-Allow-Origin'] = okO0; hd0.Vary = 'Origin'; }
+    const out0 = (c, o) => { res.writeHead(c, hd0); res.end(JSON.stringify(o)); return true; };
+    if (!okO0) return out0(403, { error: 'origin-not-allowed' });
+    let b0; try { b0 = JSON.parse(await readBody(req, 20000)) || {}; } catch (e) { return out0(400, { error: 'bad-request' }); }
+    if (url === '/aiword/get') {
+      const o = {}; for (const w of (Array.isArray(b0.ws) ? b0.ws : []).slice(0, 500)) { const k = String(w || '').toLowerCase(); if (AIW_RE.test(k) && aiw[k]) o[k] = aiwOut(k); }
+      return out0(200, { ok: true, words: o });
+    }
+    const k = String(b0.w || '').toLowerCase().replace(/[’‘]/g, "'").trim(); if (!AIW_RE.test(k)) return out0(400, { error: 'bad-word' });
+    if (!aiw[k]) {
+      if (!AI_ON) return out0(503, { error: 'ai-off' });
+      if (aiwLimited(ip)) return out0(429, { error: 'too-many' });
+      if (aiwToday().n >= AIW_DAILY_MAX) return out0(429, { error: 'daily-full' });
+      try { await aiwGen(k, String(b0.ctx || '').slice(0, 400)); } catch (e) { return out0(502, { error: String(e.message || 'ai-failed') }); }
+    }
+    const r = aiw[k];
+    if (b0.add && !r.f) { r.v = (r.v || 0) + 1; aiwDirty = true; aiwImgQueue(k); }
+    return out0(200, { ok: true, e: aiwOut(k) });
+  }
+  const mAiw = /^\/aiword\/img\/([a-z0-9_]{1,60})$/.exec(url);
+  if (req.method === 'GET' && mAiw) {
+    const f = aiwImgFile(mAiw[1]); if (!f) { res.writeHead(404, pubHead); res.end(); return true; }
+    const ct = f.endsWith('.webp') ? 'image/webp' : f.endsWith('.png') ? 'image/png' : 'image/jpeg';
+    res.writeHead(200, { ...pubHead, 'Content-Type': ct, 'Content-Length': fs.statSync(f).size, 'Cache-Control': 'public, max-age=2592000' }); fs.createReadStream(f).pipe(res); return true;
+  }
   if (req.method === 'POST' && url === '/read') {    // 阅读情况：学习资料里的书读到第几句
     const origin0 = req.headers.origin, okO0 = origin0 && ALLOW.includes(origin0) ? origin0 : null;
     const hd0 = { 'Content-Type': 'application/json; charset=utf-8' }; if (okO0) { hd0['Access-Control-Allow-Origin'] = okO0; hd0.Vary = 'Origin'; }
@@ -836,6 +976,24 @@ async function shopRoutes(req, res) {
       const d = path.join(IA_DIR, k); fs.mkdirSync(d, { recursive: true }); let n = 0;
       for (const e of ents) { const mm = /^clips\/([a-z0-9_]{1,60})\.mp3$/.exec(e.name); if (mm && e.data.length > 100) { fs.writeFileSync(path.join(d, mm[1] + '.mp3'), e.data); n++; } }
       iaHave = null; return out(200, { ok: true, n });
+    }
+    if (url === '/admin/aiword' && req.method === 'GET') {          // AI 词卡概况（开发者模式里看）
+      const all = Object.values(aiw), have = iaHaveMap();
+      const added = Object.keys(aiw).filter(k => aiw[k].v > 0 && !aiw[k].f);
+      return out(200, { total: all.length, flagged: all.filter(r => r.f).length, added: added.length, img: added.filter(k => aiw[k].g).length,
+        audio: added.filter(k => (have[aiwSlug(k)] || 0) & 1).length, today: aiwToday(), imgQueue: aiwImgQ.length, imgStat: aiwImgStat,
+        recent: Object.keys(aiw).sort((a, b) => aiw[b].at - aiw[a].at).slice(0, 40).map(k => ({ k, f: aiw[k].f || '', v: aiw[k].v || 0, g: !!aiw[k].g, s: (aiw[k].s || []).map(x => x[0] + ' ' + x[1]).join('；') })) });
+    }
+    if (url === '/admin/aiword/pending' && req.method === 'GET') {  // 录音机问：哪些加进背单词的 AI 词卡还没录发音
+      const have = iaHaveMap(), list = [];
+      for (const k in aiw) { const r = aiw[k]; if (r.f || !(r.v > 0)) continue; const s = aiwSlug(k), a = have[s] || 0; if ((a & 15) === 15) continue; list.push({ k, i: s, w: r.w || k, a, ex: (r.e || []).map(x => x[0]) }); }
+      return out(200, { words: list });
+    }
+    m = /^\/admin\/aiword\/([a-z][a-z'\-]{0,39})$/.exec(decodeURIComponent(url));
+    if (m && req.method === 'DELETE') {                            // 词条有错：删掉，下次有人查会重新生成（插图一起删）
+      const k = m[1]; if (!aiw[k]) return out(404, { error: 'not-found' });
+      delete aiw[k]; aiwDirty = true; const f = aiwImgFile(aiwSlug(k)); if (f) try { fs.unlinkSync(f); } catch (e) {}
+      return out(200, { ok: true });
     }
     if (url === '/admin/words/missing' && req.method === 'POST') {   // 录音机问：这些单词（哈希）公共库里哪些还没有？{voice, hashes} → {missing}
       const b = JSON.parse(await readBody(req, 6 * 1048576) || '{}'), v = String(b.voice || ''); if (!WVK.test(v)) return out(400, { error: 'bad-voice' });

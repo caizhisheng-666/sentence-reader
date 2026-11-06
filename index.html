@@ -216,6 +216,7 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .ib{display:inline-block;background:var(--accent);color:var(--on);font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px;margin-right:6px}
 .ilv{font-size:12px;color:var(--sub)}
 .ik{margin-top:6px;font-size:12px;color:var(--sub);line-height:1.6}
+.aiwbar{margin-top:10px;padding-top:8px;border-top:1px dashed var(--line, rgba(128,128,128,.3))}
 .iex{margin-top:8px;font-size:14px;line-height:1.5;cursor:pointer}
 .iexs{margin-top:10px;padding-top:6px;border-top:1px solid var(--line)}
 .isrc{margin-top:8px;font-size:11px;color:var(--sub)}
@@ -288,7 +289,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.11.05-176';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.11.06-177';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2657,7 +2658,7 @@ function openNaturalSettings() {
     '<div class="row"><button onclick="azTest()">保存并试听</button><button class="ghost" onclick="azSaveClose()">保存并关闭</button></div>' +
     '<div id="azStatus" class="note" style="margin-top:10px;min-height:20px"></div>' +
     '<div id="azStats" class="note" style="margin-top:6px"></div>' +
-    '<div class="row" style="margin-top:8px"><button class="ghost sm" onclick="azLock();closePop()">' + ic('lock') + '立即锁定</button><button class="ghost sm" onclick="azClearCacheBtn()">清空语音缓存</button><button class="ghost sm" onclick="azExitDev()">退出开发者模式</button><button class="sm" onclick="closePop();openReports()">' + ic('chart') + '单词报错</button><button class="sm" onclick="closePop();openDevDoc()">' + ic('book') + '开发者使用说明</button><button class="sm" onclick="closePop();openBackups()">' + ic('file') + '服务器备份</button></div>' +
+    '<div class="row" style="margin-top:8px"><button class="ghost sm" onclick="azLock();closePop()">' + ic('lock') + '立即锁定</button><button class="ghost sm" onclick="azClearCacheBtn()">清空语音缓存</button><button class="ghost sm" onclick="azExitDev()">退出开发者模式</button><button class="sm" onclick="closePop();openReports()">' + ic('chart') + '单词报错</button><button class="sm" onclick="closePop();openDevDoc()">' + ic('book') + '开发者使用说明</button><button class="sm" onclick="closePop();openBackups()">' + ic('file') + '服务器备份</button><button class="sm" onclick="closePop();openAiwAdmin()">' + ic('book') + 'AI 词卡</button></div>' +
     '<div class="note" style="margin-top:10px">费用：免费档每月 50 万字符免费（约 6000 句）；每句只生成一次，之后用缓存，不再计费。用量请在 Azure 门户里查看。</div>'
   );
   azRefreshStats();
@@ -2734,6 +2735,19 @@ async function openReports() {                       // 开发者：看大家报
 async function reportDone(btn) { const r = await devAdmin('/admin/reports/done', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ w: btn.dataset.w }) }); if (r.ok) { btn.outerHTML = '<div class="note">已处理</div>'; } else toast('失败：' + r.msg); }
 /* ---------- 服务器备份：服务器每天自动打一个包（兑换码、目录、报错、统计、书的文字等小文件，不含录音），这里能看、能手动下载 ---------- */
 const kbFmt = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+async function openAiwAdmin(msg) {                  // 开发者：AI 词卡概况。词条有错就删掉，下次有人查会重新生成
+  showFullscreen('AI 词卡', '<div class="note">正在读取…</div>');
+  const r = await devAdmin('/admin/aiword'); if (!r.ok) { setFullscreenBody('<div class="note">读取失败：' + esc(r.msg) + '</div>'); return; }
+  const j = await r.res.json(), t = j.today || {}, st = j.imgStat || {};
+  setFullscreenBody((msg ? '<div class="note" style="color:var(--ink);margin-bottom:8px">' + esc(msg) + '</div>' : '') +
+    '<div class="vbcard" style="text-align:left"><div>一共 <b>' + j.total + '</b> 个（其中人名、地名等 ' + j.flagged + ' 个）；有人加进背单词的 <b>' + j.added + '</b> 个：已画插图 ' + j.img + '，已录发音 ' + j.audio + '</div>' +
+    '<div class="note" style="margin-top:6px">今天新生成 ' + (t.n || 0) + ' 个词条、画了 ' + (t.img || 0) + ' 张图；排队等画图 ' + j.imgQueue + ' 个。画图成功 ' + (st.ok || 0) + '、失败 ' + (st.fail || 0) + (st.last ? '（最近失败：' + esc(st.last) + '）' : '') + '</div>' +
+    '<div class="note" style="margin-top:6px">发音：电脑上双击“补充词录音.bat”，会顺带录这些词。</div></div>' +
+    '<div class="vbsec">最近生成的</div>' + (j.recent || []).map(x => '<div class="vbcard" style="text-align:left;margin-top:8px"><div class="row" style="justify-content:space-between;align-items:center;flex-wrap:nowrap"><div><b>' + esc(x.k) + '</b>' +
+      (x.f ? ' <span class="note">' + esc(x.f) + '</span>' : ' <span class="note">' + (x.v ? '背单词 ' + x.v + ' 人' : '只查过') + (x.g ? ' · 有图' : '') + '</span><div class="note">' + esc(x.s) + '</div>') +
+      '</div><button class="ghost sm" data-k="' + esc(x.k) + '" onclick="aiwDel(this)">删掉重生成</button></div></div>').join(''));
+}
+async function aiwDel(btn) { const k = btn.dataset.k; if (!confirm('删掉“' + k + '”的 AI 词卡？下次有人查这个词时会重新生成（插图也会重画）。')) return; btn.disabled = true; const r = await devAdmin('/admin/aiword/' + encodeURIComponent(k), { method: 'DELETE' }); openAiwAdmin(r.ok ? '已删除：' + k : '删除失败：' + r.msg); }
 async function openBackups(msg) {
   showFullscreen('服务器备份', '<div class="note">正在读取…</div>');
   const r = await devAdmin('/admin/backups'); if (!r.ok) { setFullscreenBody('<div class="note">读取失败：' + esc(r.msg) + '</div>'); return; }
@@ -3031,17 +3045,75 @@ const IELTS_MEDIA = /github\.io$/.test(location.hostname) ? 'https://app.miaomia
 function ieltsLoad() {                              // 第一次查词时才下载（约 1.8MB 压缩后），之后由 sw 缓存
   if (IELTS) return Promise.resolve(IELTS);
   if (!ieltsP) ieltsP = fetch('./ielts/words.json').then(r => { if (!r.ok) throw 0; return r.json(); }).then(async j => {
+    try { const r3 = await fetch(SHOP_BASE + '/ielts-audio/have'); if (r3.ok) IA_HAVE = await r3.json(); } catch (e) {}   // 补充词条和 AI 词卡的发音（ieltsrec.py 录的）放在后台服务上
     if (!/github\.io$/.test(location.hostname)) try {           // 补充词条（词光缺的雅思词，按同样规范生成，只在香港服务器上）：有就合并，没有不影响
       const r2 = await fetch('./ielts/extra/words-extra.json'); if (r2.ok) {
         const x = await r2.json(); for (const k in x) if (!j[k]) j[k] = x[k];
-        let have = {}; try { const r3 = await fetch(SHOP_BASE + '/ielts-audio/have'); if (r3.ok) have = await r3.json(); } catch (e) {}   // 补充词条的发音（ieltsrec.py 录的）放在后台服务上
-        for (const k in x) if (j[k] === x[k]) { const s = iaSlug(k); x[k].i = s; x[k].a = have[s] || 0; }
+        for (const k in x) if (j[k] === x[k]) { const s = iaSlug(k); x[k].i = s; x[k].a = IA_HAVE[s] || 0; }
       }
     } catch (e) {}
+    const l = aiwLocal(); for (const k in l) if (!j[k] && !l[k].f) { j[k] = l[k]; l[k].a = IA_HAVE[l[k].i] || 0; }   // 查过 / 加进背单词的 AI 词卡
     return (IELTS = j);
   }).catch(() => { ieltsP = null; return null; });
   return ieltsP;
 }
+let IA_HAVE = {};
+/* ---------- AI 词卡：大词典里查不到的词自动请 AI 解释；不是雅思词的生词也能“加入背单词”，由 AI 按 Word Atlas 规范生成词卡（插图、发音随后补上）。
+   词卡所有人共用（服务器上一份），自己查过的存在本机 sr_aiw，换手机或同步后打开背单词时自动补齐 ---------- */
+const AIW_RE = /^[a-z][a-z'\-]{0,39}$/;
+function aiwLocal() { if (!aiwLocal.m) { try { aiwLocal.m = JSON.parse(localStorage.getItem('sr_aiw') || '{}') || {}; } catch (e) { aiwLocal.m = {}; } } return aiwLocal.m; }
+function aiwKeep(k, e) {
+  const l = aiwLocal(); l[k] = e;
+  const ks = Object.keys(l); if (ks.length > 3000) { const mine = vbGet().cards; for (const x of ks.slice(0, ks.length - 3000)) if (!mine[x]) delete l[x]; }   // 只查过、没加进背单词的旧词条先清掉
+  try { localStorage.setItem('sr_aiw', JSON.stringify(l)); } catch (e2) {}
+  if (IELTS && !e.f && (!IELTS[k] || IELTS[k].x === 2)) { e.a = IA_HAVE[e.i] || 0; IELTS[k] = e; IW_CACHE.clear(); }
+}
+async function aiwFetch(k, ctx, add) {
+  const r = await fetch(SHOP_BASE + '/aiword', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ w: k, ctx: ctx || '', add: add ? 1 : 0 }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.e) throw new Error(j.error === 'too-many' || j.error === 'daily-full' ? 'AI 今天查得太多了，稍后再试' : j.error === 'ai-off' ? '服务器还没开 AI' : 'AI 暂时没查到，稍后再试');
+  aiwKeep(k, j.e); return j.e;
+}
+async function aiwFill() {                          // 背单词里有、但本机没有词条的 AI 词卡（换了手机、多设备同步过来的）：一次补齐
+  const miss = Object.keys(vbGet().cards).filter(k => !IELTS[k] && AIW_RE.test(k)); if (!miss.length) return;
+  try {
+    const r = await fetch(SHOP_BASE + '/aiword/get', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ws: miss.slice(0, 500) }) });
+    const j = await r.json(); for (const k in (j.words || {})) aiwKeep(k, j.words[k]);
+  } catch (e) {}
+}
+function aiwSrcCtx() { const s = vbSrcNow(); return s ? s.t : ''; }
+function aiwOffer(clean, res) {                     // 查到的词不在雅思词库里：词典有释义 → 给一个“加入背单词”；词典也没有 → 直接请 AI 解释
+  const body = document.getElementById('wpBody'); if (!body || !IELTS) return;
+  const dh = res.find(r => r.src !== '在线翻译'), k = String(dh ? dh.head : clean).toLowerCase().replace(/[’‘]/g, "'");
+  if (!AIW_RE.test(k)) return;
+  const rp = () => { if (lastWordEl) positionWordPop(lastWordEl.getBoundingClientRect()); };
+  const known = aiwLocal()[k];
+  if (dh) {
+    if (known && known.f) return;
+    body.insertAdjacentHTML('beforeend', '<div class="aiwbar"><button class="link" style="font-size:13px" data-k="' + esc(k) + '" onclick="aiwAdd(this)">＋ 加入背单词（AI 生成词卡：插图、发音、例句）</button></div>'); rp(); return;
+  }
+  const none = document.getElementById('wpNone');
+  if (known && known.f) { if (none) none.innerHTML = 'AI：' + esc(known.f); rp(); return; }
+  if (!navigator.onLine) return;
+  if (none) none.innerHTML = '大词典里没有这个词，正在请 AI 解释…';
+  aiwFetch(k, aiwSrcCtx()).then(e => {
+    if (curWord !== clean) return;
+    const n2 = document.getElementById('wpNone');
+    if (e.f) { if (n2) n2.innerHTML = 'AI：' + esc(e.f) + '<div class="note" style="font-size:11px">（不是普通单词，不能加入背单词）</div>'; rp(); return; }
+    if (n2) n2.remove(); ieltsAttach(clean, res);
+  }).catch(err => { if (curWord !== clean) return; const n2 = document.getElementById('wpNone'); if (n2) n2.innerHTML = '词典里没有找到这个词。' + esc(err.message); rp(); });
+}
+async function aiwAdd(btn) {
+  const k = btn.dataset.k; btn.disabled = true; btn.textContent = 'AI 正在生成词卡…';
+  try {
+    const e = await aiwFetch(k, aiwSrcCtx(), true);
+    if (e.f) { btn.textContent = 'AI：' + e.f + '（不能加入背单词）'; return; }
+    const bar = btn.closest('.aiwbar'); if (bar) bar.remove();
+    await vbAddWord(k, true); if (curWord) ieltsAttach(curWord, [{ head: k }]);
+    toast('已加入背单词。插图和真人发音稍后自动补上，在这之前用手机朗读', 3500);
+  } catch (err) { btn.disabled = false; btn.textContent = '＋ 加入背单词（' + err.message + '）'; }
+}
+function ieltsImg(e, k) { return e && e.x === 2 ? SHOP_BASE + '/aiword/img/' + encodeURIComponent(e.i || k) : IELTS_MEDIA + 'img/' + encodeURIComponent(e.i || k) + '.webp'; }
 function iaSlug(k) { return String(k).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60); }
 function ieltsAudioBase(e) { return e && e.x ? SHOP_BASE + '/ielts-audio/' : IELTS_MEDIA + 'audio/'; }   // 补充词条的发音在后台服务上，词光原有的在网站目录里
 function ieltsFind(raw, res) {
@@ -3070,7 +3142,7 @@ function iwCls(w) {
   if (!mine && !iwBig(k)) return '';             // A1/A2 基础词（in、small 之类）不标，免得满屏都是线
   return ' iw' + (mine ? ' mine' : '');
 }
-function iwBig(k) { const c = IELTS[k] && IELTS[k].c; return c && c !== 'A1' && c !== 'A2'; }
+function iwBig(k) { const e = IELTS[k], c = e && e.c; return c && e.x !== 2 && c !== 'A1' && c !== 'A2'; }   // AI 词卡不是雅思词：只有自己加进背单词的才标
 function iwCount() {                                // 统计这本书一共有多少个不同的雅思词，记在书架上（只算一次）
   if (!state || !IELTS) return;
   const l = shelfGet(), b = l.find(x => x.id === state.bookId); if (!b || b.iwv === 2) return;
@@ -3089,22 +3161,23 @@ function ieltsPlay(url, fallback) {                 // 词光的真人风格录�
 }
 async function ieltsAttach(clean, res) {
   const d = await ieltsLoad(); if (!d || curWord !== clean) return;
-  const f = ieltsFind(clean, res); if (!f) return;
+  const f = ieltsFind(clean, res); if (!f) return aiwOffer(clean, res);
   const body = document.getElementById('wpBody'), head = body && body.firstElementChild; if (!head) return;
-  const e = f.e, id = encodeURIComponent(e.i || f.k), img = IELTS_MEDIA + 'img/' + id + '.webp', a = e.a || 0, wd = esc(e.w || f.k);
-  const au = kind => ieltsAudioBase(e) + kind + '/' + id + '.mp3';
+  if (body.querySelector('.itop')) return;
+  const e = f.e, id = encodeURIComponent(e.i || f.k), img = ieltsImg(e, f.k), ai = e.x === 2, a = ai ? (e.a || 0) | 3 : e.a || 0, wd = esc(e.w || f.k);   // AI 词卡还没录音时，英/美按钮用手机朗读
+  const au = kind => (e.a || 0) & { uk: 1, us: 2, ex: 4, ex2: 8 }[kind] ? ieltsAudioBase(e) + kind + '/' + id + '.mp3' : '';
   const rp = () => { if (lastWordEl) positionWordPop(lastWordEl.getBoundingClientRect()); };
   head.insertAdjacentHTML('afterend', '<div class="itop"><img src="' + img + '" alt="" onerror="this.remove()">' +
-    '<div><div><span class="ib">雅思词</span><span class="ilv">' + esc(e.c || '') + '</span></div>' +
+    '<div><div><span class="ib">' + (ai ? 'AI 词卡' : '雅思词') + '</span><span class="ilv">' + esc(e.c || '') + '</span></div>' +
     '<div class="row" style="gap:6px;margin-top:6px">' + (a & 1 ? '<button class="sm ghost" style="padding:3px 10px;font-size:12px" data-a="' + au('uk') + '" data-t="' + wd + '" onclick="ieltsPlay(this.dataset.a, this.dataset.t)">英 ' + esc(e.u || '') + '</button>' : '') +
     (a & 2 ? '<button class="sm ghost" style="padding:3px 10px;font-size:12px" data-a="' + au('us') + '" data-t="' + wd + '" onclick="ieltsPlay(this.dataset.a, this.dataset.t)">美</button>' : '') + '</div>' +
     '<div style="margin-top:4px;font-size:14px">' + (e.s || []).slice(0, 2).map(x => esc(x[0] + ' ' + x[1])).join('<br>') + '</div>' +
     (e.k && e.k.length ? '<div class="ik">' + e.k.slice(0, 2).map(c => esc(c.replace('｜', ' '))).join(' · ') + '</div>' : '') +
     (vbGet().cards[f.k] ? (vbKeepSrc(f.k), '<div class="ik">✓ 已在背单词里</div>') : '<button id="vbAddBtn" class="link" style="margin-top:4px;font-size:13px" data-k="' + esc(f.k) + '" onclick="vbAddWord(this.dataset.k)">＋ 加入背单词</button>') + '</div></div>');
-  body.insertAdjacentHTML('beforeend', '<div class="iexs"><div class="ilv">雅思例句（点一下朗读）</div>' +
+  body.insertAdjacentHTML('beforeend', '<div class="iexs"><div class="ilv">' + (ai ? '例句' : '雅思例句') + '（点一下朗读）</div>' +
     (e.e || []).map((x, n) => '<div class="iex" data-t="' + esc(x[0]) + '" data-a="' + ((n === 0 && a & 4) ? au('ex') : (n === 1 && a & 8) ? au('ex2') : '') + '" onclick="ieltsPlay(this.dataset.a, this.dataset.t)"><div>' + esc(x[0]) + '</div><div class="note">' + esc(x[1]) + '</div></div>').join('') +
     (e.t ? '<div class="note" style="margin-top:8px">提示：' + esc(e.t) + '</div>' : '') +
-    '<div class="isrc">' + (e.x ? '补充词条：按 Word Atlas 规范由 AI 生成' : '雅思词库与插图来自 Word Atlas contributors · CC BY 4.0') + ' · <button class="link" style="font-size:11px" data-k="' + esc(f.k) + '" onclick="reportWord(this.dataset.k)">这个词有错？</button></div></div>');
+    '<div class="isrc">' + (ai ? 'AI 词卡：大词典里没有或不是雅思词，按 Word Atlas 规范由 AI 生成，插图由 AI 绘制' : e.x ? '补充词条：按 Word Atlas 规范由 AI 生成' : '雅思词库与插图来自 Word Atlas contributors · CC BY 4.0') + ' · <button class="link" style="font-size:11px" data-k="' + esc(f.k) + '" onclick="reportWord(this.dataset.k)">这个词有错？</button></div></div>');
   const im = body.querySelector('.itop img'); if (im) im.addEventListener('load', rp);
   rp();
 }
@@ -3185,7 +3258,7 @@ async function wordClick(i, el) {
   }
   if (curWord !== clean) return;
   let html = head, ent = '';
-  if (!res.length) html += '<div class="note" style="margin-top:10px">词典里没有找到这个词，可能是人名、地名或较生僻的词。' + (navigator.onLine ? '' : '（当前离线）') + '</div>';
+  if (!res.length) html += '<div class="note" id="wpNone" style="margin-top:10px">词典里没有找到这个词，可能是人名、地名或较生僻的词。' + (navigator.onLine ? '' : '（当前离线）') + '</div>';
   res.forEach(r => {
     const td = r.t ? defSplit(r.t) : null;
     ent += '<div class="dentry"><div><b>' + esc(r.head) + '</b>' + (r.p ? '<span class="ph">/' + esc(r.p) + '/</span>' : '') + '<span class="src">' + r.src + '</span></div>' +
@@ -3407,6 +3480,7 @@ function openHelp() {
       li('点书架上的书打开。每次只显示一句，底部“上一句 / 下一句”翻页，顶部数字是读到第几句。') +
       li('<b>点单词</b>：读出这个词并弹出解释。软件会根据这一句的中文，告诉你这个词在这里是哪个意思。离线大词典下载好以后，不联网也能查。') +
       li('<b>雅思词</b>：查到雅思词时会多出插图、等级、英音 / 美音真人发音和雅思例句（点例句就朗读）。点“＋ 加入背单词”可以把它放进背单词。少数词条标着“补充词条”，是按同样规范补上的，有发音但没有插图。发现词条有错，点弹窗底部的“这个词有错？”告诉我们。') +
+      li('<b>AI 词卡</b>：大词典里查不到的词（比如古英语、方言、拟声词），会自动请 AI 解释；人名、地名会直接告诉你是人名、地名。不是雅思词的生词，弹窗底部也有“＋ 加入背单词”，AI 会按雅思词卡的格式生成音标、释义、例句和搭配，并画一张插图（几分钟内补上），真人风格发音录好前先用手机朗读。AI 词卡标着“AI 词卡”，所有人共用，可能有错，欢迎报错。') +
       li('读句子时，<b>实线下划线</b>的是 B1 以上的雅思词，<b>带浅色底</b>的是你已经在背的词。不想看这些标记，在右上角 ··· 里关掉“雅思词标记”。') +
       li('<b>朗读</b>：点底部的朗读，读到哪个词哪个词会亮；声音菜单可以换美音、英音、自然语音。<b>正常 / 慢速</b>可以切换语速。') +
       li('中文翻译：资料自带译文的直接显示，没有的联网后机器翻译；点“隐藏中文”可以先自己理解再看。') +
@@ -3452,6 +3526,7 @@ function openHelp() {
       li('你导入的资料（“我的学习”里所有的资料）、阅读进度、录音、下载的词典，都<b>只存在这台设备的浏览器里</b>，不会上传。换设备或清除浏览器数据会丢失，请注意。') +
       li('<b>整句翻译</b>：当前这一句英文会发到开发者的翻译中转服务，再转给火山引擎机器翻译，中转服务不保存内容；中转不可用时改发 Google 或 MyMemory 的免费接口。查词时本地词典没有的词会发给第三方词典服务。资料里自带中文译文的句子不会发送。') +
       li('<b>AI 老师</b>：点“请 AI 老师讲讲这一句”或和 AI 老师聊天时，这一句英文（聊天时还有你输入的话）会发到开发者的服务器，再交给智谱 GLM 或火山引擎豆包大模型生成讲解。同一句讲过一次会存起来，以后直接取。') +
+      li('<b>AI 词卡</b>：大词典里查不到的词、或你点“加入背单词（AI 生成词卡）”时，这个单词和它所在的那一句英文会发到开发者的服务器，再交给智谱 GLM 或豆包生成词卡，插图由智谱 CogView 绘制。生成的词卡所有人共用，不记录是谁查的。') +
       li('<b>单词报错</b>：点“这个词有错？”时，只发送这个单词、你选的错误类型和你写的说明，不包含任何个人信息。') +
       li('<b>自然语音（仅开发者可用）</b>：需要开发者口令解锁。启用后，当前要朗读的那一句英文会发到开发者自己的微软 Azure 账号生成语音。Key 用口令加密后只保存在开发者的设备里，软件代码里没有任何 Key。') +
       li('<b>多设备同步</b>（打开后才有）：书架上每本书的书名、读到第几句，背单词进度，学习记录和几项设置，会存到开发者的服务器上，用同步码区分。服务器只保存同步码的指纹，不保存同步码本身；不包含书的内容、录音和任何个人信息。停止同步后，服务器上的那份不会再更新。') +
@@ -3484,12 +3559,13 @@ function vbDay() { const v = vbGet(); if (v.day.d !== vbToday()) v.day = { d: vb
 async function vbReady() {
   const [d] = await Promise.all([ieltsLoad(), window.FSRS ? 0 : loadScript('./lib/ts-fsrs.min.js?v=' + APP_VERSION)]);
   if (!d) throw new Error('雅思词库下载失败，请联网后再试');
+  await aiwFill();
   if (!vbF) vbF = FSRS.fsrs(FSRS.generatorParameters({ enable_fuzz: true, request_retention: 0.9 }));
   return d;
 }
 function vbPool(d) {                                 // 按设置挑出来的词（保持词光的学习路线顺序：由易到难、话题打散）
   const c = vbGet().cfg || {};
-  return Object.keys(d).filter(k => (!c.lv || d[k].c === c.lv) && (!c.tp || d[k].p === c.tp));
+  return Object.keys(d).filter(k => d[k].x !== 2 && (!c.lv || d[k].c === c.lv) && (!c.tp || d[k].p === c.tp));   // AI 词卡只在自己加的时候才背
 }
 function vbCounts() {                                // 首页显示：今天到期要复习的 + 今天还能学的新词
   const v = vbGet(), now = Date.now(); let due = 0;
@@ -3509,7 +3585,7 @@ async function openVocab() {
 }
 function vbSetup(cur) {
   const c = cur || vbGet().cfg || { lv: 'B1', tp: '', n: 20 }, d = IELTS;
-  const cnt = (lv, tp) => Object.keys(d).filter(k => (!lv || d[k].c === lv) && (!tp || d[k].p === tp)).length;
+  const cnt = (lv, tp) => Object.keys(d).filter(k => d[k].x !== 2 && (!lv || d[k].c === lv) && (!tp || d[k].p === tp)).length;
   const chip = (grp, val, label, on) => '<button class="scChip' + (on ? ' on' : '') + '" onclick="vbPick(\'' + grp + '\',\'' + val + '\')">' + label + '</button>';
   setFullscreenBody('<h3 style="margin:0 0 4px">选择要背的词</h3><div class="note">词库来自 Word Atlas（雅思核心词，非官方词表）。以后随时可以在这里改。</div>' +
     '<div class="vbsec">难度</div><div class="vbchips">' + chip('lv', '', '全部（由易到难）', !c.lv) + VB_LEVELS.map(l => chip('lv', l, l + ' · ' + cnt(l, ''), c.lv === l)).join('') + '</div>' +
@@ -3617,14 +3693,14 @@ async function vbGoSrc(k) {
   if (state && state.bookId === s.id && s.i < state.sentences.length) jumpTo(s.i);
 }
 function vbReveal(res, label) {
-  const k = vbQ.k, e = IELTS[k], w = e.w || k, img = IELTS_MEDIA + 'img/' + encodeURIComponent(e.i || k) + '.webp', ex = (e.e || [])[0];
+  const k = vbQ.k, e = IELTS[k], w = e.w || k, img = ieltsImg(e, k), ex = (e.e || [])[0];
   const days = Math.round((new Date(vbGet().cards[k].c.due) - Date.now()) / 86400000);
   const when = days >= 1 ? days + ' 天后再复习' : '稍后再考一次';
   const head = '<div class="vbres ' + (res ? 'ok' : 'no') + '">' + (res ? '✓ ' : '✗ ') + label + ' · ' + when + '</div>' +
     (vbQ.mode === 'spell' && !res && vbQ.typed ? '<div class="note" style="text-align:center">你拼的是：' + esc(vbQ.typed) + '</div>' : '');
   const card = '<div class="vbcard"><img src="' + img + '" alt="" onerror="this.remove()"><div class="vbw" style="font-size:28px">' + esc(w) + '</div>' +
     '<div class="row" style="gap:6px;justify-content:center;margin:6px 0">' +
-    (vbAu(k, 'uk') ? '<button class="sm ghost" onclick="ieltsPlay(vbAu(vbQ.k,\'uk\'), vbQ.k)">英 ' + esc(e.u || '') + '</button>' : '') +
+    (vbAu(k, 'uk') || e.x === 2 ? '<button class="sm ghost" onclick="ieltsPlay(vbAu(vbQ.k,\'uk\'), vbQ.k)">英 ' + esc(e.u || '') + '</button>' : '') +
     (vbAu(k, 'us') ? '<button class="sm ghost" onclick="ieltsPlay(vbAu(vbQ.k,\'us\'), vbQ.k)">美</button>' : '') + '</div>' +
     '<div class="vbsenses">' + (e.s || []).map(s => '<div>' + esc(s[0] + ' ' + s[1]) + '</div>').join('') + '</div>' +
     (ex ? '<div class="iex" onclick="ieltsPlay(vbAu(vbQ.k,\'ex\'), this.dataset.t)" data-t="' + esc(ex[0]) + '"><div>' + esc(ex[0]) + '</div><div class="note">' + esc(ex[1]) + '</div></div>' : '') +
@@ -3689,11 +3765,12 @@ function vbImportText(txt) {
   toast('恢复完成：新增 ' + add + ' 个词，更新 ' + upd + ' 个词', 4000);
   vbDone();
 }
-async function vbAddWord(k) {                        // 读书时查到的雅思词，一键加进背单词（明天起和新词一起出现，优先于词库顺序）
+async function vbAddWord(k, quiet) {                 // 读书时查到的雅思词，一键加进背单词（明天起和新词一起出现，优先于词库顺序）
   const v = vbGet(); if (v.cards[k]) { toast('这个词已经在背单词里了'); return; }
+  if (!quiet && IELTS && IELTS[k] && IELTS[k].x === 2) aiwFetch(k, '', true).catch(() => {});   // AI 词卡：告诉服务器有人要背它，好画插图、排队录音
   v.cards[k] = { add: Date.now() }; const s = vbSrcNow(); if (s) v.cards[k].src = s; vbSave();
   const b = document.getElementById('vbAddBtn'); if (b) { b.textContent = '✓ 已加入背单词'; b.disabled = true; }
-  toast('已加入背单词，下次背单词时会先学它');
+  if (!quiet) toast('已加入背单词，下次背单词时会先学它');
 }
 /* ---------- 弹窗与工具 ---------- */
 /* ---------- 全屏练习页面（听写 / 句子重组 / 跟读打分） ---------- */
