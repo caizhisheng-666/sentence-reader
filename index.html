@@ -289,7 +289,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.11.06-178';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.11.06-179';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -2742,6 +2742,7 @@ async function openAiwAdmin(msg) {                  // 开发者：AI 词卡概�
   setFullscreenBody((msg ? '<div class="note" style="color:var(--ink);margin-bottom:8px">' + esc(msg) + '</div>' : '') +
     '<div class="vbcard" style="text-align:left"><div>一共 <b>' + j.total + '</b> 个（其中人名、地名等 ' + j.flagged + ' 个）；有人加进背单词的 <b>' + j.added + '</b> 个：已画插图 ' + j.img + '，已录发音 ' + j.audio + '</div>' +
     '<div class="note" style="margin-top:6px">今天新生成 ' + (t.n || 0) + ' 个词条、画了 ' + (t.img || 0) + ' 张图；排队等画图 ' + j.imgQueue + ' 个。画图成功 ' + (st.ok || 0) + '、失败 ' + (st.fail || 0) + (st.last ? '（最近失败：' + esc(st.last) + '）' : '') + '</div>' +
+    '<div class="note" style="margin-top:6px">补充词条（词光缺的雅思词）的插图：已画 ' + (j.xImg || 0) + ' / ' + (j.xTotal || 0) + '，每天额度没用完时自动接着画；有人把补充词加进背单词时先画它。</div>' +
     '<div class="note" style="margin-top:6px">发音：电脑上双击“补充词录音.bat”，会顺带录这些词。</div></div>' +
     '<div class="vbsec">最近生成的</div>' + (j.recent || []).map(x => '<div class="vbcard" style="text-align:left;margin-top:8px"><div class="row" style="justify-content:space-between;align-items:center;flex-wrap:nowrap"><div><b>' + esc(x.k) + '</b>' +
       (x.f ? ' <span class="note">' + esc(x.f) + '</span>' : ' <span class="note">' + (x.v ? '背单词 ' + x.v + ' 人' : '只查过') + (x.g ? ' · 有图' : '') + '</span><div class="note">' + esc(x.s) + '</div>') +
@@ -3114,7 +3115,7 @@ async function aiwAdd(btn) {
     toast('已加入背单词。插图和真人发音稍后自动补上，在这之前用手机朗读', 3500);
   } catch (err) { btn.disabled = false; btn.textContent = '＋ 加入背单词（' + err.message + '）'; }
 }
-function ieltsImg(e, k) { return e && e.x === 2 ? SHOP_BASE + '/aiword/img/' + encodeURIComponent(e.i || k) : IELTS_MEDIA + 'img/' + encodeURIComponent(e.i || k) + '.webp'; }
+function ieltsImg(e, k) { return e && e.x ? SHOP_BASE + '/aiword/img/' + encodeURIComponent(e.i || k) : IELTS_MEDIA + 'img/' + encodeURIComponent(e.i || k) + '.webp'; }
 function iaSlug(k) { return String(k).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60); }
 function ieltsAudioBase(e) { return e && e.x ? SHOP_BASE + '/ielts-audio/' : IELTS_MEDIA + 'audio/'; }   // 补充词条的发音在后台服务上，词光原有的在网站目录里
 function ieltsFind(raw, res) {
@@ -3480,7 +3481,7 @@ function openHelp() {
     sec('3. 读一句',
       li('点书架上的书打开。每次只显示一句，底部“上一句 / 下一句”翻页，顶部数字是读到第几句。') +
       li('<b>点单词</b>：读出这个词并弹出解释。软件会根据这一句的中文，告诉你这个词在这里是哪个意思。离线大词典下载好以后，不联网也能查。') +
-      li('<b>雅思词</b>：查到雅思词时会多出插图、等级、英音 / 美音真人发音和雅思例句（点例句就朗读）。点“＋ 加入背单词”可以把它放进背单词。少数词条标着“补充词条”，是按同样规范补上的，有发音但没有插图。发现词条有错，点弹窗底部的“这个词有错？”告诉我们。') +
+      li('<b>雅思词</b>：查到雅思词时会多出插图、等级、英音 / 美音真人发音和雅思例句（点例句就朗读）。点“＋ 加入背单词”可以把它放进背单词。少数词条标着“补充词条”，是按同样规范补上的，插图由 AI 陆续补画（你加进背单词的会先画）。发现词条有错，点弹窗底部的“这个词有错？”告诉我们。') +
       li('<b>AI 词卡</b>：大词典里查不到的词（比如古英语、方言、拟声词），会自动请 AI 解释；人名、地名会直接告诉你是人名、地名。不是雅思词的生词，弹窗底部也有“＋ 加入背单词”，AI 会按雅思词卡的格式生成音标、释义、例句和搭配，并画一张插图（几分钟内补上），真人风格发音录好前先用手机朗读。AI 词卡标着“AI 词卡”，所有人共用，可能有错，欢迎报错。') +
       li('读句子时，<b>实线下划线</b>的是 B1 以上的雅思词，<b>带浅色底</b>的是你已经在背的词。不想看这些标记，在右上角 ··· 里关掉“雅思词标记”。') +
       li('<b>朗读</b>：点底部的朗读，读到哪个词哪个词会亮；声音菜单可以换美音、英音、自然语音。<b>正常 / 慢速</b>可以切换语速。') +
@@ -3768,7 +3769,8 @@ function vbImportText(txt) {
 }
 async function vbAddWord(k, quiet) {                 // 读书时查到的雅思词，一键加进背单词（明天起和新词一起出现，优先于词库顺序）
   const v = vbGet(); if (v.cards[k]) { toast('这个词已经在背单词里了'); return; }
-  if (!quiet && IELTS && IELTS[k] && IELTS[k].x === 2) aiwFetch(k, '', true).catch(() => {});   // AI 词卡：告诉服务器有人要背它，好画插图、排队录音
+  if (!quiet && IELTS && IELTS[k] && IELTS[k].x === 2) aiwFetch(k, '', true).catch(() => {});
+  if (IELTS && IELTS[k] && IELTS[k].x === 1) fetch(SHOP_BASE + '/aiword/xpri', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ w: k }) }).catch(() => {});   // 补充词条：插图排到最前面画   // AI 词卡：告诉服务器有人要背它，好画插图、排队录音
   v.cards[k] = { add: Date.now() }; const s = vbSrcNow(); if (s) v.cards[k].src = s; vbSave();
   const b = document.getElementById('vbAddBtn'); if (b) { b.textContent = '✓ 已加入背单词'; b.disabled = true; }
   if (!quiet) toast('已加入背单词，下次背单词时会先学它');
