@@ -290,7 +290,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.11.06-184';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.11.06-185';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -3089,7 +3089,7 @@ let IA_HAVE = {};
 /* ---------- AI 词卡：大词典里查不到的词自动请 AI 解释；不是雅思词的生词也能“加入背单词”，由 AI 按 Word Atlas 规范生成词卡（插图、发音随后补上）。
    词卡所有人共用（服务器上一份），自己查过的存在本机 sr_aiw，换手机或同步后打开背单词时自动补齐 ---------- */
 const AIW_RE = /^[a-z][a-z'\-]{0,39}$/;
-const aiwNorm = w => String(w || '').toLowerCase().replace(/[’‘]/g, "'").replace(/[‐‑‒–—―]/g, '-');   // 书里的连字符常是长短破折号（majestic–looking），统一成 -
+const aiwNorm = w => String(w || '').toLowerCase().replace(/[’‘ʼ′]/g, "'").replace(/[\p{Cf}\u200B]/gu, '').replace(/[\p{Pd}\u2212\uFE63\uFF0D]/gu, '-');   // 书里的连字符常是长短破折号（majestic–looking），统一成 -
 function aiwLocal() { if (!aiwLocal.m) { try { aiwLocal.m = JSON.parse(localStorage.getItem('sr_aiw') || '{}') || {}; } catch (e) { aiwLocal.m = {}; } } return aiwLocal.m; }
 function aiwKeep(k, e) {
   const l = aiwLocal(); l[k] = e;
@@ -3315,7 +3315,7 @@ async function wordClick(i, el) {
     const n2 = document.getElementById('wpNone'); if (n2 && !n2.dataset.ai) aiNote('词典里没有找到这个词。（AI 没有启动：' + esc(aiwWhy(clean)) + '）');
   });
 }
-function aiwWhy(w) { const k = aiwNorm(w); return !IELTS ? '词库没加载' : !AIW_RE.test(k) ? '格式不支持：' + k : !navigator.onLine ? '离线' : '原因不明 ' + k; }
+function aiwWhy(w) { const k = aiwNorm(w); return !IELTS ? '词库没加载' : !AIW_RE.test(k) ? '格式不支持：' + k + '（' + [...k].filter(c => !/[a-z'\-]/.test(c)).map(c => 'U+' + c.charCodeAt(0).toString(16).toUpperCase()).join(' ') + '）' : !navigator.onLine ? '离线' : '原因不明 ' + k; }
 function defSplit(t) {                              // 词典释义只先显示最常用的：第一个词性最多 2 个意思，其余词性各 1 个；冷门意思（如 kitten“卖弄风情”）收进“更多释义”
   const lines = String(t).split(/\n+/).map(x => x.trim()).filter(Boolean), main = [], rest = [];
   lines.forEach((ln, i) => {

@@ -809,7 +809,7 @@ async function shopRoutes(req, res) {
       const o = {}; for (const w of (Array.isArray(b0.ws) ? b0.ws : []).slice(0, 500)) { const k = String(w || '').toLowerCase(); if (AIW_RE.test(k) && aiw[k]) o[k] = aiwOut(k); }
       return out0(200, { ok: true, words: o });
     }
-    const k = String(b0.w || '').toLowerCase().replace(/[’‘]/g, "'").replace(/[‐‑‒–—―]/g, '-').trim(); if (!AIW_RE.test(k)) return out0(400, { error: 'bad-word' });
+    const k = String(b0.w || '').toLowerCase().replace(/[’‘]/g, "'").replace(/[\p{Cf}\u200B]/gu, '').replace(/[\p{Pd}\u2212\uFE63\uFF0D]/gu, '-').trim(); if (!AIW_RE.test(k)) return out0(400, { error: 'bad-word' });
     if (!aiw[k]) {
       if (!AI_ON) return out0(503, { error: 'ai-off' });
       if (aiwLimited(ip)) return out0(429, { error: 'too-many' });
