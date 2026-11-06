@@ -290,7 +290,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.11.06-180';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.11.06-183';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -1399,7 +1399,13 @@ function speakText(text, rate) {               // 单词、听写、整页翻译
   } catch (e) {}
 }
 function spkFlash(btn, ms) { if (!btn) return; btn.innerHTML = SPK_ON; clearTimeout(btn._t); btn._t = setTimeout(() => { btn.innerHTML = SPK_OFF; }, ms || 1400); }
-function speakWord(btn) { speakText(curWord); spkFlash(btn); }
+function wordAudio(w) {                             // 点读单词：词库里正好是这个词（不是变形）而且有录音的，放真人风格录音
+  if (!IELTS || !w) return '';
+  const k = aiwNorm(w), e = IELTS[k]; if (!e || !((e.a || 0) & 1)) return '';
+  return ieltsAudioBase(e) + 'uk/' + encodeURIComponent(e.i || k) + '.mp3';
+}
+function sayWord(w) { const u = wordAudio(w); if (u) ieltsPlay(u, w); else speakText(w); }
+function speakWord(btn) { sayWord(curWord); spkFlash(btn); }
 function previewVoice(uri) {
   try {
     const v = currentVoices().find(x => x.voiceURI === uri);
@@ -1844,8 +1850,28 @@ async function devCodeRevoke(id, code) {
   if (!confirm('作废 ' + code + '？用过它的买家也会失去这个资料的语音/更新权限（已下载的文字还在）。')) return;
   const r = await devAdmin('/admin/codes/' + code, { method: 'DELETE' }); if (!r.ok) { setScStatus('失败：' + r.msg); return; } await devCodes(id); setScStatus('已作废');
 }
+async function openRemoved(msg) {                   // 开发者：已下架的书。书和录音都还在服务器上，有书单信息的可以一键重新上架
+  showFullscreen('已下架的资料', '<div class="note">正在读取…（第一次会从每日备份里找回以前下架的书名，可能要十几秒）</div>');
+  const r = await devAdmin('/admin/removed'); if (!r.ok) { setFullscreenBody('<div class="note">读取失败：' + esc(r.msg) + '</div>'); return; }
+  const items = (await r.res.json()).items || [];
+  setFullscreenBody((msg ? '<div class="note" style="color:var(--ink);margin-bottom:8px">' + esc(msg) + '</div>' : '') +
+    '<div class="note">下架只是从书单里拿掉，书的文字和录音都还在服务器上；已经下载到读者手机里的照常能读。</div>' +
+    (items.length ? items.map(x => { const it = x.item;
+      return '<div class="vbcard" style="text-align:left;margin-top:10px"><div class="row" style="justify-content:space-between;align-items:center;flex-wrap:nowrap"><div><b>' + esc(it ? it.title || x.id : x.id) + '</b>' +
+        '<div class="note">' + esc(it && it.author || '') + (it && it.price ? ' · ¥' + esc(String(it.price)) : '') + ' · 编号 ' + esc(x.id) + (x.builtin ? ' · 网站自带' : '') + (it && it.removedAt ? ' · ' + new Date(it.removedAt).toLocaleDateString() + ' 下架' : '') + '</div>' +
+        '<div class="note">' + (x.files ? '书和录音还在服务器上' : '服务器上找不到书的文件，重新上架后要再传一次') + '</div></div>' +
+        (it ? '<button class="sm" data-id="' + esc(x.id) + '" onclick="relistItem(this)">重新上架</button>' : '<span class="note" style="white-space:nowrap">没有书单信息</span>') + '</div>' +
+        (it ? '' : '<div class="note" style="margin-top:4px">这本书是在有每日备份之前下架的，找不回书名、价格。要上架就用英文录音机或“上架新资料”，编号填 ' + esc(x.id) + '。</div>') + '</div>'; }).join('')
+      : '<div class="note" style="margin-top:12px">没有下架的资料。</div>'));
+}
+async function relistItem(btn) {
+  btn.disabled = true; btn.textContent = '正在上架…';
+  const r = await devAdmin('/admin/relist/' + encodeURIComponent(btn.dataset.id), { method: 'POST' });
+  if (r.ok) { try { const c = await fetchStoryCat(); if (c) storyCat = c; } catch (e) {} }
+  openRemoved(r.ok ? '已重新上架，回到“学习资料”就能看到' : '重新上架失败：' + r.msg);
+}
 async function devUnlist(id) {
-  if (!confirm('把这个商品从学习资料下架吗？（不会删除买家手里已有的）')) return;
+  if (!confirm('把这个商品从学习资料下架吗？（不会删除买家手里已有的；书和录音留在服务器上，以后可以在“已下架”里一键重新上架）')) return;
   const r = await devAdmin('/admin/item/' + id, { method: 'DELETE' });
   if (r.ok) { storyCat.items = storyCat.items.filter(x => x.id !== id); catCacheSet(storyCat); renderStoryCity(''); setScStatus('已下架'); } else setScStatus('下架失败：' + r.msg);
 }
@@ -2406,7 +2432,7 @@ function renderStoryCity0(err) {
     h += (lvs.length ? '<div class="scChips">' + chip('lv', '', '全部', scLv === '', "scSetLv('')") + lvs.map(lv => chip('lv', lv, lv, scLv === lv, "scSetLv('" + lv + "')")).join('') + '<button class="scChip" style="border-style:dashed" onclick="levelHelp()">' + ic('help') + '怎么选等级</button></div>' : '');
   }
   h += '<div id="scItems">' + scListHtml() + '</div>';
-  h += (azReady() ? '<div class="row" style="margin-top:6px"><button class="sm" onclick="devNewStoryPop()">＋ 上架新资料（开发者）</button><button class="sm ghost" onclick="visitsPop()">' + ic('chart') + '访问统计</button></div>' : '') +
+  h += (azReady() ? '<div class="row" style="margin-top:6px"><button class="sm" onclick="devNewStoryPop()">＋ 上架新资料（开发者）</button><button class="sm ghost" onclick="visitsPop()">' + ic('chart') + '访问统计</button><button class="sm ghost" onclick="openRemoved()">已下架</button></div>' : '') +
     '<div id="scStatus" class="note" style="margin-top:8px;min-height:20px"></div>';
   showPop(h); scWatchMore();
 }
@@ -3244,7 +3270,7 @@ async function wordClick(i, el) {
   if (!clean) return;
   curWord = clean; curWordZh = ''; lastWordIdx = i; lastWordEl = el;
   pgPlayJob++; pgHlStop(); pgMark(-1);            // 如果整页视图里正在读一句，先作废它
-  speakText(clean);                               // 点读：点哪个词就直接念哪个词（必须在点击的这一下里同步发起），同时照常弹出词典
+  sayWord(clean);                                 // 点读：点哪个词就直接念哪个词（必须在点击的这一下里同步发起），同时照常弹出词典
   lastWordSentIdx = (el && el.dataset && el.dataset.s) ? parseInt(el.dataset.s, 10) : -1;
   const rect = el.getBoundingClientRect();
   const head = '<div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div class="dhead">' + esc(clean) + '</div><button class="iconbtn" id="wpSpk" onclick="speakWord(this)" aria-label="朗读这个词">' + SPK_ON + '</button></div>';
@@ -3485,7 +3511,7 @@ function openHelp() {
       li('<b>雅思词</b>：查到雅思词时会多出插图、等级、英音 / 美音真人发音和雅思例句（点例句就朗读）。点“＋ 加入背单词”可以把它放进背单词。少数词条标着“补充词条”，是按同样规范补上的，插图由 AI 陆续补画（你加进背单词的会先画）。发现词条有错，点弹窗底部的“这个词有错？”告诉我们。') +
       li('<b>一词多义</b>：一个词有几个意思时，背单词会轮着考：新词先考最常用的意思，以后每答对一次换下一个意思，答错了下次还考这个；题目上会写“这次考第几个”，揭晓答案时这个意思用颜色标出来。') +
       li('<b>AI 词卡</b>：大词典里查不到的词（比如古英语、方言、拟声词），会自动请 AI 解释；人名、地名会直接告诉你是人名、地名。不是雅思词的生词，弹窗底部也有“＋ 加入背单词”，AI 会按雅思词卡的格式生成音标、释义、例句和搭配，并画一张插图（几分钟内补上），真人风格发音录好前先用手机朗读。AI 词卡标着“AI 词卡”，所有人共用，可能有错，欢迎报错。') +
-      li('读句子时，<b>实线下划线</b>的是 B1 以上的雅思词，<b>带浅色底</b>的是你已经在背的词。不想看这些标记，在右上角 ··· 里关掉“雅思词标记”。') +
+      li('读句子时几种标记的意思：<b>灰色小虚线</b>（几乎每个词都有）表示可以点，点哪个词就念哪个词并弹出词典（词库里有真人风格录音的词放录音，其他的用手机自带的朗读声音）；<b>黄色实线下划线</b>是 B1 以上、还没加进背单词的雅思词；<b>浅色底加黄线</b>是你已经在背的词（读书时自己加的，或背单词时从词库里学过的都算），读到就当顺便复习。不想看雅思词的标记，在右上角 ··· 里关掉“雅思词标记”。') +
       li('<b>朗读</b>：点底部的朗读，读到哪个词哪个词会亮；声音菜单可以换美音、英音、自然语音。<b>正常 / 慢速</b>可以切换语速。') +
       li('中文翻译：资料自带译文的直接显示，没有的联网后机器翻译；点“隐藏中文”可以先自己理解再看。') +
       li('<b>语法讲解</b>：每句下面会讲这句的句子结构和语法点，点“在语法字典中查看”看详细讲解。') +
