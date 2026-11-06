@@ -216,6 +216,7 @@ button:disabled{background:var(--soft);color:var(--sub);cursor:not-allowed;opaci
 .ib{display:inline-block;background:var(--accent);color:var(--on);font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px;margin-right:6px}
 .ilv{font-size:12px;color:var(--sub)}
 .ik{margin-top:6px;font-size:12px;color:var(--sub);line-height:1.6}
+.vbsenses .vbsi{color:var(--accent);font-weight:600}
 .aiwbar{margin-top:10px;padding-top:8px;border-top:1px dashed var(--line, rgba(128,128,128,.3))}
 .iex{margin-top:8px;font-size:14px;line-height:1.5;cursor:pointer}
 .iexs{margin-top:10px;padding-top:6px;border-top:1px solid var(--line)}
@@ -289,7 +290,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.11.06-179';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.11.06-180';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -3482,6 +3483,7 @@ function openHelp() {
       li('点书架上的书打开。每次只显示一句，底部“上一句 / 下一句”翻页，顶部数字是读到第几句。') +
       li('<b>点单词</b>：读出这个词并弹出解释。软件会根据这一句的中文，告诉你这个词在这里是哪个意思。离线大词典下载好以后，不联网也能查。') +
       li('<b>雅思词</b>：查到雅思词时会多出插图、等级、英音 / 美音真人发音和雅思例句（点例句就朗读）。点“＋ 加入背单词”可以把它放进背单词。少数词条标着“补充词条”，是按同样规范补上的，插图由 AI 陆续补画（你加进背单词的会先画）。发现词条有错，点弹窗底部的“这个词有错？”告诉我们。') +
+      li('<b>一词多义</b>：一个词有几个意思时，背单词会轮着考：新词先考最常用的意思，以后每答对一次换下一个意思，答错了下次还考这个；题目上会写“这次考第几个”，揭晓答案时这个意思用颜色标出来。') +
       li('<b>AI 词卡</b>：大词典里查不到的词（比如古英语、方言、拟声词），会自动请 AI 解释；人名、地名会直接告诉你是人名、地名。不是雅思词的生词，弹窗底部也有“＋ 加入背单词”，AI 会按雅思词卡的格式生成音标、释义、例句和搭配，并画一张插图（几分钟内补上），真人风格发音录好前先用手机朗读。AI 词卡标着“AI 词卡”，所有人共用，可能有错，欢迎报错。') +
       li('读句子时，<b>实线下划线</b>的是 B1 以上的雅思词，<b>带浅色底</b>的是你已经在背的词。不想看这些标记，在右上角 ··· 里关掉“雅思词标记”。') +
       li('<b>朗读</b>：点底部的朗读，读到哪个词哪个词会亮；声音菜单可以换美音、英音、自然语音。<b>正常 / 慢速</b>可以切换语速。') +
@@ -3616,12 +3618,17 @@ function vbMode(k) {                                 // 题型：新词和不熟
   const r = vbGet().cards[k];
   return r && r.c && (r.fs >= 2 || r.c.stability >= 15) ? 'spell' : 'choice';
 }
-function vbSense(e) { const s = (e.s || [])[0] || ['', '']; return (s[0] ? s[0] + ' ' : '') + s[1]; }
-function vbOptions(k) {                              // 干扰项：同难度、同词性的其他词的意思
-  const d = IELTS, e = d[k], pos = ((e.s || [])[0] || [''])[0], ans = vbSense(e), out = new Set([ans]);
+function vbSense(e, i) { const s = (e.s || [])[i || 0] || (e.s || [])[0] || ['', '']; return (s[0] ? s[0] + ' ' : '') + s[1]; }
+function vbSi(k) {                                   // 这次考第几个意思：新词先考最常用的；以后每答对一次换下一个意思，答错就下次还考这个，几个意思轮着来
+  const e = IELTS[k], n = (e.s || []).length, r = vbGet().cards[k];
+  return n > 1 && r && r.c ? (r.si || 0) % n : 0;
+}
+function vbOptions(k, si) {                          // 干扰项：同难度、同词性的其他词的意思（不会拿这个词自己的别的意思当干扰项）
+  const d = IELTS, e = d[k], pos = ((e.s || [])[si || 0] || [''])[0], ans = vbSense(e, si), out = new Set([ans]);
+  const own = new Set((e.s || []).map(x => String(x[1] || '').split(/[；;]/)[0]));
   const same = [], near = [];
   for (const w in d) { if (w === k) continue; const x = d[w], p = ((x.s || [])[0] || [''])[0]; if (p !== pos) continue; (x.c === e.c ? same : near).push(w); }
-  const pick = arr => { for (let t = 0; t < 40 && out.size < 4 && arr.length; t++) { const s = vbSense(d[arr[Math.floor(Math.random() * arr.length)]]); if (s && s.split(/[；;]/)[0] !== ans.split(/[；;]/)[0]) out.add(s); } };
+  const pick = arr => { for (let t = 0; t < 40 && out.size < 4 && arr.length; t++) { const s = vbSense(d[arr[Math.floor(Math.random() * arr.length)]]), h = s.replace(/^[a-z.]+\s/, '').split(/[；;]/)[0]; if (s && s.split(/[；;]/)[0] !== ans.split(/[；;]/)[0] && !own.has(h)) out.add(s); } };
   pick(same); pick(near);
   const opts = [...out]; for (let i = opts.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [opts[i], opts[j]] = [opts[j], opts[i]]; }
   return { opts, ans };
@@ -3630,17 +3637,19 @@ function vbAu(k, kind) { const e = IELTS[k], a = e.a || 0, b = { uk: 1, us: 2, e
 function vbBar() { return '<div class="vbbar"><span style="width:' + Math.round(vbQ.i / vbQ.list.length * 100) + '%"></span></div><div class="note" style="text-align:right">' + (vbQ.i + 1) + ' / ' + vbQ.list.length + '</div>'; }
 function vbAsk() {
   const k = vbQ.list[vbQ.i], e = IELTS[k], w = e.w || k, mode = vbMode(k);
-  vbQ.k = k; vbQ.mode = mode; vbQ.t0 = Date.now(); vbQ.answered = false;
+  const si = vbSi(k), ns = (e.s || []).length;
+  vbQ.k = k; vbQ.mode = mode; vbQ.t0 = Date.now(); vbQ.answered = false; vbQ.si = si;
   const tag = vbQ.fresh.has(k) ? '<span class="ib">新词</span>' : '<span class="ilv">复习</span>';
+  const which = ns > 1 ? '（它有 ' + ns + ' 个意思，这次考' + (si ? '第 ' + (si + 1) + ' 个' : '最常用的') + '）' : '';
   if (mode === 'choice') {
-    const o = vbOptions(k); vbQ.ans = o.ans;
+    const o = vbOptions(k, si); vbQ.ans = o.ans;
     setFullscreenBody(vbBar() + '<div class="vbq">' + tag + '<div class="vbw">' + esc(w) + '</div><div class="vbph">' + esc(e.u || '') +
-      ' <button class="iconbtn" onclick="ieltsPlay(vbAu(vbQ.k,\'uk\'), vbQ.k)" aria-label="朗读">' + SPK_ON + '</button></div><div class="note">选出正确的意思</div></div>' +
+      ' <button class="iconbtn" onclick="ieltsPlay(vbAu(vbQ.k,\'uk\'), vbQ.k)" aria-label="朗读">' + SPK_ON + '</button></div><div class="note">选出正确的意思' + which + '</div></div>' +
       '<div class="vbopts">' + o.opts.map((s, i) => '<button class="ghost" data-i="' + i + '" onclick="vbChoose(this)">' + esc(s) + '</button>').join('') + '</div>' +
       '<div class="row" style="justify-content:space-between;margin-top:14px"><button class="link" onclick="vbAnswer(0)">不认识</button><button class="link" onclick="vbAnswer(4)">太简单，以后少出现</button></div>');
     vbQ.opts = o.opts;
   } else {
-    setFullscreenBody(vbBar() + '<div class="vbq">' + tag + '<div class="note" style="margin-top:8px">听发音，拼出这个词</div><div class="vbmean">' + esc(vbSense(e)) + '</div>' +
+    setFullscreenBody(vbBar() + '<div class="vbq">' + tag + '<div class="note" style="margin-top:8px">听发音，拼出这个词' + which + '</div><div class="vbmean">' + esc(vbSense(e, si)) + '</div>' +
       '<button class="ghost sm" onclick="ieltsPlay(vbAu(vbQ.k,\'uk\'), vbQ.k)">再听一遍</button></div>' +
       '<input id="vbIn" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="在这里拼写" style="width:100%;margin-top:16px;font-size:20px!important;text-align:center" onkeydown="if(event.key===\'Enter\')vbSpell()">' +
       '<button style="width:100%;margin-top:10px" onclick="vbSpell()">确定</button>' +
@@ -3659,6 +3668,7 @@ function vbAnswer(res, btn) {                        // res：0 不会/答错，
   else if (!res) { g = FSRS.Rating.Again; label = '忘了'; rec.fs = 0; }
   else if (ms > VB_SLOW_MS) { g = FSRS.Rating.Hard; label = '模糊（想了 ' + Math.round(ms / 1000) + ' 秒）'; rec.fs = 0; }
   else { rec.fs = (rec.fs || 0) + 1; g = rec.fs >= 3 ? FSRS.Rating.Easy : FSRS.Rating.Good; label = g === FSRS.Rating.Easy ? '很熟' : '记得'; }
+  if (res) rec.si = (vbQ.si || 0) + 1;              // 答对了，下次换下一个意思
   const wasNew = !rec.c;
   rec.c = vbF.next(rec.c || FSRS.createEmptyCard(now), now, g).card;
   if (wasNew) vbDay().n++;
@@ -3704,7 +3714,7 @@ function vbReveal(res, label) {
     '<div class="row" style="gap:6px;justify-content:center;margin:6px 0">' +
     (vbAu(k, 'uk') || e.x === 2 ? '<button class="sm ghost" onclick="ieltsPlay(vbAu(vbQ.k,\'uk\'), vbQ.k)">英 ' + esc(e.u || '') + '</button>' : '') +
     (vbAu(k, 'us') ? '<button class="sm ghost" onclick="ieltsPlay(vbAu(vbQ.k,\'us\'), vbQ.k)">美</button>' : '') + '</div>' +
-    '<div class="vbsenses">' + (e.s || []).map(s => '<div>' + esc(s[0] + ' ' + s[1]) + '</div>').join('') + '</div>' +
+    '<div class="vbsenses">' + (e.s || []).map((s, i) => '<div' + ((e.s || []).length > 1 && i === (vbQ.si || 0) ? ' class="vbsi"' : '') + '>' + esc(s[0] + ' ' + s[1]) + '</div>').join('') + '</div>' +
     (ex ? '<div class="iex" onclick="ieltsPlay(vbAu(vbQ.k,\'ex\'), this.dataset.t)" data-t="' + esc(ex[0]) + '"><div>' + esc(ex[0]) + '</div><div class="note">' + esc(ex[1]) + '</div></div>' : '') +
     (e.k && e.k.length ? '<div class="ik">' + e.k.slice(0, 3).map(c => esc(c.replace('｜', ' '))).join(' · ') + '</div>' : '') + vbSrcHtml(k) + '</div>';
   const box = document.getElementById('fsBody');

@@ -232,7 +232,7 @@ function iwOf(it) {
     IW.cache.set(it.id, { ck, n: seen.size }); return seen.size;
   } catch (e) { return 0; }
 }
-function catalogOut() { const j = shopRead(); return { ...j, items: (j.items || []).map(it => { const n = iwOf(it); return n ? { ...it, iw: n } : it; }) }; }
+function catalogOut() { const j = shopRead(); const { removedItems, ...pub } = j; return { ...pub, items: (j.items || []).map(it => { const n = iwOf(it); return n ? { ...it, iw: n } : it; }) }; }
 const crcT = (() => { const t = []; for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
 const crc32 = b => { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = crcT[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
 function zipStore(files) {
@@ -567,16 +567,37 @@ function httpGetBuf(u, limit, hops) {
   });
 }
 const aiwImgQ = []; let aiwImgRun = false; const aiwImgStat = { ok: 0, fail: 0, last: '' };
-function aiwImgQueue(k) { const r = aiw[k]; if (!r || r.f || r.g || r.gf >= 3 || aiwImgQ.includes(k)) return; aiwImgQ.push(k); aiwImgPump(); }
+function aiwImgQueue(k) { const r = aiw[k]; if (!r || r.f || r.g || r.gf >= 3 || aiwImgQ.includes(k)) return; aiwImgQ.unshift(k); aiwImgPump(); }   // 有人刚加进背单词的排最前面
+/* 补充词条（词光缺的 1,101 个雅思词，x:1）也用同一条流水线补插图：状态存 shop/aiword/extra-img.json，队列里写成 "x:词"。
+   每天额度没用完时慢慢画（AI 词卡优先）；有人把补充词加进背单词时插到最前面 */
+const AIW_XFILE = path.join(AIW_DIR, 'extra-img.json');
+let aiwX = {}; try { aiwX = JSON.parse(fs.readFileSync(AIW_XFILE, 'utf8')) || {}; } catch (e) {}
+function aiwXSave() { try { fs.mkdirSync(AIW_DIR, { recursive: true }); fs.writeFileSync(AIW_XFILE + '.tmp', JSON.stringify(aiwX)); fs.renameSync(AIW_XFILE + '.tmp', AIW_XFILE); } catch (e) {} }
+let aiwXw = { m: -1, w: {} };
+function extraWords() { const f = path.join(SITE_DIR, 'ielts', 'extra', 'words-extra.json'); let m = 0; try { m = fs.statSync(f).mtimeMs; } catch (e) { return {}; } if (m !== aiwXw.m) { try { aiwXw = { m, w: JSON.parse(fs.readFileSync(f, 'utf8')) }; } catch (e) { aiwXw = { m, w: {} }; } } return aiwXw.w; }
+function aiwXQueue(k, front) { const x = aiwX[k] || {}; if (!extraWords()[k] || x.g || x.gf >= 3 || aiwImgQ.includes('x:' + k)) return false; front ? aiwImgQ.unshift('x:' + k) : aiwImgQ.push('x:' + k); aiwImgPump(); return true; }
+function aiwXFill() {                                  // 今天还有画图额度、队列空着：排一批补充词条
+  if (aiwImgQ.length || aiwToday().img >= AIW_IMG_DAILY) return;
+  let n = AIW_IMG_DAILY - aiwToday().img; for (const k in extraWords()) { if (n <= 0) break; if (aiwXQueue(k)) n--; }
+}
+async function aiwScene(k, e) {                        // 补充词条没有“插图画面”字段：先让 AI 写一句
+  try {
+    const r = await arkRequest({ messages: [{ role: 'system', content: 'Describe ONE concrete, cheerful, child-safe picture (English, max 25 words) that shows the most common meaning of the given English word for a vocabulary card. No text, letters or numbers in the picture. Output only the description.' }, { role: 'user', content: k + ' — ' + (e.s || []).map(x => x[0] + ' ' + x[1]).join('; ') }], temperature: 0.5, max_tokens: 200, thinking: { type: 'disabled' } });
+    const t = String(JSON.parse(r.b).choices[0].message.content || '').replace(/^["'\s]+|["'\s]+$/g, '').slice(0, 240); if (t) return t;
+  } catch (e2) {}
+  return '';
+}
 async function aiwImgPump() {                          // 一次只画一张：免费模型并发很低
   if (aiwImgRun || !GLM_KEY) return; aiwImgRun = true;
   try {
     while (aiwImgQ.length) {
-      const k = aiwImgQ.shift(), r = aiw[k]; if (!r || r.g) continue;
-      if (aiwToday().img >= AIW_IMG_DAILY) { aiwImgQ.unshift(k); break; }   // 今天画够了，明天接着画（见下面的定时器）
+      const q = aiwImgQ.shift(), isX = q.startsWith('x:'), k = isX ? q.slice(2) : q;
+      const r = isX ? (aiwX[k] || (aiwX[k] = {})) : aiw[k], ent = isX ? extraWords()[k] : aiw[k]; if (!r || !ent || r.g) continue;
+      if (aiwToday().img >= AIW_IMG_DAILY) { aiwImgQ.unshift(q); break; }   // 今天画够了，明天接着画（见下面的定时器）
       aiwToday().img++;
+      if (isX && !r.sc) { r.sc = await aiwScene(k, ent); }
       try {
-        const prompt = 'Simple flat vector illustration for a children\'s vocabulary card, soft pastel colors, clean shapes, plain light background, no text, no letters, no numbers. ' + (r.sc || ('The meaning of the English word "' + k + '": ' + r.s.map(x => x[1]).join('；')));
+        const prompt = 'Simple flat vector illustration for a children\'s vocabulary card, soft pastel colors, clean shapes, plain light background, no text, no letters, no numbers. ' + (r.sc || ('The meaning of the English word "' + k + '": ' + (ent.s || []).map(x => x[1]).join('；')));
         const body = JSON.stringify({ model: AIW_IMG_MODEL, prompt, size: '1024x1024' });
         const res = await new Promise(ok => {
           const u = new URL(GLM_HOST), q = https.request({ hostname: u.hostname, port: u.port || 443, path: '/api/paas/v4/images/generations', method: 'POST', timeout: 90000,
@@ -591,13 +612,14 @@ async function aiwImgPump() {                          // 一次只画一张：�
         const conv = (cmd, args) => new Promise(ok => require('child_process').execFile(cmd, args, { timeout: 60000 }, e => ok(!e)));
         let done = await conv('cwebp', ['-quiet', '-q', '78', '-resize', '512', '0', raw, '-o', webp]) || await conv('convert', [raw, '-resize', '512x512', '-quality', '78', webp]);   // 压成 512px 的 webp（约 30KB），手机上加载快
         if (done) fs.unlinkSync(raw);                                              // 服务器上没有 cwebp / ImageMagick 就直接用原图
-        r.g = 1; aiwDirty = true; aiwImgStat.ok++;
-      } catch (e) { r.gf = (r.gf || 0) + 1; aiwDirty = true; aiwImgStat.fail++; aiwImgStat.last = new Date().toISOString() + ' ' + k + ' ' + String(e.message).slice(0, 160); console.error('aiword img:', aiwImgStat.last); await new Promise(z => setTimeout(z, 5000)); }
+        r.g = 1; aiwDirty = true; if (isX) aiwXSave(); aiwImgStat.ok++;
+      } catch (e) { r.gf = (r.gf || 0) + 1; aiwDirty = true; if (isX) aiwXSave(); aiwImgStat.fail++; aiwImgStat.last = new Date().toISOString() + ' ' + k + ' ' + String(e.message).slice(0, 160); console.error('aiword img:', aiwImgStat.last); await new Promise(z => setTimeout(z, 5000)); }
       await new Promise(z => setTimeout(z, 1500));
     }
   } finally { aiwImgRun = false; }
 }
 setInterval(() => { for (const k in aiw) if (aiw[k].v > 0 && !aiw[k].g && !(aiw[k].gf >= 3)) aiwImgQueue(k); }, 3 * 3600000).unref();   // 漏画的（当天额度用完、失败）每 3 小时补一次
+setInterval(aiwXFill, 3600000).unref(); setTimeout(aiwXFill, 120000).unref();
 setTimeout(() => { for (const k in aiw) if (aiw[k].v > 0 && !aiw[k].g && !(aiw[k].gf >= 3)) aiwImgQueue(k); }, 90000).unref();
 const READS_FILE = path.join(SHOP_DIR, 'reads.json');
 let reads = {}, readsDirty = false;
@@ -798,6 +820,15 @@ async function shopRoutes(req, res) {
     if (b0.add && !r.f) { r.v = (r.v || 0) + 1; aiwDirty = true; aiwImgQueue(k); }
     return out0(200, { ok: true, e: aiwOut(k) });
   }
+  if (req.method === 'POST' && url === '/aiword/xpri') {   // 补充词条加进背单词：它的插图排到最前面
+    const origin0 = req.headers.origin, okO0 = origin0 && ALLOW.includes(origin0) ? origin0 : null;
+    const hd0 = { 'Content-Type': 'application/json; charset=utf-8' }; if (okO0) { hd0['Access-Control-Allow-Origin'] = okO0; hd0.Vary = 'Origin'; }
+    if (!okO0) { res.writeHead(403, hd0); res.end('{}'); return true; }
+    let k = ''; try { k = String((JSON.parse(await readBody(req, 500)) || {}).w || '').toLowerCase(); } catch (e) {}
+    const i = aiwImgQ.indexOf('x:' + k); if (i > 0) aiwImgQ.splice(i, 1);
+    const ok = i > 0 ? (aiwImgQ.unshift('x:' + k), true) : aiwXQueue(k, true);
+    res.writeHead(200, hd0); res.end(JSON.stringify({ ok: !!ok })); return true;
+  }
   const mAiw = /^\/aiword\/img\/([a-z0-9_]{1,60})$/.exec(url);
   if (req.method === 'GET' && mAiw) {
     const f = aiwImgFile(mAiw[1]); if (!f) { res.writeHead(404, pubHead); res.end(); return true; }
@@ -981,7 +1012,7 @@ async function shopRoutes(req, res) {
       const all = Object.values(aiw), have = iaHaveMap();
       const added = Object.keys(aiw).filter(k => aiw[k].v > 0 && !aiw[k].f);
       return out(200, { total: all.length, flagged: all.filter(r => r.f).length, added: added.length, img: added.filter(k => aiw[k].g).length,
-        audio: added.filter(k => (have[aiwSlug(k)] || 0) & 1).length, today: aiwToday(), imgQueue: aiwImgQ.length, imgStat: aiwImgStat,
+        audio: added.filter(k => (have[aiwSlug(k)] || 0) & 1).length, today: aiwToday(), imgQueue: aiwImgQ.length, xTotal: Object.keys(extraWords()).length, xImg: Object.values(aiwX).filter(x => x.g).length, imgStat: aiwImgStat,
         recent: Object.keys(aiw).sort((a, b) => aiw[b].at - aiw[a].at).slice(0, 40).map(k => ({ k, f: aiw[k].f || '', v: aiw[k].v || 0, g: !!aiw[k].g, s: (aiw[k].s || []).map(x => x[0] + ' ' + x[1]).join('；') })) });
     }
     if (url === '/admin/aiword/pending' && req.method === 'GET') {  // 录音机问：哪些加进背单词的 AI 词卡还没录发音
@@ -1200,7 +1231,34 @@ async function shopRoutes(req, res) {
     }
     m = /^\/admin\/item\/([a-z0-9-]{1,60})$/.exec(url);
     if (req.method === 'DELETE' && m) {
-      const j = shopRead(); j.items = j.items.filter(x => x.id !== m[1]); j.removed = [...new Set([...(j.removed || []), m[1]])]; shopWrite(j); return out(200, { ok: true });
+      const j = shopRead(), it0 = j.items.find(x => x.id === m[1]);
+      if (it0) { j.removedItems = j.removedItems || {}; j.removedItems[m[1]] = { ...it0, removedAt: Date.now() }; }   // 下架时把书单信息留一份，以后能一键重新上架
+      j.items = j.items.filter(x => x.id !== m[1]); j.removed = [...new Set([...(j.removed || []), m[1]])]; shopWrite(j); return out(200, { ok: true });
+    }
+    if (req.method === 'GET' && url === '/admin/removed') {   // 已下架的书：书单信息（以前下架的从每日备份里找回来）、服务器上书和录音还在不在
+      const j = shopRead(), ri = j.removedItems || (j.removedItems = {}); let found = false;
+      const miss = (j.removed || []).filter(id => !ri[id] && !j.items.some(x => x.id === id));
+      for (const b of miss.length ? backupList() : []) {
+        let cat = null; try { cat = JSON.parse(require('child_process').execFileSync('tar', ['-xzOf', path.join(BACKUP_DIR, b.name), './catalog.json'], { timeout: 60000, maxBuffer: 20 * 1048576 }).toString('utf8')); } catch (e) { continue; }
+        for (const id of miss) if (!ri[id]) { const it = (cat.items || []).find(x => x.id === id); if (it) { ri[id] = { ...it, removedAt: 0, fromBackup: b.name }; found = true; } }
+        if (miss.every(id => ri[id])) break;
+      }
+      if (found) shopWrite(j);
+      let site = []; try { site = JSON.parse(fs.readFileSync(path.join(SITE_DIR, 'stories', 'catalog.json'), 'utf8')).items || []; } catch (e) {}
+      const has = (id, it) => { const f = it && it.file; if (f && f.startsWith('api:files/')) return fs.existsSync(path.join(SHOP_FILES, f.slice(10))); if (f && f.startsWith('stories/')) return fs.existsSync(path.join(SITE_DIR, f)); return fs.existsSync(path.join(SHOP_PRIV, id + '.srbook')) || fs.existsSync(path.join(SHOP_FILES, id + '.srbook')); };
+      return out(200, { items: (j.removed || []).filter(id => !j.items.some(x => x.id === id)).map(id => { const bi = site.find(x => x.id === id), it = ri[id] || bi || null; return { id, item: it, builtin: !!bi && !ri[id], files: has(id, it) }; }) });
+    }
+    m = /^\/admin\/relist\/([a-z0-9-]{1,60})$/.exec(url);
+    if (req.method === 'POST' && m) {                  // 重新上架：用下架时留下的书单信息放回去
+      const j = shopRead(), it = (j.removedItems || {})[m[1]];
+      if (!it) {                                         // 网站自带的书（stories/catalog.json 里的）：从下架名单里去掉就回来了
+        let site = []; try { site = JSON.parse(fs.readFileSync(path.join(SITE_DIR, 'stories', 'catalog.json'), 'utf8')).items || []; } catch (e) {}
+        if (!site.some(x => x.id === m[1])) return out(404, { error: 'no-info' });
+        j.removed = (j.removed || []).filter(x => x !== m[1]); shopWrite(j); return out(200, { ok: true });
+      }
+      const o = { ...it }; delete o.removedAt; delete o.fromBackup;
+      if (!j.items.some(x => x.id === o.id)) j.items.push(o);
+      j.removed = (j.removed || []).filter(x => x !== o.id); delete j.removedItems[m[1]]; shopWrite(j); return out(200, { ok: true });
     }
     m = /^\/admin\/voices\/([a-z0-9][a-z0-9-]{0,59})$/.exec(url);
     if (m && req.method === 'POST') {                  // 录音机录好了第二个声音：在学习材料里记上，手机上就能选
