@@ -290,7 +290,7 @@ details.grp > summary{cursor:pointer;font-weight:600;padding:8px 0}
 'use strict';
 const T_SCRIPT = Math.round(performance.now());          // 打开速度诊断：脚本开始运行的时间
 let T_SHELF = 0;
-const APP_VERSION = '2026.11.06-183';        // 每次更新时改一下，方便定位问题
+const APP_VERSION = '2026.11.06-184';        // 每次更新时改一下，方便定位问题
 const FEEDBACK_URL = 'https://v.wjx.cn/vm/O685vXZ.aspx';                    // 建好反馈问卷后，把网址填在这里，“帮助与反馈”里就会出现“打开反馈问卷”按钮
 let state = null, dictInfo = null, curTokens = [], curTokenPos = [], curWord = '', curWordZh = '', gramOpen = true;
 let analysisCache = { idx: -1, res: null };
@@ -3121,9 +3121,9 @@ function aiwOffer(clean, res) {                     // 查到的词不在雅思�
     if (known && known.f) return;
     body.insertAdjacentHTML('beforeend', '<div class="aiwbar"><button class="link" style="font-size:13px" data-k="' + esc(k) + '" onclick="aiwAdd(this)">＋ 加入背单词（AI 生成词卡：插图、发音、例句）</button></div>'); rp(); return;
   }
-  const none = document.getElementById('wpNone');
+  const none = document.getElementById('wpNone'); if (none) none.dataset.ai = '1';
   if (known && known.f) { if (none) none.innerHTML = 'AI：' + esc(known.f); rp(); return; }
-  if (!navigator.onLine) return;
+  if (!navigator.onLine) { if (none) none.innerHTML = '大词典里没有这个词。联网后可以请 AI 解释。'; return; }
   if (none) none.innerHTML = '大词典里没有这个词，正在请 AI 解释…';
   aiwFetch(k, aiwSrcCtx()).then(e => {
     if (curWord !== clean) return;
@@ -3307,8 +3307,15 @@ async function wordClick(i, el) {
   if (!dictInfo || !dictInfo.count) html += '<div class="note" style="margin-top:12px">现在用的是内置基础词典（常用词）。完整离线词典还没就绪，' + '<button class="link" onclick="closeWordPop();openDictSettings()">查看词典状态</button></div>';
   document.getElementById('wpBody').innerHTML = html;
   positionWordPop(rect);
-  ieltsAttach(clean, res);
+  const aiNote = m => { const n = document.getElementById('wpNone'); if (n && curWord === clean) { n.innerHTML = m; positionWordPop(rect); } };
+  ieltsAttach(clean, res).catch(e => aiNote('词典里没有找到这个词。（AI 解释出错：' + esc(e && e.message || e) + '）')).finally(() => {
+    const n = document.getElementById('wpNone');                 // 兜底：大词典没有、雅思词卡也没出来、AI 也没开始查，就在这里直接请 AI
+    if (!n || curWord !== clean || n.dataset.ai || document.querySelector('#wpBody .itop')) return;
+    try { aiwOffer(clean, res); } catch (e) { aiNote('词典里没有找到这个词。（AI 解释出错：' + esc(e && e.message || e) + '）'); }
+    const n2 = document.getElementById('wpNone'); if (n2 && !n2.dataset.ai) aiNote('词典里没有找到这个词。（AI 没有启动：' + esc(aiwWhy(clean)) + '）');
+  });
 }
+function aiwWhy(w) { const k = aiwNorm(w); return !IELTS ? '词库没加载' : !AIW_RE.test(k) ? '格式不支持：' + k : !navigator.onLine ? '离线' : '原因不明 ' + k; }
 function defSplit(t) {                              // 词典释义只先显示最常用的：第一个词性最多 2 个意思，其余词性各 1 个；冷门意思（如 kitten“卖弄风情”）收进“更多释义”
   const lines = String(t).split(/\n+/).map(x => x.trim()).filter(Boolean), main = [], rest = [];
   lines.forEach((ln, i) => {
